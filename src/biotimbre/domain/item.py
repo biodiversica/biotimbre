@@ -150,7 +150,7 @@ def normalize_taxa(tags: object) -> tuple[str, ...]:
     return tuple(sorted(cleaned))
 
 
-def _validate_date(value: str) -> str:
+def validate_date(value: str) -> str:
     """Validate a date and return it zero-padded.
 
     Re-formatting is not cosmetic. ``strptime`` accepts ``"2020-1-14"``, and
@@ -172,10 +172,10 @@ def _validate_date(value: str) -> str:
     return parsed.strftime(DATE_FORMAT)
 
 
-def _validate_time(value: str) -> str:
+def validate_time(value: str) -> str:
     """Validate a time and return it zero-padded.
 
-    Canonicalised for the same reason as :func:`_validate_date`: ``"9:40:21"``
+    Canonicalised for the same reason as :func:`validate_date`: ``"9:40:21"``
     parses, but would not sort correctly against ``"09:40:21"``.
     """
     if not isinstance(value, str):
@@ -587,8 +587,8 @@ class ItemDraft:
         """
         return replace(
             self,
-            date=_validate_date(self.date),
-            time=_validate_time(self.time),
+            date=validate_date(self.date),
+            time=validate_time(self.time),
             location=Location.parse(self.location),
             sample_window=SampleWindow.parse(self.sample_window),
             biotimbre_id=(
