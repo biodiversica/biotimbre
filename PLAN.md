@@ -437,7 +437,10 @@ add, edit, delete with cascade, variable-length waveform preview.
 **Phase 7 — Search GUI.** Query upload, filter panel, ranked results with
 per-model breakdown. Each result row has its own audio player (D8) with the
 matched window marked; the query stays playable at the top of the page for A/B
-comparison.
+comparison. The marker must **clamp `end_time` to the sample duration**: a
+zero-padded final window legitimately reports a span past the end of the file
+(BirdNET's third window ends at 6.0 s on a 5 s sample), and seeking there would
+fail.
 *Done when:* a query can be run and every returned hit played back, including
 the query itself, without leaving the page.
 

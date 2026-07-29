@@ -25,5 +25,13 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/biotimbre"]
 
+[tool.uv]
+# The uv cache and this project are on different filesystems (the project lives
+# on an external drive), so hardlinking is unavailable and warns on every sync.
+link-mode = "copy"
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "models: needs the ONNX model files (downloaded on first run, then cached). Skip with -m 'not models'.",
+]
