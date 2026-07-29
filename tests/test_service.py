@@ -20,12 +20,15 @@ ZAMTYM_WAV = EXAMPLES_DIR / "ZAMTYM.wav"
 
 
 @pytest.fixture
-def service(settings: Settings, conn):
-    """A service over an empty temporary library, sharing the test connection."""
-    svc = LibraryService(settings, connection=conn)
+def service(settings: Settings, conn, shared_pool):
+    """A service over an empty temporary library.
+
+    Shares the session-scoped ONNX pool, so each test pays for inference but not
+    for ~2 s of session setup.
+    """
+    svc = LibraryService(settings, connection=conn, pool=shared_pool)
     yield svc
-    if svc._pool is not None:
-        svc._pool.close()
+    svc.close()
 
 
 @pytest.fixture
@@ -327,19 +330,22 @@ class TestSpeedShiftEndToEnd:
     def test_speed_shifted_item_is_found_by_a_native_speed_query(self, service):
         from biotimbre.io.sidecar import draft_from_sidecar
 
+        # 0.5 rather than 0.25: the sweep either works at a shifted speed or it
+        # does not, and 0.5 halves the inference. The 0.25 window arithmetic is
+        # asserted in test_changing_speed_recomputes_embeddings.
         draft = dataclasses.replace(
-            draft_from_sidecar(GUYVIR_TXT), speed=0.25
+            draft_from_sidecar(GUYVIR_TXT), speed=0.5
         ).validated()
         item = service.add_item(GUYVIR_WAV, draft).item
-        assert item.speed == 0.25
+        assert item.speed == 0.5
 
         # The query is submitted at native speed, with no hint that the library
-        # item was indexed at 0.25. Without the sweep this returns nothing useful.
+        # item was indexed at 0.5. Without the sweep this returns nothing useful.
         hits = service.search(GUYVIR_WAV, k=5)
 
         assert hits, "a speed-shifted item must still be findable"
         assert hits[0].item.item_id == item.item_id
-        assert hits[0].query_speed == 0.25
+        assert hits[0].query_speed == 0.5
         assert hits[0].score == pytest.approx(1.0, abs=1e-3)
 
     def test_pinning_the_wrong_query_speed_scores_worse_but_still_returns(self, service):

@@ -117,6 +117,11 @@ class LibraryService:
         settings: Resolved settings. ``None`` loads them from the usual places.
         connection: An existing database connection, for tests. ``None`` opens
             (and initialises) the configured database.
+        pool: A pre-built extractor pool to share. Creating one costs about two
+            seconds of ONNX session setup per process, so a long-lived frontend
+            should build it once at startup — where it can show progress — rather
+            than paying for it on the first search. A pool passed in is *not*
+            closed by :meth:`close`; the caller owns its lifetime.
     """
 
     def __init__(
@@ -124,6 +129,7 @@ class LibraryService:
         settings: Settings | None = None,
         *,
         connection=None,
+        pool: ExtractorPool | None = None,
     ):
         self.settings = settings if settings is not None else load_settings()
         self.settings.ensure_dirs()
@@ -132,7 +138,8 @@ class LibraryService:
             self.settings.db_path
         )
         self.repo = Repository(self._conn)
-        self._pool: ExtractorPool | None = None
+        self._owns_pool = pool is None
+        self._pool: ExtractorPool | None = pool
         self._query_cache: QueryEmbeddingCache | None = None
 
     # ── lifecycle ─────────────────────────────────────────────────────────────
@@ -142,7 +149,7 @@ class LibraryService:
         if self._query_cache is not None:
             self._query_cache.clear()
             self._query_cache = None
-        if self._pool is not None:
+        if self._pool is not None and self._owns_pool:
             self._pool.close()
             self._pool = None
         if self._owns_connection:

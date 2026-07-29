@@ -248,11 +248,11 @@ class TestBoundedInferenceBatch:
 
 @pytest.mark.models
 class TestServiceUsesTheCache:
-    def test_refiltering_does_not_recompute(self, settings, conn):
+    def test_refiltering_does_not_recompute(self, settings, conn, shared_pool):
         from biotimbre.search.filters import SearchFilters
         from biotimbre.service import LibraryService
 
-        service = LibraryService(settings, connection=conn)
+        service = LibraryService(settings, connection=conn, pool=shared_pool)
         try:
             service.import_directory(EXAMPLES_DIR)
             service.search(GUYVIR_WAV, k=2)
@@ -272,10 +272,10 @@ class TestServiceUsesTheCache:
         finally:
             service.close()
 
-    def test_results_are_identical_cached_or_not(self, settings, conn):
+    def test_results_are_identical_cached_or_not(self, settings, conn, shared_pool):
         from biotimbre.service import LibraryService
 
-        service = LibraryService(settings, connection=conn)
+        service = LibraryService(settings, connection=conn, pool=shared_pool)
         try:
             service.import_directory(EXAMPLES_DIR)
             first = service.search(GUYVIR_WAV, k=2)

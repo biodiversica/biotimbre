@@ -22,6 +22,30 @@ def data_dir(tmp_path):
     return str(tmp_path / "library")
 
 
+@pytest.fixture(autouse=True)
+def _share_sessions(monkeypatch, request):
+    """Give CLI invocations the session-scoped ONNX pool.
+
+    A real CLI run is one process, so building its own pool is correct in
+    production. In tests it means every `run()` reloads both graphs — about 2 s
+    each, and a workflow test makes four invocations. Injecting the shared pool
+    leaves what these tests actually cover (argument parsing, output, exit codes)
+    untouched.
+    """
+    if "models" not in request.keywords:
+        return
+    from biotimbre import cli
+
+    pool = request.getfixturevalue("shared_pool")
+    original = cli.LibraryService
+
+    def factory(settings, **kwargs):
+        kwargs.setdefault("pool", pool)
+        return original(settings, **kwargs)
+
+    monkeypatch.setattr(cli, "LibraryService", factory)
+
+
 def run(data_dir: str, *argv: str) -> int:
     """Invoke the CLI with a data directory, returning the exit code."""
     return main(["--data-dir", data_dir, *argv])
@@ -237,11 +261,11 @@ class TestEndToEndCli:
             "--date", "2021-03-05", "--time", "22:10:00",
             "--latitude", "-26.9", "--longitude", "-48.7",
             "--window-start", "12", "--window-end", "17",
-            "--speed", "0.25",
+            "--speed", "0.5",
         )
         capsys.readouterr()
 
         assert run(data_dir, "search", str(GUYVIR_WAV), "-k", "1") == 0
         out = capsys.readouterr().out
-        assert "indexed at speed 0.25" in out
+        assert "indexed at speed 0.5" in out
         assert "1. score +1.0000" in out

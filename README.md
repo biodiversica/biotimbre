@@ -196,9 +196,14 @@ shifted audio — so the cap stays as a safety net.
 ## Development
 
 ```bash
-uv run pytest                    # everything
-uv run pytest -m "not models"    # skip tests needing the ONNX files (offline)
+uv run pytest                    # everything, ~70 s
+uv run pytest -m "not models"    # ~1 s: skips the 50 tests that run real models
 ```
+
+Only 50 of the 371 tests load models; the rest run in about a second. ONNX
+sessions are shared across the whole run via a session-scoped fixture (creating
+one costs ~2 s: Perch 1.56 s, BirdNET 0.42 s), so the remaining time is genuine
+inference rather than repeated setup.
 
 ## Metadata sidecar format
 

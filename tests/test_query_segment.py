@@ -119,10 +119,10 @@ class TestSegmentDecoding:
 @pytest.mark.models
 class TestSearchEnforcesTheCap:
     @pytest.fixture
-    def service(self, settings, conn):
+    def service(self, settings, conn, shared_pool):
         from biotimbre.service import LibraryService
 
-        svc = LibraryService(settings, connection=conn)
+        svc = LibraryService(settings, connection=conn, pool=shared_pool)
         svc.import_directory(EXAMPLES_DIR)
         yield svc
         svc.close()

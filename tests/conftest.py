@@ -16,6 +16,40 @@ from biotimbre.models_registry import ModelSpec
 
 EXAMPLES_DIR = Path(__file__).resolve().parents[1] / "input_example"
 
+#: Models used by the ``models``-marked tests.
+MODEL_IDS = ("perch_v2", "birdnet_v2.4")
+
+
+@pytest.fixture(scope="session")
+def shared_pool():
+    """One ONNX session set for the whole test run.
+
+    Creating a pool costs about two seconds of session setup (Perch 1.56 s,
+    BirdNET 0.42 s), which dwarfs the inference in most individual tests. Sessions
+    are read-only, so sharing them across tests is safe and removes that setup
+    from every test but the first.
+
+    Tests that need their own session parameters — a specific ``max_batch``, say —
+    should build their own extractor instead.
+    """
+    from biotimbre.embeddings.extractor import ExtractorPool
+
+    pool = ExtractorPool(MODEL_IDS)
+    yield pool
+    pool.close()
+
+
+@pytest.fixture(scope="session")
+def perch(shared_pool):
+    """The shared Perch extractor."""
+    return shared_pool.get("perch_v2")
+
+
+@pytest.fixture(scope="session")
+def birdnet(shared_pool):
+    """The shared BirdNET extractor."""
+    return shared_pool.get("birdnet_v2.4")
+
 
 @pytest.fixture
 def settings(tmp_path: Path) -> Settings:
