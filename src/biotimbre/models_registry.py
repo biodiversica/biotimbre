@@ -132,10 +132,25 @@ def get_spec(model_id: str) -> ModelSpec:
 
 
 def resolve_model_file(spec: ModelSpec, cache_dir: Path | None = None) -> Path:
-    """Download the ONNX file if needed and return its local path.
+    """Return the local path to the ONNX file, downloading it only if absent.
 
-    Downloads on first use and serves from the local cache afterwards, so this
-    is cheap to call repeatedly and works offline once populated.
+    The cache is consulted **offline first**. Only a genuine cache miss reaches
+    the network. That matters for three reasons:
+
+    *Correctness.* Re-resolving against the Hub could pick up a new revision of a
+    model whose ``model_id`` is unchanged, and embeddings from a different model
+    build are not comparable with the ones already stored. Pinning to whatever was
+    first downloaded keeps the library internally consistent; use a new
+    ``model_id`` (or an explicit ``revision``) to adopt a new build deliberately.
+
+    *Speed.* Revalidating a cached file cost 0.18–0.49 s per model per call, paid
+    on every single search.
+
+    *Offline use.* This is a local library; it must work with no network, which
+    cache-first gives for free rather than needing ``HF_HUB_OFFLINE``.
+
+    A side effect is that huggingface_hub's "unauthenticated requests" warning no
+    longer appears on every search — it can only surface on a real download.
 
     Args:
         spec: The model to resolve.
@@ -146,20 +161,28 @@ def resolve_model_file(spec: ModelSpec, cache_dir: Path | None = None) -> Path:
         Path to the cached ONNX file.
 
     Raises:
-        RuntimeError: If the download fails, with the cause attached.
+        RuntimeError: If the file is neither cached nor downloadable.
     """
     from huggingface_hub import hf_hub_download
 
+    arguments = {
+        "repo_id": spec.repo_id,
+        "filename": spec.filename,
+        "revision": spec.revision,
+        "cache_dir": str(cache_dir) if cache_dir is not None else None,
+    }
+
     try:
-        path = hf_hub_download(
-            repo_id=spec.repo_id,
-            filename=spec.filename,
-            revision=spec.revision,
-            cache_dir=str(cache_dir) if cache_dir is not None else None,
-        )
-    except Exception as exc:  # network, auth, missing file — all unrecoverable here
+        return Path(hf_hub_download(**arguments, local_files_only=True))
+    except Exception:
+        # Not in the cache. Fall through to a download; any failure there is what
+        # gets reported, since it carries the useful diagnostic.
+        pass
+
+    try:
+        return Path(hf_hub_download(**arguments))
+    except Exception as exc:  # network, auth, missing file — unrecoverable here
         raise RuntimeError(
             f"Could not obtain model {spec.model_id!r} "
             f"({spec.filename} from {spec.repo_id}): {exc}"
         ) from exc
-    return Path(path)

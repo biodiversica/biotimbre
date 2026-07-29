@@ -7,7 +7,7 @@ See [PLAN.md](PLAN.md) for the design and the reasoning behind it.
 
 ## Status
 
-Phases 1–5 complete: the library core and a CLI. 371 tests pass.
+Phases 1–5 complete: the library core and a CLI. 387 tests pass.
 
 Not built yet: the two GUI pages (phases 6–7), the translated interface
 (phase 8), and the public read-only search endpoint (phase 9).
@@ -19,6 +19,9 @@ uv venv --python 3.12
 uv sync --extra dev
 uv run biotimbre init          # downloads ~70 MB of models on first run
 ```
+
+Models are downloaded once and then resolved from the local cache, so everything
+after `init` works with no network.
 
 ## Usage
 
@@ -212,7 +215,7 @@ beat one thread in every configuration measured, by 2.5× for Perch.
 ## Development
 
 ```bash
-uv run pytest                    # everything, ~70 s
+uv run pytest                    # everything, ~85 s
 uv run pytest -m "not models"    # ~1 s: skips the 50 tests that run real models
 ```
 

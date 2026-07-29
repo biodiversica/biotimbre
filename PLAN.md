@@ -5,7 +5,7 @@ sample files in `input_example/`, the legacy `../templates/` library, and the
 Auricularia prototype (used as a reference only — **no dependency on its
 packages**).
 
-Status: **phases 1–5 complete** (library core + CLI, 371 tests). Phases 6–9
+Status: **phases 1–5 complete** (library core + CLI, 387 tests). Phases 6–9
 (GUI, i18n, public endpoint) not started. Findings from the build are recorded
 in §8, and post-build decisions in §9.
 
@@ -634,3 +634,24 @@ windows, best of 3): Perch 1.59 s versus 3.96 s pinned, BirdNET 2.50 s versus
 > are the ones to trust.
 
 Pin to 1 only if several extractors ever run as parallel worker processes.
+
+### D14 — Model files resolve from the cache offline-first
+
+`resolve_model_file` consults the local cache with `local_files_only=True` and
+only reaches the network on a genuine miss. Previously every search called
+`hf_hub_download` normally, which revalidated the cached file against the Hub.
+
+Three reasons, in order of importance:
+
+1. **Correctness.** Re-resolving could pick up a new build of a model whose
+   `model_id` is unchanged, and embeddings from a different build are not
+   comparable with the ones already stored. Pinning to whatever was first
+   downloaded keeps the library internally consistent; adopting a new build is a
+   deliberate act (new `model_id`, or an explicit `revision`).
+2. **Offline use.** This is a local library and must work with no network. Verified
+   by running a search with `HF_ENDPOINT` pointed at an unroutable address.
+3. **Speed.** Revalidation cost 0.18–0.49 s per model per call, on every search.
+   Now 0.3–0.6 ms.
+
+Removing huggingface_hub's "unauthenticated requests" warning from every search
+was the visible symptom that led here; it can now only appear on a real download.
