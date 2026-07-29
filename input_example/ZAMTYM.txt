@@ -1,0 +1,8 @@
+taxa	cicadidae
+date	2020-01-14
+time	09:40:21
+sample_window 5,10
+location -20,-46
+device	Audiomoth
+filtered_band	2000,10000
+

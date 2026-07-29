@@ -1,0 +1,41 @@
+I want to create an internal local library of animal vocalizations (maybe using python), named 'biotimbre library'. The library will have short wav samples with the following metadata:
+
+item ID: [integer]
+biotimbre ID: [16bit HEX number]
+taxa: [one or multiple tags, e.g: insecta, orthoptera]
+date: [YYYY-MM-DD]
+time: [HH:MM:SS]
+location: [latitude, longitude]
+device: [recording device brand/model]
+filtered_band: [highpass cutoff, lowpass cutoff]
+noise_reduction: [yes/no]
+sample_window: [start_time, end_time]
+link_to_full_recording: [web link to access full recording]
+notes: [any extra information]
+
+Each wav sample will have embeddings attributed to it, from one or more acoustic vocalization classification models (e.g.: perch v2.0 or birdnet 2.4), in .npy. An item ID is unique (like an item counter in the library), but two items can have the same biotimbre ID (because they can belong to the same species/individual and maybe same full recording, but have different sound content). So the library will have embedding databases
+
+The library should have two main GUI tools/pages/components: 
+(1) adding new / editing /delete items in the library (more like a lib admin task)
+- User provides WAV file and the following metadata information:
+	-- automatically generated: item ID, biotimbre ID (if new)
+	-- mandatory: date, time, location, sample_window (start_time & end_time in the full recording file), biotimbre ID (if already existing)
+	-- optional: taxa tags (if not filled is unknown), device, filtered_band, noise_reduction (default is no), link_to_full_recording, notes
+- When a new item is added, the embeddings are computed using onnxruntime with the following models:
+	-- https://huggingface.co/biodiversica/Perch-onnx-backbone/resolve/main/perch_v2_backbone.onnx
+	-- https://huggingface.co/biodiversica/BirdNET-onnx-backbone/resolve/main/model_backbone.onnx
+(2) a vector similarity search based on embeddings
+- User provides an audio sample as the search input and embeddings are computed using all models in the library
+- Then a vector similary search along the whole library database to find the best similarity scores
+- Apart from the audio, the user can also provide other metadata such as location, which can be filtered after score search
+- Display the metadata of the best scored item (or more than one)
+
+The user interface should be adaptable to different languages (initially English and Português-BR).
+
+As I stated at the begining it is a local library, but there is a chance in the future that it becomes public (more specifically the searching tool), so this should be considered in the software design.
+
+Here are some references for implementation of embedding computation, embedding database and vector search: /media/kawerna/extra/biodiversica/auricularia/auricularia_prototype (but do not add the packages in the implementation, only use it as a helpful source on how to implement these specific features)
+
+Two example of 5s samples and their respective metadata are provided at input_example/
+
+Use uv to create an venv and install what is needed

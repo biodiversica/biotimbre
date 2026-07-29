@@ -1,0 +1,7 @@
+date	2020-01-12
+time	09:40:21
+sample_window 34,39
+location -26,-48
+device	Audiomoth
+filtered_band	2000,-
+
