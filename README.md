@@ -129,7 +129,7 @@ data_dir = "data"
 
 [models]
 active = ["perch_v2", "birdnet_v2.4"]
-inference_batch_size = 16  # windows per model call; bounds peak memory
+inference_batch_size = 1   # windows per model call; 1 is fastest here
 inference_threads = 0      # 0 lets onnxruntime choose
 
 [search]
@@ -188,10 +188,26 @@ the life of a `LibraryService`, holds `query_cache_entries` distinct queries
 (LRU), and is not used during ingest, where every item is distinct and caching
 would only grow memory.
 
-`inference_batch_size` bounds peak memory during inference, which scales at
-roughly 19 MB per BirdNET window. The query limit keeps searches small, but a
-speed shift still multiplies window count — 15 s at speed 0.1 is 150 s of
-shifted audio — so the cap stays as a safety net.
+### Why inference runs one window at a time
+
+Measured on 16 windows, best of 3, threads on automatic:
+
+| model | batch 1 | batch 16 |
+|---|---|---|
+| `perch_v2` | **1.59 s** | 3.41 s |
+| `birdnet_v2.4` | 2.50 s | 2.28 s |
+
+Batching makes Perch **2.1× slower** and helps BirdNET only within run-to-run
+noise. These backbones do a lot of compute per window — 5 s at 32 kHz is 160 000
+samples — so a batch mainly enlarges the working set past cache instead of
+exposing parallelism onnxruntime was not already using.
+
+Per-window is therefore both fastest and the tightest memory bound, which still
+matters: peak memory is roughly 19 MB per BirdNET window, and `speed` can go as
+low as 0.01, multiplying window count by up to 100× despite the query length cap.
+
+Threading, by contrast, is worth leaving on (`inference_threads = 0`): automatic
+beat one thread in every configuration measured, by 2.5× for Perch.
 
 ## Development
 

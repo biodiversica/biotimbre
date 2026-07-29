@@ -24,23 +24,38 @@ from biotimbre.domain.errors import EmbeddingError
 
 #: Threads per inference session. ``0`` leaves the choice to onnxruntime.
 #:
-#: Measured on an 8-core CPU with a 16-window BirdNET batch: 3.59 s at one thread
-#: versus 3.01 s at onnxruntime's default — these graphs are bandwidth-bound, so
-#: threading buys about 16 %, not a multiple. That 16 % is still worth having for
-#: an interactive search, hence the default. Pin this to 1 if you ever run
-#: several extractors as parallel worker processes, where oversubscription would
-#: cost more than the threading gains.
+#: Automatic wins in every configuration measured on an 8-core CPU (16 windows,
+#: best of 3): Perch 1.59 s versus 3.96 s pinned to one thread, BirdNET 2.50 s
+#: versus 2.62 s. Perch benefits most — a 2.5x difference, not the marginal gain
+#: an earlier single-sample measurement of BirdNET alone suggested.
+#:
+#: Pin this to 1 only if several extractors ever run as parallel worker processes,
+#: where oversubscription would cost more than threading gains.
 DEFAULT_THREADS = 0
 
 #: Windows fed to the model per inference call.
 #:
-#: Peak memory scales linearly with the batch — measured at roughly 19 MB per
-#: BirdNET window — so an unbounded batch is a latent out-of-memory bug: a 60 s
-#: query at speed 0.25 becomes 240 s of shifted audio, about 160 windows and
-#: ~3 GB in a single call, and a long recording at ingest is worse. Chunking
-#: bounds that at ~300 MB while keeping nearly all the throughput benefit of
-#: batching over a per-window loop.
-DEFAULT_MAX_BATCH = 16
+#: One, because batching these graphs does not pay. Measured on 16 windows,
+#: best of 3, threads on automatic:
+#:
+#: =============  ==========  ==============
+#: model          batch 1     batch 16
+#: =============  ==========  ==============
+#: perch_v2       **1.59 s**  3.41 s
+#: birdnet_v2.4   2.50 s      2.28 s
+#: =============  ==========  ==============
+#:
+#: Batching makes Perch **2.1x slower** and helps BirdNET by an amount inside the
+#: run-to-run noise. These backbones do a lot of compute per window (5 s at 32 kHz
+#: is 160 000 samples), so a batch mostly enlarges the working set past cache
+#: rather than exposing parallelism onnxruntime was not already using.
+#:
+#: Per-window is therefore both the fastest option and the tightest memory bound —
+#: peak memory scales at roughly 19 MB per BirdNET window, and a speed shift can
+#: multiply window count by up to 100x (``speed`` may be as low as 0.01), so an
+#: unbounded batch would still be an out-of-memory risk despite the query length
+#: cap. The knob remains because a different model may batch well.
+DEFAULT_MAX_BATCH = 1
 
 
 class OnnxEmbedder:

@@ -596,22 +596,41 @@ A durable on-disk cache was considered and rejected — it would need invalidati
 against model files and preprocessing parameters, for a saving that only matters
 inside one interactive session.
 
-### Bug found by benchmarking: unbounded inference batch
+### D12 — Inference runs one window at a time
 
-`OnnxEmbedder` fed every window to the model in one call. Peak memory scales at
-roughly **19 MB per BirdNET window**, so a long input exhausted RAM and the
-process was SIGKILLed. Inference is now chunked at `inference_batch_size` windows
-per call, verified to produce identical vectors.
+`OnnxEmbedder` originally fed every window to the model in one call, which was a
+latent out-of-memory bug: peak memory scales at roughly **19 MB per BirdNET
+window**, and a long input got the process SIGKILLed. Chunking fixed that.
 
-D10 makes this far less likely to be reached, but the cap stays as a safety net:
-a speed shift still multiplies window count, and 15 s at speed 0.1 is 150 s of
-shifted audio.
+Benchmarking the chunk size then showed batching does not pay at all. Measured on
+16 windows, best of 3, threads automatic:
 
-### Session threads unpinned
+| model | batch 1 | batch 16 |
+|---|---|---|
+| `perch_v2` | **1.59 s** | 3.41 s |
+| `birdnet_v2.4` | 2.50 s | 2.28 s |
+
+Batching makes Perch **2.1x slower** and helps BirdNET only within run-to-run
+noise. These backbones do heavy per-window compute (5 s at 32 kHz is 160 000
+samples), so a batch mainly enlarges the working set past cache rather than
+exposing parallelism onnxruntime was not already using.
+
+The default is therefore 1, which is simultaneously the fastest option and the
+tightest memory bound. That bound still matters despite D10's length cap, because
+`speed` may be as low as 0.01 and so can multiply window count by up to 100x. The
+`inference_batch_size` knob remains for a future model that batches well.
+
+### D13 — Session threads left automatic
 
 Threads were pinned to 1, inherited from the Auricularia prototype's
-parallel-worker design. Measured on an 8-core CPU with a 16-window BirdNET batch:
-3.59 s at one thread versus 3.01 s at onnxruntime's default. These graphs are
-bandwidth-bound, so it is ~16 %, not a multiple — worth having for an interactive
-search. Configurable via `models.inference_threads`; pin to 1 if parallel worker
-processes are ever added.
+parallel-worker design. Automatic wins in every configuration measured (16
+windows, best of 3): Perch 1.59 s versus 3.96 s pinned, BirdNET 2.50 s versus
+2.62 s.
+
+> Corrects an earlier note here that cited 3.59 s versus 3.01 s and called the
+> gain "about 16 %". That came from a single unrepeated BirdNET sample. With
+> repeated trials the gain is much larger and driven by Perch — a 2.5x difference.
+> Both figures were measured on a loaded machine; the repeated best-of-3 numbers
+> are the ones to trust.
+
+Pin to 1 only if several extractors ever run as parallel worker processes.

@@ -240,10 +240,11 @@ class TestBoundedInferenceBatch:
         one_at_a_time.close()
         all_at_once.close()
 
-    def test_default_batch_cap_is_modest(self):
-        # Peak memory scales at roughly 19 MB per BirdNET window, so the default
-        # has to stay small enough that a speed-shifted query cannot exhaust RAM.
-        assert 1 <= DEFAULT_MAX_BATCH <= 32
+    def test_default_is_per_window(self):
+        # Measured: batching makes Perch 2.1x slower and helps BirdNET only
+        # within noise, so per-window is both the fastest option and the tightest
+        # memory bound (~19 MB per BirdNET window).
+        assert DEFAULT_MAX_BATCH == 1
 
 
 @pytest.mark.models

@@ -42,8 +42,9 @@ class Settings:
             keys of :data:`biotimbre.models_registry.MODEL_SPECS`.
         language: Default UI language, one of :data:`SUPPORTED_LANGUAGES`.
         search_batch_size: Embedding rows scored per batch during search.
-        inference_batch_size: Audio windows per model inference call. Peak memory
-            scales with this, so it bounds cost on long recordings.
+        inference_batch_size: Audio windows per model inference call. 1 is both
+            fastest and safest for the current backbones — batching makes Perch
+            2.1x slower. See onnx_backend.DEFAULT_MAX_BATCH.
         query_cache_entries: Distinct query audios whose embeddings are retained
             in memory, so re-filtering a query does not re-run the models.
         inference_threads: Threads per ONNX session. 0 lets onnxruntime choose.
@@ -61,7 +62,7 @@ class Settings:
     active_models: tuple[str, ...] = ("perch_v2", "birdnet_v2.4")
     language: str = "en"
     search_batch_size: int = 8192
-    inference_batch_size: int = 16
+    inference_batch_size: int = 1
     inference_threads: int = 0
     query_cache_entries: int = 16
     max_query_duration_s: float = 15.0
