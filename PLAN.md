@@ -5,9 +5,9 @@ sample files in `input_example/`, the legacy `../templates/` library, and the
 Auricularia prototype (used as a reference only — **no dependency on its
 packages**).
 
-Status: **phases 1–5 complete** (library core + CLI, 325 tests). Phases 6–9
+Status: **phases 1–5 complete** (library core + CLI, 371 tests). Phases 6–9
 (GUI, i18n, public endpoint) not started. Findings from the build are recorded
-in §8.
+in §8, and post-build decisions in §9.
 
 ---
 
@@ -549,3 +549,69 @@ than drifting onto the 20 s shifted timeline.
   `update_item` returns the new window counts when it happened.
 - `SearchHit.query_speed` should be surfaced — an ultrasonic match found via the
   sweep is otherwise indistinguishable from a native one.
+
+---
+
+## 9. Post-build decisions
+
+### D10 — Query audio is capped at 15 s
+
+`search()` embeds at most `max_query_duration_s` (default 15) seconds. A file
+within the cap is used whole; a longer one requires an explicit start and end,
+refused rather than guessed — silently taking the first 15 s would search
+something other than what the caller pointed at.
+
+The reason is not only speed. Scoring is max-over-window-pairs (D3), so a long
+query lets whichever fragment happens to match decide the result: a minute of
+audio dilutes intent rather than expressing more of it. This library matches short
+vocalization samples, and the cap makes that explicit instead of leaving it as an
+unstated assumption.
+
+The cap is enforced from the file header, before any decoding or model load, and
+only the chosen frames are decoded — a long recording is never held in memory in
+full.
+
+### D11 — Query embeddings are cached
+
+Embedding the query dominates a search; vector scoring is milliseconds by
+comparison. Measured cold: 5.2 s for a 5 s query, 16.2 s for a 15 s segment.
+Re-running either with only a filter changed was repeating all of that.
+
+`QueryEmbeddingCache` keys on **(audio identity, segment, model, preprocessing,
+speed)**:
+
+- *segment* — two windows of one recording are different queries.
+- *per model and speed, not per sweep* — a filter that newly admits items at a
+  previously unused speed computes only that entry instead of discarding the rest.
+- *preprocessing fingerprint* — re-registering a model with a different window or
+  overlap must not be served vectors computed under the old parameters.
+- *path identity as size + nanosecond mtime, not a content hash* — so a hit avoids
+  reading the file at all, which is much of what the cache exists to skip.
+
+In-memory, LRU, per `LibraryService`. Search only: ingest deliberately does not
+cache, where every item is distinct and it would only grow memory through a bulk
+import. Re-filtering now costs 0.003 s.
+
+A durable on-disk cache was considered and rejected — it would need invalidation
+against model files and preprocessing parameters, for a saving that only matters
+inside one interactive session.
+
+### Bug found by benchmarking: unbounded inference batch
+
+`OnnxEmbedder` fed every window to the model in one call. Peak memory scales at
+roughly **19 MB per BirdNET window**, so a long input exhausted RAM and the
+process was SIGKILLed. Inference is now chunked at `inference_batch_size` windows
+per call, verified to produce identical vectors.
+
+D10 makes this far less likely to be reached, but the cap stays as a safety net:
+a speed shift still multiplies window count, and 15 s at speed 0.1 is 150 s of
+shifted audio.
+
+### Session threads unpinned
+
+Threads were pinned to 1, inherited from the Auricularia prototype's
+parallel-worker design. Measured on an 8-core CPU with a 16-window BirdNET batch:
+3.59 s at one thread versus 3.01 s at onnxruntime's default. These graphs are
+bandwidth-bound, so it is ~16 %, not a multiple — worth having for an interactive
+search. Configurable via `models.inference_threads`; pin to 1 if parallel worker
+processes are ever added.

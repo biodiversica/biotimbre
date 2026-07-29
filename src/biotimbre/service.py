@@ -35,6 +35,7 @@ from biotimbre.domain.errors import (
 from biotimbre.domain.item import ItemDraft, LibraryItem
 from biotimbre.embeddings import audio as audio_io
 from biotimbre.embeddings.extractor import ExtractorPool, WindowEmbeddings
+from biotimbre.embeddings.query_cache import AudioKey, QueryEmbeddingCache
 from biotimbre.models_registry import get_spec
 from biotimbre.search.filters import SearchFilters, select_candidates
 from biotimbre.search.vector_search import (
@@ -132,11 +133,15 @@ class LibraryService:
         )
         self.repo = Repository(self._conn)
         self._pool: ExtractorPool | None = None
+        self._query_cache: QueryEmbeddingCache | None = None
 
     # ── lifecycle ─────────────────────────────────────────────────────────────
 
     def close(self) -> None:
         """Release the model sessions and, if owned, the database connection."""
+        if self._query_cache is not None:
+            self._query_cache.clear()
+            self._query_cache = None
         if self._pool is not None:
             self._pool.close()
             self._pool = None
@@ -154,9 +159,26 @@ class LibraryService:
         """The extractor pool, built on first use."""
         if self._pool is None:
             self._pool = ExtractorPool(
-                self.settings.active_models, cache_dir=self.settings.model_cache_dir
+                self.settings.active_models,
+                cache_dir=self.settings.model_cache_dir,
+                max_batch=self.settings.inference_batch_size,
+                threads=self.settings.inference_threads,
             )
         return self._pool
+
+    @property
+    def query_cache(self) -> QueryEmbeddingCache:
+        """Cache of query embeddings, built on first use.
+
+        Only the search path uses it. Ingest deliberately does not: every item is
+        distinct, so caching there would grow memory through a bulk import for no
+        hit rate at all.
+        """
+        if self._query_cache is None:
+            self._query_cache = QueryEmbeddingCache(
+                self.pool, max_entries=self.settings.query_cache_entries
+            )
+        return self._query_cache
 
     @contextmanager
     def _transaction(self):
@@ -642,8 +664,16 @@ class LibraryService:
         fusion: str | None = None,
         min_score: float | None = None,
         query_speed: float | None = None,
+        start_time: float | None = None,
+        end_time: float | None = None,
     ) -> list[SearchHit]:
-        """Find the library items most similar to a query recording.
+        """Find the library items most similar to a short query recording.
+
+        The query is limited to ``max_query_duration_s`` (15 s by default). This
+        library matches short vocalizations; a longer query is slow to embed and
+        analytically weaker, because max-over-window-pairs will latch onto
+        whichever fragment happens to match. A longer file therefore needs an
+        explicit ``start_time``/``end_time``, rather than a segment being guessed.
 
         The query is embedded at every speed present in the library, so an item
         indexed at a non-native speed is still findable from a natively-recorded
@@ -659,17 +689,30 @@ class LibraryService:
             min_score: Discard hits below this score.
             query_speed: Embed the query only at this speed, instead of sweeping
                 the library's speeds. Use when the query itself needs shifting.
+            start_time: Start of the segment to search with, in seconds.
+            end_time: End of the segment to search with, in seconds.
 
         Returns:
             Descending :class:`SearchHit` list.
 
         Raises:
-            ValidationError: If the query audio is unusable.
+            ValidationError: If the query audio is unusable, or is longer than the
+                limit without a segment being chosen.
         """
         filters = filters or SearchFilters()
         k = k if k is not None else self.settings.default_top_k
         metric = metric or self.settings.default_metric
         fusion = fusion or self.settings.default_fusion
+
+        # Resolved from the header alone, so an over-long file is rejected before
+        # anything is decoded or any model is loaded.
+        properties = audio_io.read_properties(audio_path)
+        segment = audio_io.resolve_query_segment(
+            properties.duration_s,
+            start_time,
+            end_time,
+            self.settings.max_query_duration_s,
+        )
 
         self.ensure_models_registered()
 
@@ -683,8 +726,17 @@ class LibraryService:
             if query_speed is not None
             else sorted(set(item_speeds.values())) or [1.0]
         )
-        samples, native_rate = audio_io.load_mono(audio_path)
-        queries = self.pool.embed_array_multi_speed(samples, native_rate, speeds)
+
+        # Cached per (audio, model, speed), so re-running the same query with a
+        # different filter re-uses the embeddings instead of re-decoding the file
+        # and re-running both models. The loader is only called on a miss.
+        queries = self.query_cache.embed(
+            AudioKey.for_path(audio_path, segment=segment),
+            speeds,
+            loader=lambda: audio_io.load_mono(
+                audio_path, start_time=segment[0], end_time=segment[1]
+            ),
+        )
         resolved_speeds = _resolve_query_speeds(item_speeds, speeds)
         per_model = self._score_all_models(
             queries, resolved_speeds, candidates, metric

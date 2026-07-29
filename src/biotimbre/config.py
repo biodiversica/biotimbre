@@ -42,6 +42,13 @@ class Settings:
             keys of :data:`biotimbre.models_registry.MODEL_SPECS`.
         language: Default UI language, one of :data:`SUPPORTED_LANGUAGES`.
         search_batch_size: Embedding rows scored per batch during search.
+        inference_batch_size: Audio windows per model inference call. Peak memory
+            scales with this, so it bounds cost on long recordings.
+        query_cache_entries: Distinct query audios whose embeddings are retained
+            in memory, so re-filtering a query does not re-run the models.
+        inference_threads: Threads per ONNX session. 0 lets onnxruntime choose.
+        max_query_duration_s: Longest query segment a search will embed. A longer
+            file requires an explicit start/end.
         default_top_k: Default number of search hits returned.
         default_metric: Default similarity metric ("cosine" or "dot").
         default_fusion: Default cross-model fusion ("max", "mean", or a model id).
@@ -54,6 +61,10 @@ class Settings:
     active_models: tuple[str, ...] = ("perch_v2", "birdnet_v2.4")
     language: str = "en"
     search_batch_size: int = 8192
+    inference_batch_size: int = 16
+    inference_threads: int = 0
+    query_cache_entries: int = 16
+    max_query_duration_s: float = 15.0
     default_top_k: int = 10
     default_metric: str = "cosine"
     default_fusion: str = "max"
@@ -221,6 +232,25 @@ def load_settings(
     if top_k < 1:
         raise ValueError("search.top_k must be >= 1.")
 
+    inference_batch = int(
+        models_section.get("inference_batch_size", defaults.inference_batch_size)
+    )
+    if inference_batch < 1:
+        raise ValueError("models.inference_batch_size must be >= 1.")
+    cache_entries = int(
+        search.get("query_cache_entries", defaults.query_cache_entries)
+    )
+    if cache_entries < 1:
+        raise ValueError("search.query_cache_entries must be >= 1.")
+    threads = int(models_section.get("inference_threads", defaults.inference_threads))
+    if threads < 0:
+        raise ValueError("models.inference_threads must be >= 0 (0 = automatic).")
+    max_query = float(
+        search.get("max_query_duration_s", defaults.max_query_duration_s)
+    )
+    if max_query <= 0:
+        raise ValueError("search.max_query_duration_s must be > 0.")
+
     return Settings(
         data_dir=resolved_data_dir,
         db_path=db_path,
@@ -229,6 +259,10 @@ def load_settings(
         active_models=tuple(active),
         language=language,
         search_batch_size=batch_size,
+        inference_batch_size=inference_batch,
+        inference_threads=threads,
+        query_cache_entries=cache_entries,
+        max_query_duration_s=max_query,
         default_top_k=top_k,
         default_metric=search.get("metric", defaults.default_metric),
         default_fusion=search.get("fusion", defaults.default_fusion),

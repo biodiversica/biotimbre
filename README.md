@@ -7,7 +7,7 @@ See [PLAN.md](PLAN.md) for the design and the reasoning behind it.
 
 ## Status
 
-Phases 1–5 complete: the library core and a CLI. 325 tests pass.
+Phases 1–5 complete: the library core and a CLI. 371 tests pass.
 
 Not built yet: the two GUI pages (phases 6–7), the translated interface
 (phase 8), and the public read-only search endpoint (phase 9).
@@ -38,8 +38,11 @@ uv run biotimbre add recording.wav \
 # Bulk import every sidecar-paired file in a directory
 uv run biotimbre import-dir input_example
 
-# Search with a query recording
+# Search with a short query recording (15 s limit, see below)
 uv run biotimbre search query.wav -k 5
+
+# For a longer file, pick the segment to search with
+uv run biotimbre search dawn_chorus.wav --start-time 92 --end-time 99
 
 # Filter before scoring — cheaper and more correct than filtering afterwards
 uv run biotimbre search query.wav --taxa cicadidae \
@@ -126,16 +129,69 @@ data_dir = "data"
 
 [models]
 active = ["perch_v2", "birdnet_v2.4"]
+inference_batch_size = 16  # windows per model call; bounds peak memory
+inference_threads = 0      # 0 lets onnxruntime choose
 
 [search]
 top_k = 10
-metric = "cosine"      # cosine | dot | euclidean
-fusion = "max"         # max | mean | a model id
-batch_size = 8192
+metric = "cosine"          # cosine | dot | euclidean
+fusion = "max"             # max | mean | a model id
+batch_size = 8192          # embedding rows scored per batch
+query_cache_entries = 16   # query audios whose embeddings stay in memory
+max_query_duration_s = 15  # longest segment a search will embed
 
 [ui]
 language = "en"        # en | pt_BR
 ```
+
+## Search queries are short by design
+
+A search is limited to **15 seconds** of query audio. This library matches short
+vocalization samples, and a long query is not just slow — it is analytically
+weaker, because scoring takes the best-matching window pair, so a whole recording
+lets an arbitrary fragment decide the result.
+
+A file within the limit is used whole. A longer one needs an explicit segment,
+which is refused rather than guessed:
+
+```
+$ biotimbre search dawn_chorus.wav
+error: query_segment: Query audio is 60.0 s, but a search is limited to 15 s.
+Choose a start and end time at most 15 s apart — this library matches short
+vocalizations, so searching a whole recording dilutes the query rather than
+improving it.
+
+$ biotimbre search dawn_chorus.wav --start-time 92 --end-time 99
+```
+
+Only those frames are decoded, so a long recording is never loaded in full. The
+limit is checked from the file header, before any decoding or model loading.
+
+Raise `max_query_duration_s` if you really need to, knowing the trade-off.
+
+## Search performance
+
+Embedding the query dominates a search — milliseconds go to the vector scoring
+itself. Query embeddings are therefore **cached in memory per
+(audio, segment, model, speed)**, so adjusting filters and re-running the same
+query is effectively free:
+
+| | first search | re-run with a different filter |
+|---|---|---|
+| 5 s query | 5.2 s | **0.003 s** |
+| 15 s segment | 16.2 s | **0.003 s** |
+
+Keying per model *and* per speed means a filter that newly admits items at a
+previously unused speed computes just that one entry rather than discarding the
+sweep. A fully cached query does not re-read the file at all. The cache lives for
+the life of a `LibraryService`, holds `query_cache_entries` distinct queries
+(LRU), and is not used during ingest, where every item is distinct and caching
+would only grow memory.
+
+`inference_batch_size` bounds peak memory during inference, which scales at
+roughly 19 MB per BirdNET window. The query limit keeps searches small, but a
+speed shift still multiplies window count — 15 s at speed 0.1 is 150 s of
+shifted audio — so the cap stays as a safety net.
 
 ## Development
 

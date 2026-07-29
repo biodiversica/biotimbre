@@ -22,9 +22,25 @@ import numpy as np
 
 from biotimbre.domain.errors import EmbeddingError
 
-#: Threads per session. Kept at 1 so several models running in sequence (or
-#: workers in parallel) do not oversubscribe the CPU.
-_THREADS = 1
+#: Threads per inference session. ``0`` leaves the choice to onnxruntime.
+#:
+#: Measured on an 8-core CPU with a 16-window BirdNET batch: 3.59 s at one thread
+#: versus 3.01 s at onnxruntime's default — these graphs are bandwidth-bound, so
+#: threading buys about 16 %, not a multiple. That 16 % is still worth having for
+#: an interactive search, hence the default. Pin this to 1 if you ever run
+#: several extractors as parallel worker processes, where oversubscription would
+#: cost more than the threading gains.
+DEFAULT_THREADS = 0
+
+#: Windows fed to the model per inference call.
+#:
+#: Peak memory scales linearly with the batch — measured at roughly 19 MB per
+#: BirdNET window — so an unbounded batch is a latent out-of-memory bug: a 60 s
+#: query at speed 0.25 becomes 240 s of shifted audio, about 160 windows and
+#: ~3 GB in a single call, and a long recording at ingest is worse. Chunking
+#: bounds that at ~300 MB while keeping nearly all the throughput benefit of
+#: batching over a per-window loop.
+DEFAULT_MAX_BATCH = 16
 
 
 class OnnxEmbedder:
@@ -35,6 +51,8 @@ class OnnxEmbedder:
         model_id: Identifier used in error messages.
         output_name: Graph output to read embeddings from. ``None`` uses the
             first output, which is correct for a backbone-only graph.
+        max_batch: Windows per inference call. See :data:`DEFAULT_MAX_BATCH`.
+        threads: Threads per session. See :data:`DEFAULT_THREADS`.
     """
 
     def __init__(
@@ -43,10 +61,14 @@ class OnnxEmbedder:
         *,
         model_id: str = "",
         output_name: str | None = None,
+        max_batch: int = DEFAULT_MAX_BATCH,
+        threads: int = DEFAULT_THREADS,
     ):
         self._model_path = Path(model_path)
         self._model_id = model_id or self._model_path.stem
         self._requested_output = output_name
+        self._max_batch = max(1, int(max_batch))
+        self._threads = max(0, int(threads))
 
         self._session = None
         self._input_name: str = ""
@@ -65,8 +87,9 @@ class OnnxEmbedder:
             import onnxruntime as ort
 
             options = ort.SessionOptions()
-            options.intra_op_num_threads = _THREADS
-            options.inter_op_num_threads = _THREADS
+            if self._threads > 0:
+                options.intra_op_num_threads = self._threads
+                options.inter_op_num_threads = self._threads
             session = ort.InferenceSession(
                 str(self._model_path),
                 options,
@@ -167,8 +190,9 @@ class OnnxEmbedder:
     def run(self, windows: np.ndarray) -> np.ndarray:
         """Embed a batch of audio windows.
 
-        Feeds the whole batch in one call when the graph's batch dimension is
-        dynamic, and otherwise loops window by window.
+        Inference is chunked at :attr:`max_batch` windows per call so peak memory
+        stays bounded regardless of how long the input is. A graph without a
+        dynamic batch dimension is driven one window at a time.
 
         Args:
             windows: ``(n_windows, window_samples)`` float32 audio.
@@ -190,13 +214,13 @@ class OnnxEmbedder:
             raise EmbeddingError("Cannot embed an empty batch of windows.")
 
         batch = np.ascontiguousarray(windows, dtype=np.float32)
+        step = self._max_batch if self._dynamic_batch else 1
 
-        if self._dynamic_batch:
-            outputs = [self._infer(batch)]
-        else:
-            outputs = [self._infer(batch[i : i + 1]) for i in range(batch.shape[0])]
-
-        vectors = np.vstack([self._flatten_output(out) for out in outputs])
+        outputs = [
+            self._flatten_output(self._infer(batch[start : start + step]))
+            for start in range(0, batch.shape[0], step)
+        ]
+        vectors = np.vstack(outputs)
         if vectors.shape[0] != batch.shape[0]:
             raise EmbeddingError(
                 f"Model {self._model_id!r} returned {vectors.shape[0]} vectors "

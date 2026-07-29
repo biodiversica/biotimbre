@@ -262,6 +262,8 @@ def cmd_search(args: argparse.Namespace) -> int:
             fusion=args.fusion,
             min_score=args.min_score,
             query_speed=args.query_speed,
+            start_time=args.start_time,
+            end_time=args.end_time,
         )
         _print_hits(hits, show_all_models=True)
     return 0
@@ -429,6 +431,17 @@ def build_parser() -> argparse.ArgumentParser:
     p_search = subparsers.add_parser("search", help="Find similar samples.")
     p_search.add_argument("audio", help="Query audio file.")
     p_search.add_argument("-k", "--top-k", type=int, help="Maximum hits.")
+    p_search.add_argument(
+        "--start-time",
+        type=float,
+        help="Start of the segment to search with, in seconds. Required when the "
+             "query file is longer than the search limit (15 s by default).",
+    )
+    p_search.add_argument(
+        "--end-time",
+        type=float,
+        help="End of the segment to search with, in seconds.",
+    )
     p_search.add_argument("--metric", choices=("cosine", "dot", "euclidean"))
     p_search.add_argument(
         "--fusion", help="'max', 'mean', or a model id to rank by that model alone."

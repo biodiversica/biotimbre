@@ -13,7 +13,11 @@ from pathlib import Path
 import numpy as np
 
 from biotimbre.embeddings import audio as audio_io
-from biotimbre.embeddings.onnx_backend import OnnxEmbedder
+from biotimbre.embeddings.onnx_backend import (
+    DEFAULT_MAX_BATCH,
+    DEFAULT_THREADS,
+    OnnxEmbedder,
+)
 from biotimbre.models_registry import ModelSpec, get_spec, resolve_model_file
 
 
@@ -60,6 +64,8 @@ class Extractor:
         model_path: Local path to the ONNX file. ``None`` resolves it via the
             registry, downloading if needed.
         cache_dir: Model cache directory passed to the registry.
+        max_batch: Windows per inference call, bounding peak memory on long
+            inputs. See :data:`~biotimbre.embeddings.onnx_backend.DEFAULT_MAX_BATCH`.
     """
 
     def __init__(
@@ -68,6 +74,8 @@ class Extractor:
         *,
         model_path: str | Path | None = None,
         cache_dir: Path | None = None,
+        max_batch: int = DEFAULT_MAX_BATCH,
+        threads: int = DEFAULT_THREADS,
     ):
         self.spec = spec
         self._model_path = (
@@ -75,7 +83,12 @@ class Extractor:
             if model_path is not None
             else resolve_model_file(spec, cache_dir)
         )
-        self._embedder = OnnxEmbedder(self._model_path, model_id=spec.model_id)
+        self._embedder = OnnxEmbedder(
+            self._model_path,
+            model_id=spec.model_id,
+            max_batch=max_batch,
+            threads=threads,
+        )
 
     @property
     def model_id(self) -> str:
@@ -154,6 +167,8 @@ class ExtractorPool:
     Args:
         model_ids: Models to serve.
         cache_dir: Model cache directory.
+        max_batch: Windows per inference call, applied to every extractor.
+        threads: Threads per session, applied to every extractor.
     """
 
     def __init__(
@@ -161,9 +176,13 @@ class ExtractorPool:
         model_ids: tuple[str, ...] | list[str],
         *,
         cache_dir: Path | None = None,
+        max_batch: int = DEFAULT_MAX_BATCH,
+        threads: int = DEFAULT_THREADS,
     ):
         self._model_ids = tuple(model_ids)
         self._cache_dir = cache_dir
+        self._max_batch = max_batch
+        self._threads = threads
         self._extractors: dict[str, Extractor] = {}
 
     @property
@@ -191,7 +210,10 @@ class ExtractorPool:
             )
         if model_id not in self._extractors:
             self._extractors[model_id] = Extractor(
-                get_spec(model_id), cache_dir=self._cache_dir
+                get_spec(model_id),
+                cache_dir=self._cache_dir,
+                max_batch=self._max_batch,
+                threads=self._threads,
             )
         return self._extractors[model_id]
 

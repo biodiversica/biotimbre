@@ -32,6 +32,17 @@ _MAX_RESAMPLE_DENOMINATOR = 1000
 #: Read audio in chunks when hashing, so a large file is not held twice.
 _HASH_CHUNK_BYTES = 1 << 20
 
+#: Longest query segment a search will embed, in seconds.
+#:
+#: This library matches short vocalization samples, not whole recordings. A long
+#: query is both slow to embed and analytically weak — max-over-window-pairs will
+#: latch onto whichever fragment happens to match, so a minute of audio mostly
+#: dilutes intent. Callers with a longer file choose an explicit segment instead.
+MAX_QUERY_DURATION_S = 15.0
+
+#: Slack for floating-point comparisons on durations.
+_DURATION_EPSILON = 1e-6
+
 
 @dataclass(frozen=True)
 class AudioProperties:
@@ -98,25 +109,55 @@ def file_sha256(path: str | Path) -> str:
     return digest.hexdigest()
 
 
-def load_mono(path: str | Path) -> tuple[np.ndarray, int]:
-    """Load an audio file as mono float32 at its native rate.
+def load_mono(
+    path: str | Path,
+    *,
+    start_time: float | None = None,
+    end_time: float | None = None,
+) -> tuple[np.ndarray, int]:
+    """Load an audio file, or a segment of it, as mono float32 at its native rate.
 
     Multi-channel input is averaged rather than having one channel picked, so no
     part of a stereo recording's content is discarded.
 
+    When a segment is given, only those frames are decoded — a long file is never
+    pulled into memory in full just to take 15 s out of the middle.
+
     Args:
         path: Path to the audio file.
+        start_time: Segment start in seconds. ``None`` starts at the beginning.
+        end_time: Segment end in seconds. ``None`` runs to the end.
 
     Returns:
         The samples as 1-D float32, and the native sample rate.
 
     Raises:
-        ValidationError: If the file cannot be decoded or holds no audio.
+        ValidationError: If the file cannot be decoded or the segment is empty.
     """
     import soundfile as sf
 
+    read_kwargs: dict[str, object] = {}
+    if start_time is not None or end_time is not None:
+        properties = read_properties(path)
+        rate = properties.sample_rate
+        start_frame = 0 if start_time is None else int(round(start_time * rate))
+        start_frame = max(0, min(start_frame, properties.n_frames))
+        read_kwargs["start"] = start_frame
+        if end_time is not None:
+            end_frame = min(int(round(end_time * rate)), properties.n_frames)
+            frames = end_frame - start_frame
+            if frames <= 0:
+                raise ValidationError(
+                    f"Segment {start_time}-{end_time} s of {Path(path).name} "
+                    f"contains no audio.",
+                    "audio",
+                )
+            read_kwargs["frames"] = frames
+
     try:
-        data, sample_rate = sf.read(str(path), dtype="float32", always_2d=True)
+        data, sample_rate = sf.read(
+            str(path), dtype="float32", always_2d=True, **read_kwargs
+        )
     except Exception as exc:
         raise ValidationError(
             f"Could not decode {Path(path).name}: {exc}", "audio"
@@ -127,6 +168,78 @@ def load_mono(path: str | Path) -> tuple[np.ndarray, int]:
 
     mono = data.mean(axis=1) if data.shape[1] > 1 else data[:, 0]
     return np.ascontiguousarray(mono, dtype=np.float32), int(sample_rate)
+
+
+def resolve_query_segment(
+    duration_s: float,
+    start_time: float | None = None,
+    end_time: float | None = None,
+    max_duration_s: float = MAX_QUERY_DURATION_S,
+) -> tuple[float, float]:
+    """Decide which part of a query file to search with, enforcing the length cap.
+
+    A file already within the cap is used whole. A longer one requires an explicit
+    segment: guessing (taking the first 15 s, say) would silently search something
+    other than what the user pointed at.
+
+    Args:
+        duration_s: The file's full duration in seconds.
+        start_time: Requested segment start. ``None`` means the beginning.
+        end_time: Requested segment end. ``None`` means the end of the file,
+            subject to the cap.
+        max_duration_s: Longest segment allowed.
+
+    Returns:
+        ``(start, end)`` in seconds, at most ``max_duration_s`` apart.
+
+    Raises:
+        ValidationError: If the file is too long and no segment was given, or the
+            requested segment is empty, out of range, or over the cap.
+    """
+    if duration_s <= 0:
+        raise ValidationError("Query audio has no duration.", "audio")
+
+    if start_time is None and end_time is None:
+        if duration_s <= max_duration_s + _DURATION_EPSILON:
+            return 0.0, duration_s
+        raise ValidationError(
+            f"Query audio is {duration_s:.1f} s, but a search is limited to "
+            f"{max_duration_s:g} s. Choose a start and end time at most "
+            f"{max_duration_s:g} s apart — this library matches short "
+            f"vocalizations, so searching a whole recording dilutes the query "
+            f"rather than improving it.",
+            "query_segment",
+        )
+
+    start = 0.0 if start_time is None else float(start_time)
+    if start < 0:
+        raise ValidationError(
+            f"start_time {start} s cannot be negative.", "start_time"
+        )
+    if start >= duration_s - _DURATION_EPSILON:
+        raise ValidationError(
+            f"start_time {start} s is at or past the end of a "
+            f"{duration_s:.1f} s file.",
+            "start_time",
+        )
+
+    if end_time is None:
+        end = min(duration_s, start + max_duration_s)
+    else:
+        end = min(float(end_time), duration_s)
+
+    if end <= start + _DURATION_EPSILON:
+        raise ValidationError(
+            f"end_time ({end} s) must be greater than start_time ({start} s).",
+            "end_time",
+        )
+    if end - start > max_duration_s + _DURATION_EPSILON:
+        raise ValidationError(
+            f"Requested segment is {end - start:.1f} s, but a search is limited "
+            f"to {max_duration_s:g} s.",
+            "query_segment",
+        )
+    return start, end
 
 
 def effective_sample_rate(native_rate: int, speed: float) -> float:
