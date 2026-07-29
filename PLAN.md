@@ -5,7 +5,9 @@ sample files in `input_example/`, the legacy `../templates/` library, and the
 Auricularia prototype (used as a reference only — **no dependency on its
 packages**).
 
-Status: plan agreed, implementation not started.
+Status: **phases 1–5 complete** (library core + CLI, 325 tests). Phases 6–9
+(GUI, i18n, public endpoint) not started. Findings from the build are recorded
+in §8.
 
 ---
 
@@ -478,3 +480,72 @@ library, read-only public search endpoint behind a flag, auth stub.
   is configurable for offline/air-gapped use.
 - **Working tree is not a git repo.** Worth `git init` before phase 2 so the
   schema has history; not done without asking.
+
+---
+
+## 8. What the build established
+
+Recorded here because several of these were open questions or wrong guesses in
+the plan above.
+
+### Resolved risks
+
+**Both backbones take raw audio, not spectrograms.** Declared input widths are
+exactly `window_duration × sample_rate`: Perch `('batch', 160000)`, BirdNET
+`('unk__1797', 144000)`. The §7 risk is closed.
+
+**Both accept a dynamic batch dimension**, so inference is batched. The code
+still falls back to a per-window loop if a future model does not.
+
+**Embedding dims read from the graphs**: Perch 1536, BirdNET 1024. Both are
+static in the graph, so no probe inference is needed.
+
+### Corrections to this plan
+
+- Perch yields **1 window for a 5 s sample at both 0 % and 50 % overlap**, not 2
+  at 50 %. A 5 s window over 5 s of audio leaves no room for a second hop.
+- A zero-padded final window reports `end_time` **past the sample duration**
+  (BirdNET's third window ends at 6.0 s on a 5 s file). The true span is stored;
+  UIs clamp when seeking. `SearchHit.matched_span` does this clamping.
+
+### Bugs the tests caught
+
+- `strptime` accepts `"2020-1-14"`, and storing it unpadded breaks date range
+  filtering, which compares these values as strings in SQL. Dates and times are
+  canonicalised to zero-padded form.
+- `bool("no")` is `True`, and the spec writes `noise_reduction` as `[yes/no]`.
+  Text is parsed against explicit word sets; unrecognised spellings are rejected
+  rather than guessed.
+- argparse cannot accept `--location -26,-48` — the value starts with a minus, so
+  it is read as an option. Every southern-hemisphere latitude is negative, so the
+  CLI uses scalar `--latitude`/`--longitude` instead. The comma forms remain the
+  sidecar syntax.
+- Pinning `--query-speed` to a value no item shared returned **zero** results,
+  because items with no matching query embedding were skipped. Speed resolution
+  is now total: the nearest embedded speed is substituted, chosen in log space
+  because speed is multiplicative, and reported on every hit.
+- `export_npy` reported a path that was not the file written, because numpy
+  silently appends `.npy`.
+
+### Observed behaviour worth knowing
+
+**The two models disagree substantially.** On the two example samples, BirdNET
+scores them 0.748 similar while Perch scores them 0.297. This is exactly the D4
+caveat, now with numbers: `max` fusion means either model can surface an item, so
+a single confident model dominates. Whether that is desirable is a judgement call
+to revisit once the library is large enough to evaluate. Per-model scores are
+always shown so the disagreement is visible rather than hidden.
+
+**Speed shift verified against signal, not just shapes.** A 12 kHz tone at
+speed 0.25 lands at 3 kHz, and window spans stay inside the real 5 s file rather
+than drifting onto the 20 s shifted timeline.
+
+### Notes for phase 6–7
+
+- `LibraryService` is the whole API surface. `get_audio()` exists for playback,
+  `matched_span` for the window marker, `IngestResult.warnings` for the Nyquist
+  advisory, and `IngestResult.duplicate_of` for a re-upload warning.
+- Editing `speed` re-embeds the item; the edit form should say so before saving.
+  `update_item` returns the new window counts when it happened.
+- `SearchHit.query_speed` should be surfaced — an ultrasonic match found via the
+  sweep is otherwise indistinguishable from a native one.
