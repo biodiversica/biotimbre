@@ -23,6 +23,29 @@ uv run biotimbre init          # downloads ~70 MB of models on first run
 Models are downloaded once and then resolved from the local cache, so everything
 after `init` works with no network.
 
+## Web interface
+
+```bash
+uv sync --extra gui     # nicegui + pillow
+uv run biotimbre gui    # http://127.0.0.1:8080
+```
+
+Binds to loopback by default — exposing the library is a deliberate `--host`
+choice, not something that happens by accident.
+
+The **Library** page adds, inspects, edits and deletes items. Choosing a file
+shows its spectrogram and sample rate before you commit, with each model's
+frequency limit noted, so it is visible up front whether the content sits above
+what the models can see. Validation errors mark the offending field rather than
+appearing as a generic message. After adding, the per-model window counts, any
+duplicate-audio notice, and any Nyquist advisory are shown together.
+
+Editing warns before saving when you change `speed`, since that recomputes the
+item's embeddings.
+
+Models load in the background at startup, so the page is usable immediately and
+the header reports progress; on the first run that includes a ~70 MB download.
+
 ## Usage
 
 ```bash

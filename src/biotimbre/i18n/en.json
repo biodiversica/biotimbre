@@ -92,7 +92,19 @@
       "duration": "Length",
       "speed": "Speed",
       "actions": ""
-    }
+    },
+    "preview": "Preview",
+    "detail": "Item {item_id}",
+    "adding": "Adding and computing embeddings…",
+    "saving": "Saving…",
+    "embeddings_none": "not computed yet",
+    "open_full_recording": "Open full recording",
+    "bulk_hint": "To add many files at once, use the import-dir command.",
+    "no_file": "No file chosen yet.",
+    "file_chosen": "{name} — {duration} s, {rate} Hz, {channels} ch",
+    "model_limits": "Dashed lines mark each model's frequency limit; content above them is not seen by that model.",
+    "recompute": "Recompute embeddings",
+    "recomputed": "Embeddings recomputed."
   },
   "search": {
     "heading": "Find similar samples",

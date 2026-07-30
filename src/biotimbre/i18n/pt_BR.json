@@ -92,7 +92,19 @@
       "duration": "Duração",
       "speed": "Veloc.",
       "actions": ""
-    }
+    },
+    "preview": "Pré-visualização",
+    "detail": "Item {item_id}",
+    "adding": "Adicionando e calculando embeddings…",
+    "saving": "Salvando…",
+    "embeddings_none": "ainda não calculados",
+    "open_full_recording": "Abrir gravação completa",
+    "bulk_hint": "Para adicionar muitos arquivos de uma vez, use o comando import-dir.",
+    "no_file": "Nenhum arquivo escolhido ainda.",
+    "file_chosen": "{name} — {duration} s, {rate} Hz, {channels} ch",
+    "model_limits": "As linhas tracejadas marcam o limite de frequência de cada modelo; conteúdo acima delas não é visto por esse modelo.",
+    "recompute": "Recalcular embeddings",
+    "recomputed": "Embeddings recalculados."
   },
   "search": {
     "heading": "Encontrar amostras semelhantes",

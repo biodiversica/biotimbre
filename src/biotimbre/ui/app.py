@@ -24,72 +24,13 @@ DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8080
 
 
-def _stat_tile(label: str, value: str) -> None:
-    """One labelled figure in the library summary."""
-    with ui.column().classes(
-        "items-start gap-0 px-4 py-3 rounded-lg bg-slate-100 min-w-32"
-    ):
-        ui.label(value).classes("text-2xl font-medium leading-tight")
-        ui.label(label).classes("text-xs uppercase tracking-wide text-slate-500")
-
-
-async def _library_summary(t) -> None:
-    """Totals plus the newest items, proving the DB and media routes work."""
-    state = get_state()
-    stats = await state.run(state.service.stats)
-    items = await state.run(state.service.list_items, limit=4)
-
-    with ui.row().classes("gap-3 flex-wrap"):
-        _stat_tile(t("admin.heading"), str(stats["items"]))
-        _stat_tile(t("field.biotimbre_id"), str(stats["biotimbres"]))
-        for model in stats["models"]:
-            _stat_tile(
-                model["model_id"],
-                f"{model['embedding_count']}",
-            )
-        if stats["speeds"]:
-            _stat_tile(
-                t("field.speed"),
-                ", ".join(f"{speed:g}" for speed in stats["speeds"]),
-            )
-
-    if not items:
-        ui.label(t("admin.no_items")).classes("text-slate-500")
-        return
-
-    ui.label(t("common.spectrogram")).classes("text-sm font-medium mt-2")
-    for item in items:
-        with ui.card().classes("w-full p-3 gap-2"):
-            with ui.row().classes("items-center justify-between w-full"):
-                with ui.row().classes("items-baseline gap-3"):
-                    ui.label(f"#{item.item_id}").classes("font-medium")
-                    ui.label(item.biotimbre_id).classes(
-                        "font-mono text-xs px-2 py-0.5 rounded bg-slate-200"
-                    )
-                    ui.label(item.taxa_display).classes("text-sm text-slate-600")
-                with ui.row().classes("items-center gap-3 text-xs text-slate-500"):
-                    ui.label(f"{item.date} {item.time}")
-                    ui.label(f"{item.duration_s:.1f} {t('common.seconds')}")
-                    ui.label(f"{item.sample_rate} {t('common.hertz')}")
-                    if item.is_speed_shifted:
-                        ui.label(
-                            t("search.indexed_at_speed", speed=f"{item.speed:g}")
-                        ).classes("text-amber-700")
-
-            # Both of these exercise the access-controlled media routes.
-            ui.image(
-                state.spectrogram_url(item.item_id, width=900, height=150)
-            ).classes("w-full rounded").props("no-spinner")
-            ui.audio(state.audio_url(item.item_id)).classes("w-full")
-
-
 @ui.page("/")
 async def admin_page() -> None:
-    """Library page. The full admin form arrives in phase 6."""
+    """Library page: add, inspect, edit and delete items."""
+    from biotimbre.ui import admin
+
     with page("admin") as t:
-        ui.label(t("admin.heading")).classes("text-xl font-medium")
-        ui.label(t("search.cache_note")).classes("text-xs text-slate-500")
-        await _library_summary(t)
+        await admin.render(t)
 
 
 @ui.page("/search")

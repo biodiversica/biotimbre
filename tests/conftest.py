@@ -16,6 +16,17 @@ from biotimbre.models_registry import ModelSpec
 
 EXAMPLES_DIR = Path(__file__).resolve().parents[1] / "input_example"
 
+# NiceGUI's simulated-user fixtures, for testing pages without a browser. pytest
+# only honours pytest_plugins in the root conftest, not in a test module. The
+# umbrella "nicegui.testing.plugin" is deliberately avoided: it imports selenium
+# for a browser-driven fixture this suite does not use.
+try:  # pragma: no cover - depends on whether the gui extra is installed
+    import nicegui  # noqa: F401
+
+    pytest_plugins = ["nicegui.testing.user_plugin"]
+except ImportError:  # pragma: no cover
+    pytest_plugins = []
+
 #: Models used by the ``models``-marked tests.
 MODEL_IDS = ("perch_v2", "birdnet_v2.4")
 

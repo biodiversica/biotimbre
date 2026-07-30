@@ -115,15 +115,18 @@ class TestStateLifecycle:
         assert "start=1.0" in url and "end=4.0" in url
 
     def test_get_state_before_init_is_a_clear_error(self):
-        import biotimbre.ui.state as module
-
-        saved = module._state
-        module._state = None
+        # Reached through the function's own globals rather than by importing the
+        # module: NiceGUI's reset fixtures prune sys.modules, which can leave
+        # biotimbre.ui.state cached while the intermediate biotimbre.ui attribute
+        # is gone, so "import biotimbre.ui.state" fails depending on test order.
+        namespace = get_state.__globals__
+        saved = namespace["_state"]
+        namespace["_state"] = None
         try:
             with pytest.raises(RuntimeError, match="not initialised"):
                 get_state()
         finally:
-            module._state = saved
+            namespace["_state"] = saved
 
 
 @pytest.mark.models

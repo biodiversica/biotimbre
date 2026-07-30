@@ -19,7 +19,7 @@ gui = [
     "pillow",
 ]
 
-dev = ["pytest", "pytest-cov"]
+dev = ["pytest", "pytest-cov", "pytest-asyncio"]
 
 [project.scripts]
 biotimbre = "biotimbre.cli:main"
@@ -41,3 +41,11 @@ testpaths = ["tests"]
 markers = [
     "models: needs the ONNX model files (downloaded on first run, then cached). Skip with -m 'not models'.",
 ]
+# NiceGUI's simulated-user fixtures are async, so async tests must run without
+# each needing an explicit marker.
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+# NiceGUI's fixtures otherwise try to import a root main.py to discover pages.
+# This project has no such entry point: pages come from biotimbre.ui.app, which
+# tests import explicitly.
+main_file = ""
