@@ -167,7 +167,7 @@ def metadata_form(
         return element.props("dense outlined").classes("w-full")
 
     ui.label(t("admin.mandatory_section")).classes(
-        "text-xs uppercase tracking-wide text-slate-500 mt-1"
+        "text-xs uppercase tracking-wide text-muted mt-1"
     )
     with ui.grid(columns=2).classes("w-full gap-3"):
         inputs["date"] = dense(
@@ -212,7 +212,7 @@ def metadata_form(
         )
 
     ui.label(t("admin.optional_section")).classes(
-        "text-xs uppercase tracking-wide text-slate-500 mt-3"
+        "text-xs uppercase tracking-wide text-muted mt-3"
     )
     with ui.grid(columns=2).classes("w-full gap-3"):
         inputs["biotimbre_id"] = dense(

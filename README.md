@@ -222,6 +222,39 @@ max_query_duration_s = 15
 
 [ui]
 language = "en"            # en | pt_BR
+
+[ui.theme]
+# Every key optional; shown values are the defaults. Colours are CSS values
+# (hex, rgb(a), named) — primary..warning feed Quasar's palette, the rest
+# style the header directly.
+primary = "#118b50"
+secondary = "#5ba98c"
+accent = "#e9b44c"
+dark = "#1d1d1d"
+positive = "#118b50"
+negative = "#c62828"
+info = "#2f6f9f"
+warning = "#e9b44c"
+button_text = "#ffffff"        # label colour on filled color=primary buttons
+page_bg = "#ffffff"            # body background below the header
+text = "#1a1a1a"                # default label colour (unstyled ui.label)
+header_bg = "#118b50"
+header_text = "#ffffff"
+header_inactive_text = "rgba(255, 255, 255, 0.65)"
+header_active_bg = "rgba(255, 255, 255, 0.2)"
+header_status_ready = "#a8e6a1"    # "Models ready" badge
+header_status_loading = "#ffd166"  # "Loading models…" badge
+header_status_failed = "#ff8a8a"   # model-load-error badge
+
+# The rest theme widgets Quasar/Tailwind hardcode regardless of ui.colors():
+card = "#ffffff"               # card backgrounds (item detail, add/search forms)
+link = "#3b82f6"                # hyperlinks (e.g. "open full recording")
+muted = "#64748b"              # secondary/hint text (labels, timestamps, IDs)
+notice = "#92400e"             # inline warnings (speed-shifted, query cap, etc.)
+surface = "#f1f5f9"            # stat-tile backgrounds on the admin page
+chip = "#e2e8f0"                # small id-badge backgrounds
+marker_border = "rgba(255, 255, 255, 0.8)"  # matched-window box on a spectrogram
+marker_fill = "rgba(255, 255, 255, 0.25)"
 ```
 
 ## Development

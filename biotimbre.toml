@@ -1,0 +1,34 @@
+[library]
+data_dir = "data"
+
+[ui]
+language = "en"            # en | pt_BR
+
+[ui.theme]
+# Every key optional; omitted ones fall back to the built-in defaults.
+primary = "#20460a"
+secondary = "#fcfee5"
+accent = "#e9b44c"
+dark = "#20460a"
+positive = "#118b50"
+negative = "#c62828"
+info = "#2f6f9f"
+warning = "#e9b44c"
+button_text = "#fcfee5"
+page_bg = "#f4f6ef"
+text = "#1a2712"
+header_bg = "#122806"
+header_text = "#fcfee5"
+header_inactive_text = "rgba(255, 255, 255, 0.65)"
+header_active_bg = "rgba(255, 255, 255, 0.2)"
+header_status_ready = "#fcfee5"
+header_status_loading = "#ffd166"
+header_status_failed = "#ff8a8a"
+card = "#ffffff"
+link = "#118b50"
+muted = "#5b6b52"
+notice = "#92400e"
+surface = "#eef1e6"
+chip = "#dde4d1"
+marker_border = "rgba(252, 254, 229, 0.8)"
+marker_fill = "rgba(252, 254, 229, 0.25)"

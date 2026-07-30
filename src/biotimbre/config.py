@@ -30,6 +30,64 @@ from biotimbre.i18n import LANGUAGES as SUPPORTED_LANGUAGES  # noqa: E402
 
 
 @dataclass(frozen=True)
+class Theme:
+    """UI colour palette, as consumed by :func:`biotimbre.ui.layout.page`.
+
+    ``primary`` .. ``warning`` are Quasar brand colours (fed to NiceGUI's
+    ``ui.colors()``); ``header_*`` style the header directly since Quasar's
+    ``q-header`` has no background of its own (it's transparent unless set),
+    and Tailwind utility classes can't track a runtime palette either way.
+    ``header_inactive_text`` covers the un-selected nav tab, which otherwise
+    shares ``header_text`` and has no background to set it apart.
+    ``button_text`` is the label colour on filled ``color="primary"``
+    buttons (e.g. Save, Search) — Quasar defaults these to white and
+    ignores ``ui.colors()`` for it. ``header_status_*`` are the model-status
+    badge next to the language switcher (ready / loading / failed); Quasar's
+    own Tailwind-style ``text-green-700`` etc. assume a light background and
+    vanish against a dark header. ``page_bg`` is the body background behind
+    the page content, below the header. ``text`` is the default (unstyled)
+    label colour — Quasar sets no ``color`` on ``body``/``html`` at all, so
+    every plain ``ui.label()`` otherwise falls back to the browser's black.
+
+    The remaining keys theme widgets that used to be hardcoded Tailwind
+    colours untouched by ``ui.colors()`` (cards default to plain white,
+    links to Tailwind's blue-500, muted/notice text to fixed slate/amber
+    shades): ``card`` (card backgrounds), ``link`` (hyperlinks), ``muted``
+    (secondary/hint text), ``notice`` (inline warnings, e.g. "exceeds the
+    query cap"), ``surface`` (stat-tile backgrounds), ``chip`` (small
+    id-badge backgrounds), and ``marker_border``/``marker_fill`` (the
+    highlighted time-window box drawn over a search result's spectrogram).
+    """
+
+    primary: str = "#118b50"
+    secondary: str = "#5ba98c"
+    accent: str = "#e9b44c"
+    dark: str = "#1d1d1d"
+    positive: str = "#118b50"
+    negative: str = "#c62828"
+    info: str = "#2f6f9f"
+    warning: str = "#e9b44c"
+    button_text: str = "#ffffff"
+    page_bg: str = "#ffffff"
+    text: str = "#1a1a1a"
+    header_bg: str = "#118b50"
+    header_status_ready: str = "#a8e6a1"
+    header_status_loading: str = "#ffd166"
+    header_status_failed: str = "#ff8a8a"
+    header_text: str = "#ffffff"
+    header_inactive_text: str = "rgba(255, 255, 255, 0.65)"
+    header_active_bg: str = "rgba(255, 255, 255, 0.2)"
+    card: str = "#ffffff"
+    link: str = "#3b82f6"
+    muted: str = "#64748b"
+    notice: str = "#92400e"
+    surface: str = "#f1f5f9"
+    chip: str = "#e2e8f0"
+    marker_border: str = "rgba(255, 255, 255, 0.8)"
+    marker_fill: str = "rgba(255, 255, 255, 0.25)"
+
+
+@dataclass(frozen=True)
 class Settings:
     """Resolved library settings.
 
@@ -43,6 +101,7 @@ class Settings:
         active_models: Model IDs to compute embeddings with on ingest. Must be
             keys of :data:`biotimbre.models_registry.MODEL_SPECS`.
         language: Default UI language, one of :data:`SUPPORTED_LANGUAGES`.
+        theme: UI colour palette.
         search_batch_size: Embedding rows scored per batch during search.
         inference_batch_size: Audio windows per model inference call. 1 is both
             fastest and safest for the current backbones — batching makes Perch
@@ -63,6 +122,7 @@ class Settings:
     model_cache_dir: Path | None = None
     active_models: tuple[str, ...] = ("perch_v2", "birdnet_v2.4")
     language: str = "en"
+    theme: Theme = field(default_factory=Theme)
     search_batch_size: int = 8192
     inference_batch_size: int = 1
     inference_threads: int = 0
@@ -241,6 +301,14 @@ def load_settings(
             f"Expected one of {', '.join(SUPPORTED_LANGUAGES)}."
         )
 
+    theme_section = ui.get("theme", {})
+    unknown_theme_keys = set(theme_section) - set(Theme.__dataclass_fields__)
+    if unknown_theme_keys:
+        raise ValueError(
+            f"Unknown ui.theme key(s): {', '.join(sorted(unknown_theme_keys))}."
+        )
+    theme = Theme(**theme_section)
+
     search = raw.get("search", {})
     batch_size = int(search.get("batch_size", defaults.search_batch_size))
     if batch_size < 1:
@@ -275,6 +343,7 @@ def load_settings(
         model_cache_dir=model_cache_dir,
         active_models=tuple(active),
         language=language,
+        theme=theme,
         search_batch_size=batch_size,
         inference_batch_size=inference_batch,
         inference_threads=threads,

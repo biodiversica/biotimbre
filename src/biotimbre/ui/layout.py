@@ -11,6 +11,7 @@ from contextlib import contextmanager
 
 from nicegui import app, ui
 
+from biotimbre.config import Theme
 from biotimbre.i18n import DEFAULT_LANGUAGE, LANGUAGE_NAMES, LANGUAGES, Translator
 from biotimbre.ui.state import get_state
 
@@ -36,12 +37,14 @@ def set_language(language: str) -> None:
         ui.navigate.reload()
 
 
-def _model_badge(t: Translator) -> None:
+def _model_badge(t: Translator, theme: Theme) -> None:
     """Show whether models are ready, loading, or failed."""
     status = get_state().models
 
     if status.failed:
-        with ui.row().classes("items-center gap-1 text-red-600"):
+        with ui.row().classes("items-center gap-1").style(
+            f"color: {theme.header_status_failed}"
+        ):
             ui.icon("error_outline", size="1.1rem")
             ui.label(t("error.generic", message=status.failed)).classes(
                 "text-xs max-w-64 truncate"
@@ -49,7 +52,9 @@ def _model_badge(t: Translator) -> None:
         return
 
     if status.ready:
-        with ui.row().classes("items-center gap-1 text-green-700"):
+        with ui.row().classes("items-center gap-1").style(
+            f"color: {theme.header_status_ready}"
+        ):
             ui.icon("check_circle_outline", size="1.1rem")
             summary = ", ".join(
                 f"{model} {dim}d" for model, dim in sorted(status.dimensions.items())
@@ -57,7 +62,9 @@ def _model_badge(t: Translator) -> None:
             ui.label(t("app.models_ready")).classes("text-xs").tooltip(summary)
         return
 
-    with ui.row().classes("items-center gap-2 text-amber-700"):
+    with ui.row().classes("items-center gap-2").style(
+        f"color: {theme.header_status_loading}"
+    ):
         ui.spinner(size="1rem")
         ui.label(t("app.loading_models")).classes("text-xs").tooltip(
             t("app.loading_models_hint")
@@ -78,25 +85,56 @@ def page(active: str):
         The translator for this session, so callers need not fetch it again.
     """
     t = translator()
-    ui.colors(primary="#2f6f4f")
+    theme = get_state().settings.theme
+    ui.colors(
+        primary=theme.primary,
+        secondary=theme.secondary,
+        accent=theme.accent,
+        dark=theme.dark,
+        positive=theme.positive,
+        negative=theme.negative,
+        info=theme.info,
+        warning=theme.warning,
+        button_text=theme.button_text,
+        card=theme.card,
+        link=theme.link,
+        muted=theme.muted,
+        notice=theme.notice,
+        surface=theme.surface,
+        chip=theme.chip,
+    )
+    ui.query("body").style(f"background: {theme.page_bg}; color: {theme.text}")
 
-    with ui.header().classes("items-center justify-between px-4 py-2 shadow-sm"):
+    with ui.header().classes(
+        "items-center justify-between px-4 py-2 shadow-sm"
+    ).style(f"background: {theme.header_bg}"):
         with ui.row().classes("items-center gap-6"):
-            ui.label(t("app.title")).classes("text-lg font-medium")
+            ui.label(t("app.title")).classes("text-lg font-medium").style(
+                f"color: {theme.header_text}"
+            )
             with ui.row().classes("gap-1"):
                 for name, target, icon in (
                     ("admin", "/", "library_music"),
                     ("search", "/search", "search"),
                 ):
-                    highlight = "bg-white/20" if name == active else ""
+                    is_active = name == active
+                    text_color = theme.header_text if is_active else (
+                        theme.header_inactive_text
+                    )
+                    background = (
+                        f"background: {theme.header_active_bg};" if is_active else ""
+                    )
                     ui.button(
                         t(f"app.nav.{name}"),
                         icon=icon,
+                        color=None,
                         on_click=lambda target=target: ui.navigate.to(target),
-                    ).props("flat dense no-caps").classes(f"text-white {highlight}")
+                    ).props("flat dense no-caps").style(
+                        f"color: {text_color}; {background}"
+                    )
 
         with ui.row().classes("items-center gap-4"):
-            _model_badge(t)
+            _model_badge(t, theme)
             ui.select(
                 {code: LANGUAGE_NAMES[code] for code in LANGUAGES},
                 value=t.language or DEFAULT_LANGUAGE,

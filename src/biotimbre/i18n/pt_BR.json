@@ -1,9 +1,9 @@
 {
   "app": {
-    "title": "Biblioteca Biotimbre",
+    "title": "((-)) biotimbre ((-))",
     "nav": {
       "admin": "Biblioteca",
-      "search": "Busca"
+      "search": "Ferramenta de busca"
     },
     "language": "Idioma",
     "loading_models": "Carregando modelos…",

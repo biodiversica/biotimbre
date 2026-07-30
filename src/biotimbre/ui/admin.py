@@ -136,10 +136,10 @@ def _spectrogram_of(path: Path, *, width: int = 860, height: int = 170) -> str:
 def _stat_tile(label: str, value: str) -> None:
     """One labelled figure in the library summary."""
     with ui.column().classes(
-        "items-start gap-0 px-4 py-2 rounded-lg bg-slate-100 min-w-28"
+        "items-start gap-0 px-4 py-2 rounded-lg bg-surface min-w-28"
     ):
         ui.label(value).classes("text-xl font-medium leading-tight")
-        ui.label(label).classes("text-xs uppercase tracking-wide text-slate-500")
+        ui.label(label).classes("text-xs uppercase tracking-wide text-muted")
 
 
 async def _summary_row(t: Translator) -> None:
@@ -167,13 +167,13 @@ def _add_card(t: Translator, on_added) -> None:
     state = get_state()
     add_state = AddState()
 
-    with ui.card().classes("w-full p-4 gap-3"):
+    with ui.card().classes("w-full p-4 gap-3 bg-card"):
         ui.label(t("admin.add_heading")).classes("text-lg font-medium")
-        ui.label(t("admin.upload_hint")).classes("text-xs text-slate-500")
+        ui.label(t("admin.upload_hint")).classes("text-xs text-muted")
 
         preview = ui.column().classes("w-full gap-1")
         with preview:
-            ui.label(t("admin.no_file")).classes("text-sm text-slate-500")
+            ui.label(t("admin.no_file")).classes("text-sm text-muted")
 
         async def handle_upload(event) -> None:
             # event.file is a NiceGUI FileUpload: .name plus async read()/save().
@@ -208,7 +208,7 @@ def _add_card(t: Translator, on_added) -> None:
                 try:
                     uri = await state.run(_spectrogram_of, upload.path)
                     ui.image(uri).classes("w-full rounded").props("no-spinner")
-                    ui.label(_nyquist_lines(t)).classes("text-xs text-slate-500")
+                    ui.label(_nyquist_lines(t)).classes("text-xs text-muted")
                 except BiotimbreError as exc:
                     notify_error(t, exc)
 
@@ -268,18 +268,20 @@ def _add_card(t: Translator, on_added) -> None:
             add_state.discard()
             preview.clear()
             with preview:
-                ui.label(t("admin.no_file")).classes("text-sm text-slate-500")
+                ui.label(t("admin.no_file")).classes("text-sm text-muted")
             on_added()
 
         with ui.row().classes("items-center gap-3 mt-2"):
-            save_button = ui.button(t("admin.save_item"), icon="add", on_click=save)
+            save_button = ui.button(
+                t("admin.save_item"), icon="add", on_click=save
+            ).props("text-color=button-text")
             spinner = ui.row().classes("items-center gap-2")
             with spinner:
                 ui.spinner(size="1.2rem")
-                ui.label(t("admin.adding")).classes("text-sm text-slate-600")
+                ui.label(t("admin.adding")).classes("text-sm text-muted")
             spinner.set_visibility(False)
 
-        ui.label(t("admin.bulk_hint")).classes("text-xs text-slate-400")
+        ui.label(t("admin.bulk_hint")).classes("text-xs text-muted")
 
 
 def _ingest_report(t: Translator, result) -> None:
@@ -289,10 +291,10 @@ def _ingest_report(t: Translator, result) -> None:
         for model, count in sorted(result.window_counts.items())
     )
     if counts:
-        ui.label(counts).classes("text-sm text-slate-700")
+        ui.label(counts).classes("text-sm text-muted")
 
     if result.duplicate_of:
-        with ui.row().classes("items-start gap-2 text-amber-800"):
+        with ui.row().classes("items-start gap-2 text-notice"):
             ui.icon("content_copy", size="1.1rem")
             ui.label(
                 t(
@@ -302,7 +304,7 @@ def _ingest_report(t: Translator, result) -> None:
             ).classes("text-sm")
 
     for warning in result.warnings:
-        with ui.row().classes("items-start gap-2 text-amber-800"):
+        with ui.row().classes("items-start gap-2 text-notice"):
             ui.icon("graphic_eq", size="1.1rem")
             ui.label(warning).classes("text-sm")
 
@@ -339,13 +341,13 @@ def _metadata_rows(t: Translator, item: LibraryItem, counts: dict[str, int]) -> 
     ]
     with ui.grid(columns=2).classes("gap-x-4 gap-y-1 text-sm"):
         for label, value in rows:
-            ui.label(label).classes("text-slate-500")
+            ui.label(label).classes("text-muted")
             ui.label(str(value))
 
     if item.link_to_full_recording:
         ui.link(
             t("admin.open_full_recording"), item.link_to_full_recording, new_tab=True
-        ).classes("text-sm")
+        ).classes("text-sm text-link")
 
 
 async def _open_detail(t: Translator, item_id: int, on_changed) -> None:
@@ -359,7 +361,7 @@ async def _open_detail(t: Translator, item_id: int, on_changed) -> None:
         on_changed()
         return
 
-    with ui.dialog() as dialog, ui.card().classes("w-full max-w-3xl p-4 gap-3"):
+    with ui.dialog() as dialog, ui.card().classes("w-full max-w-3xl p-4 gap-3 bg-card"):
         ui.label(t("admin.detail", item_id=item.item_id)).classes(
             "text-lg font-medium"
         )
@@ -388,7 +390,7 @@ def _confirm_delete(t: Translator, item: LibraryItem, parent, on_changed) -> Non
     """Ask before deleting, naming what will go."""
     state = get_state()
 
-    with ui.dialog() as confirm, ui.card().classes("p-4 gap-3 max-w-md"):
+    with ui.dialog() as confirm, ui.card().classes("p-4 gap-3 max-w-md bg-card"):
         ui.label(
             t("admin.delete_confirm", item_id=item.item_id, taxa=item.taxa_display)
         ).classes("text-sm")
@@ -418,13 +420,13 @@ def _open_edit(t: Translator, item: LibraryItem, parent, on_changed) -> None:
     """Edit an item's metadata, warning that a speed change re-embeds."""
     state = get_state()
 
-    with ui.dialog() as dialog, ui.card().classes("w-full max-w-3xl p-4 gap-3"):
+    with ui.dialog() as dialog, ui.card().classes("w-full max-w-3xl p-4 gap-3 bg-card"):
         ui.label(t("admin.edit_heading", item_id=item.item_id)).classes(
             "text-lg font-medium"
         )
         form = metadata_form(t, item, allow_new_biotimbre=False)
 
-        warning = ui.row().classes("items-center gap-2 text-amber-800")
+        warning = ui.row().classes("items-center gap-2 text-notice")
         with warning:
             ui.icon("autorenew", size="1.1rem")
             ui.label(t("admin.speed_change_warning")).classes("text-sm")
@@ -476,7 +478,9 @@ def _open_edit(t: Translator, item: LibraryItem, parent, on_changed) -> None:
 
         with ui.row().classes("justify-end gap-2 w-full"):
             ui.button(t("common.cancel"), on_click=dialog.close).props("flat")
-            save_button = ui.button(t("common.save"), icon="save", on_click=save)
+            save_button = ui.button(
+                t("common.save"), icon="save", on_click=save
+            ).props("text-color=button-text")
     dialog.open()
 
 
@@ -491,11 +495,11 @@ async def _items_table(t: Translator, container, on_changed) -> None:
     container.clear()
     with container:
         if not items:
-            ui.label(t("admin.no_items")).classes("text-slate-500")
+            ui.label(t("admin.no_items")).classes("text-muted")
             return
 
         ui.label(t("admin.item_count", count=len(items))).classes(
-            "text-xs text-slate-500"
+            "text-xs text-muted"
         )
         columns = [
             {"name": "item_id", "label": t("admin.column.id"), "field": "item_id",

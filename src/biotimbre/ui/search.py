@@ -97,10 +97,13 @@ def _marked_spectrogram(
         right = max(0.0, min(1.0, (span[1] - start) / (end - start)))
         if right <= left:
             return
+        theme = get_state().settings.theme
         ui.element("div").classes(
-            "absolute top-0 bottom-0 border-x-2 border-white/80 bg-white/25 "
-            "pointer-events-none rounded"
-        ).style(f"left:{left * 100:.2f}%; width:{(right - left) * 100:.2f}%")
+            "absolute top-0 bottom-0 border-x-2 pointer-events-none rounded"
+        ).style(
+            f"left:{left * 100:.2f}%; width:{(right - left) * 100:.2f}%; "
+            f"border-color: {theme.marker_border}; background: {theme.marker_fill}"
+        )
 
 
 def _result_card(t: Translator, hit: SearchHit, rank: int) -> None:
@@ -109,19 +112,19 @@ def _result_card(t: Translator, hit: SearchHit, rank: int) -> None:
     item = hit.item
     span = hit.matched_span
 
-    with ui.card().classes("w-full p-3 gap-2"):
+    with ui.card().classes("w-full p-3 gap-2 bg-card"):
         with ui.row().classes("items-start justify-between w-full gap-4"):
             with ui.column().classes("gap-1 grow"):
                 with ui.row().classes("items-baseline gap-3"):
-                    ui.label(f"{rank}.").classes("text-slate-400")
+                    ui.label(f"{rank}.").classes("text-muted")
                     ui.label(f"{hit.score:+.4f}").classes(
                         "text-lg font-medium tabular-nums"
                     )
                     ui.label(item.taxa_display).classes("text-sm")
                     ui.label(item.biotimbre_id).classes(
-                        "font-mono text-xs px-2 py-0.5 rounded bg-slate-200"
+                        "font-mono text-xs px-2 py-0.5 rounded bg-chip"
                     )
-                with ui.row().classes("gap-3 text-xs text-slate-500 flex-wrap"):
+                with ui.row().classes("gap-3 text-xs text-muted flex-wrap"):
                     ui.label(f"#{item.item_id}")
                     ui.label(f"{item.date} {item.time}")
                     ui.label(str(item.location))
@@ -132,12 +135,12 @@ def _result_card(t: Translator, hit: SearchHit, rank: int) -> None:
                     if item.is_speed_shifted:
                         ui.label(
                             t("search.indexed_at_speed", speed=f"{item.speed:g}")
-                        ).classes("text-amber-700")
+                        ).classes("text-notice")
 
             with ui.column().classes("items-end gap-1 min-w-40"):
                 for model, score in sorted(hit.per_model.items()):
                     weight = (
-                        "font-medium" if model == hit.best_model else "text-slate-500"
+                        "font-medium" if model == hit.best_model else "text-muted"
                     )
                     ui.label(f"{model} {score:+.4f}").classes(
                         f"text-xs tabular-nums {weight}"
@@ -151,7 +154,7 @@ def _result_card(t: Translator, hit: SearchHit, rank: int) -> None:
                     end=f"{span[1]:.2f}",
                 )
                 + f"  ({t('search.best_model', model=hit.best_model)})"
-            ).classes("text-xs text-slate-500")
+            ).classes("text-xs text-muted")
 
         with ui.row().classes("items-center gap-3 w-full"):
             _marked_spectrogram(
@@ -169,7 +172,7 @@ def _result_card(t: Translator, hit: SearchHit, rank: int) -> None:
                         t("admin.open_full_recording"),
                         item.link_to_full_recording,
                         new_tab=True,
-                    ).classes("text-xs")
+                    ).classes("text-xs text-link")
 
 
 def _filters_panel(t: Translator) -> dict[str, ui.element]:
@@ -182,7 +185,7 @@ def _filters_panel(t: Translator) -> dict[str, ui.element]:
     with ui.expansion(t("search.filters"), icon="filter_alt").classes(
         "w-full"
     ).props("dense"):
-        ui.label(t("search.filters_hint")).classes("text-xs text-slate-500 mb-2")
+        ui.label(t("search.filters_hint")).classes("text-xs text-muted mb-2")
         with ui.grid(columns=2).classes("w-full gap-3"):
             inputs["taxa"] = dense(
                 ui.select(
@@ -298,15 +301,15 @@ async def render(t: Translator) -> None:
 
     ui.label(t("search.heading")).classes("text-xl font-medium")
 
-    with ui.card().classes("w-full p-4 gap-3"):
+    with ui.card().classes("w-full p-4 gap-3 bg-card"):
         ui.label(t("search.query")).classes("text-sm font-medium")
         ui.label(t("search.upload_hint", seconds=f"{cap:g}")).classes(
-            "text-xs text-slate-500"
+            "text-xs text-muted"
         )
 
         query_area = ui.column().classes("w-full gap-2")
         with query_area:
-            ui.label(t("search.no_query")).classes("text-sm text-slate-500")
+            ui.label(t("search.no_query")).classes("text-sm text-muted")
 
         def draw_query() -> None:
             """Redraw the query preview, player and segment picker."""
@@ -314,7 +317,7 @@ async def render(t: Translator) -> None:
             if query.token is None or query.properties is None:
                 with query_area:
                     ui.label(t("search.no_query")).classes(
-                        "text-sm text-slate-500"
+                        "text-sm text-muted"
                     )
                 return
 
@@ -328,7 +331,7 @@ async def render(t: Translator) -> None:
                     )
                 ).classes("text-sm")
 
-                span_label = ui.label().classes("text-xs text-slate-500")
+                span_label = ui.label().classes("text-xs text-muted")
 
                 image = ui.column().classes("w-full")
 
@@ -350,9 +353,9 @@ async def render(t: Translator) -> None:
                 if query.needs_segment:
                     ui.label(
                         t("search.needs_segment", seconds=f"{cap:g}")
-                    ).classes("text-xs text-amber-700")
+                    ).classes("text-xs text-notice")
                     ui.label(t("search.segment_hint", seconds=f"{cap:g}")).classes(
-                        "text-xs text-slate-500"
+                        "text-xs text-muted"
                     )
 
                     picker = ui.range(
@@ -400,7 +403,7 @@ async def render(t: Translator) -> None:
 
                 with ui.row().classes("items-center gap-2 w-full"):
                     ui.label(t("search.play_query")).classes(
-                        "text-xs text-slate-500"
+                        "text-xs text-muted"
                     )
                     ui.audio(state.query_audio_url(query.token)).classes("grow")
 
@@ -485,15 +488,15 @@ async def render(t: Translator) -> None:
 
         with results_area:
             if not hits:
-                ui.label(t("search.no_matches")).classes("text-slate-500")
+                ui.label(t("search.no_matches")).classes("text-muted")
                 return
             with ui.row().classes("items-baseline gap-3"):
                 ui.label(t("search.results")).classes("text-lg font-medium")
                 ui.label(t("search.result_count", count=len(hits))).classes(
-                    "text-xs text-slate-500"
+                    "text-xs text-muted"
                 )
-            ui.label(t("search.compare_hint")).classes("text-xs text-slate-500")
-            ui.label(t("search.marker_hint")).classes("text-xs text-slate-500")
+            ui.label(t("search.compare_hint")).classes("text-xs text-muted")
+            ui.label(t("search.marker_hint")).classes("text-xs text-muted")
             for rank, hit in enumerate(hits, start=1):
                 _result_card(t, hit, rank)
             if any(h.query_speed != 1.0 for h in hits):
@@ -503,16 +506,18 @@ async def render(t: Translator) -> None:
                         "search.query_speed_note",
                         speed=", ".join(f"{s:g}" for s in speeds),
                     )
-                ).classes("text-xs text-amber-700")
+                ).classes("text-xs text-notice")
 
     with ui.row().classes("items-center gap-3"):
-        run_button = ui.button(t("search.run"), icon="search", on_click=run_search)
+        run_button = ui.button(
+            t("search.run"), icon="search", on_click=run_search
+        ).props("text-color=button-text")
         spinner = ui.row().classes("items-center gap-2")
         with spinner:
             ui.spinner(size="1.2rem")
-            ui.label(t("search.running")).classes("text-sm text-slate-600")
+            ui.label(t("search.running")).classes("text-sm text-muted")
         spinner.set_visibility(False)
-        ui.label(t("search.cache_note")).classes("text-xs text-slate-400")
+        ui.label(t("search.cache_note")).classes("text-xs text-muted")
 
     if not state.models.ready:
-        ui.label(t("app.loading_models_hint")).classes("text-amber-700 text-sm")
+        ui.label(t("app.loading_models_hint")).classes("text-notice text-sm")
