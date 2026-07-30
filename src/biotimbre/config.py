@@ -23,8 +23,10 @@ from pathlib import Path
 DEFAULT_CONFIG_NAME = "biotimbre.toml"
 ENV_CONFIG = "BIOTIMBRE_CONFIG"
 
-#: Languages the UI ships translations for. See :mod:`biotimbre.i18n`.
-SUPPORTED_LANGUAGES = ("en", "pt_BR")
+#: Languages the UI ships translations for. Single source of truth is the
+#: catalogue package, so adding a language means adding a file, not editing two
+#: lists that can drift apart.
+from biotimbre.i18n import LANGUAGES as SUPPORTED_LANGUAGES  # noqa: E402
 
 
 @dataclass(frozen=True)

@@ -13,6 +13,12 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# The GUI. Kept optional so a headless or CLI-only install stays lean.
+gui = [
+    "nicegui",
+    "pillow",
+]
+
 dev = ["pytest", "pytest-cov"]
 
 [project.scripts]
