@@ -4,7 +4,7 @@
 -- reduce the candidate set before any vector is scored.
 
 CREATE TABLE IF NOT EXISTS biotimbres (
-    biotimbre_id  TEXT PRIMARY KEY,          -- '0000'..'FFFF', 4 uppercase hex
+    biotimbre_id  TEXT PRIMARY KEY,          -- UUID; meant to be unique across libraries
     label         TEXT,                      -- optional human-readable name
     created_at    TEXT NOT NULL
 );

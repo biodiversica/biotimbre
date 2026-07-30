@@ -22,7 +22,10 @@ from pathlib import Path
 from biotimbre.domain.errors import BiotimbreError, ValidationError
 
 #: Bumped whenever schema.sql changes in a way that needs a migration.
-SCHEMA_VERSION = 1
+#: 2: biotimbre_id switched from a per-library 4-hex-char code to a UUID
+#: (so it means the same thing across libraries). No migration is provided —
+#: a version-1 database fails to open with a clear message instead.
+SCHEMA_VERSION = 2
 
 _SCHEMA_KEY = "schema_version"
 
@@ -107,7 +110,8 @@ def initialize(
 
     Raises:
         BiotimbreError: If the file holds a schema from a newer version of this
-            software, which this code cannot safely read.
+            software, which this code cannot safely read, or an older version
+            this code no longer supports (no migration path is provided).
     """
     path = Path(db_path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -132,9 +136,16 @@ def initialize(
                     f"software understands at most {SCHEMA_VERSION}. "
                     f"Upgrade biotimbre-library."
                 )
-            # found < SCHEMA_VERSION would run migrations here. There are none
-            # to run at version 1; the branch exists so the check above is not
-            # mistaken for complete migration support.
+            elif found < SCHEMA_VERSION:
+                raise BiotimbreError(
+                    f"Database {path} has schema version {found}, but this "
+                    f"software requires version {SCHEMA_VERSION}. No "
+                    f"automatic migration is provided (schema 2 changed "
+                    f"biotimbre_id from a 4-hex-char code to a UUID). Move "
+                    f"this data_dir aside and run `biotimbre init` to start "
+                    f"a fresh library, or reinstall an older biotimbre-library "
+                    f"version to keep using this one."
+                )
 
         has_uuid = conn.execute(
             "SELECT 1 FROM schema_meta WHERE key = ?", (_UUID_KEY,)

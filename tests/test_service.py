@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
+import uuid
 
 import numpy as np
 import pytest
@@ -106,7 +107,10 @@ class TestIngestWithoutModels:
         )
         assert len(results) == 2
         assert failures == []
-        assert {r.item.biotimbre_id for r in results} == {"0000", "0001"}
+        ids = {r.item.biotimbre_id for r in results}
+        assert len(ids) == 2
+        for bid in ids:
+            uuid.UUID(bid)
 
     def test_import_directory_collects_failures(self, service, tmp_path):
         import shutil
@@ -198,11 +202,14 @@ class TestEditAndDelete:
         ).item
         old_path = service.settings.absolute_audio_path(item.audio_path)
 
-        moved = dataclasses.replace(draft_for_guyvir, biotimbre_id="00FF").validated()
+        new_id = str(uuid.uuid4())
+        moved = dataclasses.replace(
+            draft_for_guyvir, biotimbre_id=new_id
+        ).validated()
         updated = service.update_item(item.item_id, moved).item
 
-        assert updated.biotimbre_id == "00FF"
-        assert updated.audio_path == f"audio/00FF/{item.item_id}.wav"
+        assert updated.biotimbre_id == new_id
+        assert updated.audio_path == f"audio/{new_id}/{item.item_id}.wav"
         new_path = service.settings.absolute_audio_path(updated.audio_path)
         assert new_path.is_file()
         assert not old_path.exists()

@@ -18,6 +18,7 @@ only to prove they are well-formed, and exposed as real objects via properties.
 from __future__ import annotations
 
 import re
+import uuid
 from dataclasses import dataclass, field, replace
 from datetime import date as _date
 from datetime import datetime, time as _time
@@ -33,79 +34,53 @@ MIN_SPEED = 0.01
 MAX_SPEED = 100.0
 DEFAULT_SPEED = 1.0
 
-#: A biotimbre ID is a 16-bit value written as 4 uppercase hex digits.
-BIOTIMBRE_ID_PATTERN = re.compile(r"^[0-9A-F]{4}$")
-MAX_BIOTIMBRE_ID = 0xFFFF
-
 #: Taxa tags are normalised to lowercase; separators inside a tag collapse to a
 #: single space so "Orthoptera " and "orthoptera" are the same tag.
 _TAG_WHITESPACE = re.compile(r"\s+")
 
 
-def format_biotimbre_id(value: int) -> str:
-    """Render a 16-bit integer as a biotimbre ID.
+def generate_biotimbre_id() -> str:
+    """Generate a new biotimbre ID.
 
-    Args:
-        value: Integer in ``[0, 0xFFFF]``.
+    A biotimbre identifies a sound-being — a sonotype whose species identity
+    may be unknown — and is meant to mean the same thing no matter which
+    library it turns up in, so libraries can eventually be compared or merged.
+    A UUID needs no library-wide bookkeeping to stay unique, unlike the old
+    per-library-allocated 4-hex-char scheme this replaces.
 
     Returns:
-        4-character uppercase hex string, e.g. ``"00A3"``.
-
-    Raises:
-        ValidationError: If out of 16-bit range.
+        A random UUID as a canonical lowercase string.
     """
-    if not isinstance(value, int) or isinstance(value, bool):
-        raise ValidationError(
-            f"Expected an integer, got {type(value).__name__}.", "biotimbre_id"
-        )
-    if not 0 <= value <= MAX_BIOTIMBRE_ID:
-        raise ValidationError(
-            f"{value} is outside the 16-bit range 0..{MAX_BIOTIMBRE_ID}.",
-            "biotimbre_id",
-        )
-    return f"{value:04X}"
+    return str(uuid.uuid4())
 
 
-def parse_biotimbre_id(value: str | int) -> str:
+def parse_biotimbre_id(value: str) -> str:
     """Normalise a user-supplied biotimbre ID to canonical form.
 
-    Accepts an integer, or a hex string with or without a ``0x`` prefix, in any
-    case, with or without zero padding. ``"a3"``, ``"00A3"``, ``"0xa3"`` and
-    ``163`` all normalise to ``"00A3"``.
-
     Args:
-        value: The ID as supplied.
+        value: The ID as supplied, in any form :class:`uuid.UUID` accepts.
 
     Returns:
-        Canonical 4-character uppercase hex string.
+        Canonical lowercase, hyphenated UUID string.
 
     Raises:
-        ValidationError: If not a valid 16-bit hex value.
+        ValidationError: If not a valid UUID.
     """
-    if isinstance(value, int) and not isinstance(value, bool):
-        return format_biotimbre_id(value)
-
     if not isinstance(value, str):
         raise ValidationError(
-            f"Expected a hex string or integer, got {type(value).__name__}.",
-            "biotimbre_id",
+            f"Expected a string, got {type(value).__name__}.", "biotimbre_id"
         )
 
     text = value.strip()
     if not text:
         raise ValidationError("Must not be empty.", "biotimbre_id")
-    if text.lower().startswith("0x"):
-        text = text[2:]
-    if not text:
-        raise ValidationError(f"{value!r} has no digits.", "biotimbre_id")
 
     try:
-        number = int(text, 16)
+        return str(uuid.UUID(text))
     except ValueError:
         raise ValidationError(
-            f"{value!r} is not a hexadecimal number.", "biotimbre_id"
+            f"{value!r} is not a valid UUID.", "biotimbre_id"
         ) from None
-    return format_biotimbre_id(number)
 
 
 def normalize_taxa(tags: object) -> tuple[str, ...]:

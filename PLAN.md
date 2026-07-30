@@ -225,10 +225,16 @@ per D1b — no transcoding.
 
 - `item_id`: SQLite `INTEGER PRIMARY KEY AUTOINCREMENT`. Never reused, so a
   deleted item's ID does not come back.
-- `biotimbre_id`: 4 uppercase hex chars (`0000`–`FFFF`, 16-bit as specified).
-  Allocated as lowest unused value; overridable so an item can join an existing
-  biotimbre. Tracked in its own table so an ID can exist with an optional
-  human-readable label independent of its items.
+- `biotimbre_id`: a UUID (schema v2; was 4 uppercase hex chars, `0000`–`FFFF`,
+  allocated as lowest unused value within one library). A biotimbre is a
+  sound-being — a sonotype whose species identity may be unknown — and
+  libraries are meant to be shared and eventually compared or merged, so its
+  ID needs to mean the same thing regardless of which library it's found in.
+  A library-scoped code couldn't guarantee that; a UUID needs no cross-library
+  coordination to stay unique. Same approach as the library's own identity
+  (`schema_meta.library_uuid`). Still overridable so an item can join an
+  existing biotimbre, and still tracked in its own table so an ID can carry an
+  optional human-readable label independent of its items.
 
 ---
 
@@ -238,7 +244,7 @@ Single file `data/library.db`, WAL mode, foreign keys on.
 
 ```sql
 CREATE TABLE biotimbres (
-    biotimbre_id  TEXT PRIMARY KEY,          -- '0000'..'FFFF'
+    biotimbre_id  TEXT PRIMARY KEY,          -- UUID
     label         TEXT,                      -- optional human name
     created_at    TEXT NOT NULL
 );

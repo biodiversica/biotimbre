@@ -10,7 +10,7 @@ from biotimbre.domain.item import (
     ItemDraft,
     Location,
     SampleWindow,
-    format_biotimbre_id,
+    generate_biotimbre_id,
     normalize_taxa,
     parse_biotimbre_id,
 )
@@ -20,32 +20,41 @@ class TestBiotimbreId:
     @pytest.mark.parametrize(
         "value,expected",
         [
-            (0, "0000"),
-            (163, "00A3"),
-            (0xFFFF, "FFFF"),
-            ("a3", "00A3"),
-            ("00a3", "00A3"),
-            ("0xA3", "00A3"),
-            ("  ffff  ", "FFFF"),
+            (
+                "3fae2ca1-1b2a-4b8a-9c3e-1a2b3c4d5e6f",
+                "3fae2ca1-1b2a-4b8a-9c3e-1a2b3c4d5e6f",
+            ),
+            (
+                "3FAE2CA1-1B2A-4B8A-9C3E-1A2B3C4D5E6F",
+                "3fae2ca1-1b2a-4b8a-9c3e-1a2b3c4d5e6f",
+            ),
+            (
+                "  3fae2ca1-1b2a-4b8a-9c3e-1a2b3c4d5e6f  ",
+                "3fae2ca1-1b2a-4b8a-9c3e-1a2b3c4d5e6f",
+            ),
         ],
     )
     def test_accepts_and_canonicalises(self, value, expected):
         assert parse_biotimbre_id(value) == expected
 
-    @pytest.mark.parametrize("value", [-1, 0x10000, 65536])
-    def test_rejects_out_of_16_bit_range(self, value):
-        with pytest.raises(ValidationError, match="16-bit"):
-            format_biotimbre_id(value)
-
-    @pytest.mark.parametrize("value", ["", "   ", "0x", "xyz", "GGGG", "12345"])
+    @pytest.mark.parametrize(
+        "value", ["", "   ", "not-a-uuid", "00A3", "0000", "12345"]
+    )
     def test_rejects_malformed(self, value):
         with pytest.raises(ValidationError):
             parse_biotimbre_id(value)
 
-    def test_rejects_bool_masquerading_as_int(self):
-        # bool is a subclass of int; True must not become "0001".
+    def test_rejects_non_string(self):
         with pytest.raises(ValidationError):
-            parse_biotimbre_id(True)
+            parse_biotimbre_id(163)
+
+    def test_generate_returns_distinct_valid_ids(self):
+        first = generate_biotimbre_id()
+        second = generate_biotimbre_id()
+        assert first != second
+        # Round-trips through parse_biotimbre_id unchanged, i.e. is already
+        # in canonical form.
+        assert parse_biotimbre_id(first) == first
 
 
 class TestTaxa:
@@ -222,7 +231,10 @@ class TestItemDraft:
         assert self._base(biotimbre_id="   ").validated().biotimbre_id is None
 
     def test_normalises_supplied_biotimbre_id(self):
-        assert self._base(biotimbre_id="a3").validated().biotimbre_id == "00A3"
+        uid = "3FAE2CA1-1B2A-4B8A-9C3E-1A2B3C4D5E6F"
+        assert (
+            self._base(biotimbre_id=uid).validated().biotimbre_id == uid.lower()
+        )
 
     def test_blank_optional_text_becomes_none(self):
         draft = self._base(device="  ", notes="", link_to_full_recording=" ").validated()

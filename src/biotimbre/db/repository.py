@@ -19,7 +19,7 @@ from datetime import datetime, timezone
 
 import numpy as np
 
-from biotimbre.domain.errors import DuplicateError, NotFoundError, ValidationError
+from biotimbre.domain.errors import NotFoundError, ValidationError
 from biotimbre.domain.item import (
     DEFAULT_SPEED,
     FilteredBand,
@@ -27,7 +27,7 @@ from biotimbre.domain.item import (
     LibraryItem,
     Location,
     SampleWindow,
-    format_biotimbre_id,
+    generate_biotimbre_id,
     normalize_taxa,
     parse_biotimbre_id,
 )
@@ -36,8 +36,6 @@ from biotimbre.models_registry import ModelSpec
 #: float32: 4 bytes per dimension, matching numpy's default on all supported
 #: platforms. Stored little-endian; SQLite BLOBs are byte-exact round trips.
 VECTOR_DTYPE = np.float32
-
-MAX_BIOTIMBRE_COUNT = 0x10000
 
 _ITEM_COLUMNS = """
     item_id, biotimbre_id, date, time, latitude, longitude,
@@ -85,40 +83,15 @@ class Repository:
     # ── biotimbres ────────────────────────────────────────────────────────────
 
     def allocate_biotimbre_id(self) -> str:
-        """Reserve and return the lowest unused biotimbre ID.
-
-        Fills gaps left by deletions rather than always taking the next highest,
-        so a library that churns does not exhaust the 16-bit space prematurely.
+        """Reserve and return a freshly generated biotimbre ID.
 
         The row is inserted, so the ID is taken as soon as this returns. Call
         inside a transaction if the caller might roll back.
 
         Returns:
-            Canonical 4-character uppercase hex ID.
-
-        Raises:
-            DuplicateError: If all 65 536 IDs are in use.
+            A new biotimbre ID (see :func:`generate_biotimbre_id`).
         """
-        # Fixed-width uppercase hex sorts identically lexicographically and
-        # numerically ('9' < 'A' in ASCII), so ORDER BY gives ascending values.
-        used = [
-            int(row["biotimbre_id"], 16)
-            for row in self._conn.execute(
-                "SELECT biotimbre_id FROM biotimbres ORDER BY biotimbre_id"
-            )
-        ]
-        candidate = len(used)
-        for expected, actual in enumerate(used):
-            if actual != expected:
-                candidate = expected
-                break
-        if candidate >= MAX_BIOTIMBRE_COUNT:
-            raise DuplicateError(
-                f"All {MAX_BIOTIMBRE_COUNT} biotimbre IDs are in use; "
-                f"the 16-bit ID space is exhausted."
-            )
-
-        biotimbre_id = format_biotimbre_id(candidate)
+        biotimbre_id = generate_biotimbre_id()
         self._conn.execute(
             "INSERT INTO biotimbres (biotimbre_id, label, created_at) "
             "VALUES (?, NULL, ?)",
@@ -134,7 +107,7 @@ class Repository:
             label: Optional name, applied only when creating the row.
 
         Returns:
-            Canonical 4-character uppercase hex ID.
+            Canonical UUID string.
         """
         canonical = parse_biotimbre_id(biotimbre_id)
         self._conn.execute(

@@ -122,8 +122,12 @@ Other `search` options: `--metric {cosine,dot,euclidean}`, `--fusion {max,mean,M
 file the sample under the same biotimbre), `taxa` (empty means unknown), `device`,
 `filtered_band`, `noise_reduction`, `speed`, `link_to_full_recording`, `notes`.
 
-`item_id` is assigned automatically and never reused. Several items may share one
-`biotimbre_id` — same species or individual, different sound content.
+`item_id` is assigned automatically, never reused, and library-specific — just a
+row identifier. A `biotimbre` is a sound-being: a sonotype whose species identity
+may be unknown, so `biotimbre_id` is a UUID rather than a library-local counter —
+it's meant to identify the same sonotype consistently if libraries are ever
+shared or merged. Several items may share one `biotimbre_id` — same species or
+individual, different sound content.
 
 ### Sidecar files
 

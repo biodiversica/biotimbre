@@ -283,9 +283,10 @@ class TestSearchFilters:
         assert SearchFilters().is_empty is True
 
     def test_normalises_taxa_and_biotimbre_ids(self):
-        f = SearchFilters(taxa=["Insecta", "insecta"], biotimbre_ids=["a3"])
+        uid = "3FAE2CA1-1B2A-4B8A-9C3E-1A2B3C4D5E6F"
+        f = SearchFilters(taxa=["Insecta", "insecta"], biotimbre_ids=[uid])
         assert f.taxa == ("insecta",)
-        assert f.biotimbre_ids == ("00A3",)
+        assert f.biotimbre_ids == (uid.lower(),)
 
     def test_canonicalises_dates(self):
         assert SearchFilters(date_from="2020-1-5").date_from == "2020-01-05"

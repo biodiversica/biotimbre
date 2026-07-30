@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
+import uuid
 
 import numpy as np
 import pytest
@@ -40,34 +41,32 @@ class TestSchema:
 
 
 class TestBiotimbreAllocation:
-    def test_allocates_from_zero(self, repo):
-        assert repo.allocate_biotimbre_id() == "0000"
-        assert repo.allocate_biotimbre_id() == "0001"
-
-    def test_fills_gaps_left_by_deletion(self, repo):
-        for _ in range(3):
-            repo.allocate_biotimbre_id()
-        repo.connection.execute("DELETE FROM biotimbres WHERE biotimbre_id = '0001'")
-        # Reuses the gap rather than jumping to 0003, so churn does not exhaust
-        # the 16-bit space.
-        assert repo.allocate_biotimbre_id() == "0001"
-        assert repo.allocate_biotimbre_id() == "0003"
+    def test_allocates_distinct_valid_uuids(self, repo):
+        first = repo.allocate_biotimbre_id()
+        second = repo.allocate_biotimbre_id()
+        assert first != second
+        uuid.UUID(first)
+        uuid.UUID(second)
 
     def test_ensure_biotimbre_is_idempotent(self, repo):
-        assert repo.ensure_biotimbre("a3") == "00A3"
-        assert repo.ensure_biotimbre("00A3") == "00A3"
+        uid = "3FAE2CA1-1B2A-4B8A-9C3E-1A2B3C4D5E6F"
+        assert repo.ensure_biotimbre(uid) == uid.lower()
+        assert repo.ensure_biotimbre(uid.lower()) == uid.lower()
         assert len(repo.list_biotimbres()) == 1
 
     def test_label_survives_ensure(self, repo):
-        repo.ensure_biotimbre("0005", label="cicada sp.")
-        repo.ensure_biotimbre("0005", label="ignored")
+        uid = str(uuid.uuid4())
+        repo.ensure_biotimbre(uid, label="cicada sp.")
+        repo.ensure_biotimbre(uid, label="ignored")
         assert repo.list_biotimbres()[0]["label"] == "cicada sp."
 
     def test_prune_keeps_labelled_but_empty(self, repo):
-        repo.ensure_biotimbre("0001")
-        repo.ensure_biotimbre("0002", label="worth keeping")
+        empty = str(uuid.uuid4())
+        kept = str(uuid.uuid4())
+        repo.ensure_biotimbre(empty)
+        repo.ensure_biotimbre(kept, label="worth keeping")
         assert repo.prune_empty_biotimbres() == 1
-        assert [b["biotimbre_id"] for b in repo.list_biotimbres()] == ["0002"]
+        assert [b["biotimbre_id"] for b in repo.list_biotimbres()] == [kept]
 
 
 class TestItemCrud:
@@ -81,7 +80,7 @@ class TestItemCrud:
             channels=1,
         )
         assert item.item_id == 1
-        assert item.biotimbre_id == "0000"
+        uuid.UUID(item.biotimbre_id)
         assert item.duration_s == 5.0
 
     def test_two_items_can_share_a_biotimbre(self, repo, draft):

@@ -272,7 +272,7 @@ class TestAdminPageRenders:
         from biotimbre.io.sidecar import draft_from_sidecar
         from biotimbre.ui import app as ui_app  # noqa: F401
 
-        installed_state.call(
+        result = installed_state.call(
             installed_state.service.add_item,
             GUYVIR,
             draft_from_sidecar(EXAMPLES_DIR / "ZAMTYM.txt"),
@@ -287,7 +287,8 @@ class TestAdminPageRenders:
         table = next(iter(user.find(ui.table).elements))
         assert len(table.rows) == 1
         assert table.rows[0]["taxa"] == "cicadidae"
-        assert table.rows[0]["biotimbre_id"] == "0000"
+        # The table shows a truncated ID; the tooltip carries the full UUID.
+        assert table.rows[0]["biotimbre_id"] == result.item.biotimbre_id[:8]
         assert table.rows[0]["speed"] == "1"
 
     async def test_table_reports_a_speed_shifted_item(self, user: User, installed_state):

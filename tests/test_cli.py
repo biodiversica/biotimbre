@@ -110,7 +110,6 @@ class TestMetadataOnlyCommands:
         capsys.readouterr()
         assert run(data_dir, "list") == 0
         out = capsys.readouterr().out
-        assert "0000" in out
         assert "unknown" in out
 
     def test_add_with_explicit_flags(self, data_dir, capsys):

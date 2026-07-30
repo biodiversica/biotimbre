@@ -13,7 +13,7 @@ from biotimbre.domain.item import (
     LibraryItem,
     Location,
     SampleWindow,
-    format_biotimbre_id,
+    generate_biotimbre_id,
     normalize_taxa,
     parse_biotimbre_id,
 )
@@ -29,7 +29,7 @@ __all__ = [
     "NotFoundError",
     "SampleWindow",
     "ValidationError",
-    "format_biotimbre_id",
+    "generate_biotimbre_id",
     "normalize_taxa",
     "parse_biotimbre_id",
 ]

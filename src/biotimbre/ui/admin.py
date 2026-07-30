@@ -521,7 +521,7 @@ async def _items_table(t: Translator, container, on_changed) -> None:
         rows = [
             {
                 "item_id": item.item_id,
-                "biotimbre_id": item.biotimbre_id,
+                "biotimbre_id": item.biotimbre_id[:8],
                 "taxa": item.taxa_display,
                 "date": f"{item.date} {item.time}",
                 "duration": f"{item.duration_s:.2f}",

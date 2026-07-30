@@ -121,9 +121,9 @@ def _result_card(t: Translator, hit: SearchHit, rank: int) -> None:
                         "text-lg font-medium tabular-nums"
                     )
                     ui.label(item.taxa_display).classes("text-sm")
-                    ui.label(item.biotimbre_id).classes(
+                    ui.label(item.biotimbre_id[:8]).classes(
                         "font-mono text-xs px-2 py-0.5 rounded bg-chip"
-                    )
+                    ).tooltip(item.biotimbre_id)
                 with ui.row().classes("gap-3 text-xs text-muted flex-wrap"):
                     ui.label(f"#{item.item_id}")
                     ui.label(f"{item.date} {item.time}")

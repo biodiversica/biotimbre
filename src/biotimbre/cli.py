@@ -186,15 +186,16 @@ def cmd_list(args: argparse.Namespace) -> int:
         if not items:
             print("Library is empty.")
             return 0
-        print(f"{'id':>5}  {'btid':<6} {'date':<10} {'time':<8} "
+        print(f"{'id':>5}  {'btid':<8} {'date':<10} {'time':<8} "
               f"{'dur':>6}  {'speed':>5}  taxa")
         for item in items:
             print(
-                f"{item.item_id:>5}  {item.biotimbre_id:<6} {item.date:<10} "
+                f"{item.item_id:>5}  {item.biotimbre_id[:8]:<8} {item.date:<10} "
                 f"{item.time:<8} {item.duration_s:>5.1f}s  {item.speed:>5g}  "
                 f"{item.taxa_display}"
             )
-        print(f"\n{len(items)} item(s) shown.")
+        print(f"\n{len(items)} item(s) shown. biotimbre IDs shown truncated; "
+              f"see `show ITEM_ID` for the full ID.")
     return 0
 
 
