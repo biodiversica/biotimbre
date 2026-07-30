@@ -405,25 +405,37 @@ async def render(t: Translator) -> None:
                     ui.audio(state.query_audio_url(query.token)).classes("grow")
 
         async def handle_upload(event) -> None:
-            data = event.content.read()
+            # event.file is a NiceGUI FileUpload: .name plus async read()/save().
+            # Streamed to disk, since a query may be a long recording from which
+            # only a 15 s segment is searched.
             try:
-                token = await state.run(state.queries.add, event.name, data)
-                path = state.queries.path(token)
-                properties = await state.run(audio_io.read_properties, path)
+                token, target = state.queries.reserve(event.file.name)
+                await event.file.save(target)
+                properties = await state.run(audio_io.read_properties, target)
             except BiotimbreError as exc:
                 notify_error(t, exc)
                 return
+            except Exception as exc:  # noqa: BLE001
+                # Surfaced, not just logged: a silently inert button is how the
+                # event.content/event.file API change went unnoticed.
+                notify_error(t, exc)
+                raise
 
             query.token = token
-            query.name = event.name
+            query.name = event.file.name
             query.properties = properties
             query.start = 0.0
             query.end = min(properties.duration_s, cap)
             draw_query()
 
+        def handle_rejected(_event) -> None:
+            """Report a file the browser refused, e.g. wrong type or too large."""
+            ui.notify(t("search.no_query"), type="warning", position="top")
+
         ui.upload(
             label=t("search.upload"),
             on_upload=handle_upload,
+            on_rejected=handle_rejected,
             auto_upload=True,
             max_files=1,
         ).props(f'accept="{ACCEPTED}" flat bordered').classes("w-full")

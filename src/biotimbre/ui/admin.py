@@ -54,8 +54,44 @@ class AddState:
         default_factory=lambda: Path(tempfile.mkdtemp(prefix="biotimbre-upload-"))
     )
 
+    def begin(self, name: str) -> Path:
+        """Discard any previous upload and return where the new one should go.
+
+        Split from :meth:`finish` so the caller can stream the file to disk rather
+        than holding it in memory — a query or sample can be a long recording, and
+        an hour at 96 kHz is hundreds of megabytes.
+
+        Args:
+            name: Original filename. Only its basename is used, so an upload name
+                cannot escape the staging directory.
+
+        Returns:
+            The path to write to.
+        """
+        self.discard()
+        return self.directory / Path(name).name
+
+    def finish(self, path: Path, name: str) -> Upload:
+        """Record a staged file after it has been written.
+
+        Args:
+            path: Where the file was written, from :meth:`begin`.
+            name: Original filename, for display.
+
+        Returns:
+            The staged :class:`Upload`.
+
+        Raises:
+            ValidationError: If the file is not decodable audio.
+        """
+        # Read properties now so an unusable file is rejected at upload time
+        # rather than after the user has filled in the whole form.
+        properties = audio_io.read_properties(path)
+        self.upload = Upload(path=path, name=name, properties=properties)
+        return self.upload
+
     def replace(self, name: str, data: bytes) -> Upload:
-        """Store an uploaded file, discarding any previous one.
+        """Stage a file from bytes. Convenience for callers holding the content.
 
         Args:
             name: Original filename.
@@ -67,14 +103,9 @@ class AddState:
         Raises:
             ValidationError: If the bytes are not decodable audio.
         """
-        self.discard()
-        target = self.directory / Path(name).name
+        target = self.begin(name)
         target.write_bytes(data)
-        # Read properties now so an unusable file is rejected at upload time
-        # rather than after the user has filled in the whole form.
-        properties = audio_io.read_properties(target)
-        self.upload = Upload(path=target, name=name, properties=properties)
-        return self.upload
+        return self.finish(target, name)
 
     def discard(self) -> None:
         """Delete the staged file, if any."""
@@ -145,12 +176,22 @@ def _add_card(t: Translator, on_added) -> None:
             ui.label(t("admin.no_file")).classes("text-sm text-slate-500")
 
         async def handle_upload(event) -> None:
+            # event.file is a NiceGUI FileUpload: .name plus async read()/save().
+            # Streamed to disk rather than read into memory, since a sample can be
+            # a long recording.
             try:
-                data = event.content.read()
-                upload = await state.run(add_state.replace, event.name, data)
+                target = add_state.begin(event.file.name)
+                await event.file.save(target)
+                upload = await state.run(add_state.finish, target, event.file.name)
             except BiotimbreError as exc:
                 notify_error(t, exc)
                 return
+            except Exception as exc:  # noqa: BLE001
+                # Anything unexpected must reach the user. A handler that only
+                # logged left the button silently inert, which is how the
+                # event.content/event.file API change went unnoticed.
+                notify_error(t, exc)
+                raise
 
             props = upload.properties
             preview.clear()
@@ -171,9 +212,14 @@ def _add_card(t: Translator, on_added) -> None:
                 except BiotimbreError as exc:
                     notify_error(t, exc)
 
+        def handle_rejected(_event) -> None:
+            """Report a file the browser refused, e.g. wrong type or too large."""
+            ui.notify(t("error.no_audio"), type="warning", position="top")
+
         ui.upload(
             label=t("admin.upload"),
             on_upload=handle_upload,
+            on_rejected=handle_rejected,
             auto_upload=True,
             max_files=1,
         ).props(f'accept="{ACCEPTED}" flat bordered').classes("w-full")

@@ -56,26 +56,40 @@ class QueryStore:
         self._paths: OrderedDict[str, Path] = OrderedDict()
         self._directory = Path(tempfile.mkdtemp(prefix="biotimbre-query-"))
 
-    def add(self, name: str, data: bytes) -> str:
-        """Stage a query file and return its token.
+    def reserve(self, name: str) -> tuple[str, Path]:
+        """Allocate a token and a path to write to, evicting the oldest entry.
+
+        Split from writing so a caller can stream an upload straight to disk
+        instead of holding it in memory — a query may be a long recording.
 
         Args:
-            name: Original filename, used only for its extension and basename.
-            data: File bytes.
+            name: Original filename. Only its basename is used, so a
+                caller-controlled name cannot escape the staging directory.
 
         Returns:
-            An opaque token for :meth:`path`.
+            The token and the path to write.
         """
         token = secrets.token_urlsafe(16)
-        # Basename only: an upload name is caller-controlled and must not be able
-        # to escape the staging directory.
         target = self._directory / f"{token}_{Path(name).name}"
-        target.write_bytes(data)
         self._paths[token] = target
 
         while len(self._paths) > self.MAX_ENTRIES:
             _, stale = self._paths.popitem(last=False)
             stale.unlink(missing_ok=True)
+        return token, target
+
+    def add(self, name: str, data: bytes) -> str:
+        """Stage a query file from bytes and return its token.
+
+        Args:
+            name: Original filename.
+            data: File bytes.
+
+        Returns:
+            An opaque token for :meth:`path`.
+        """
+        token, target = self.reserve(name)
+        target.write_bytes(data)
         return token
 
     def path(self, token: str) -> Path | None:
