@@ -92,19 +92,33 @@ class Settings:
     def relative_audio_path(self, path: Path) -> str:
         """Convert an absolute audio path to the form stored in the database.
 
-        Stored paths are relative to :attr:`data_dir` with forward slashes, so a
-        library directory stays portable across machines and platforms.
+        Paths inside :attr:`data_dir` are stored **relative** to it, so the whole
+        library is portable: move or rename the directory and every reference
+        still resolves.
+
+        A path outside :attr:`data_dir` is stored absolute. That happens when
+        :attr:`audio_dir` is deliberately configured elsewhere — a database on
+        fast local storage with audio on a large external drive, say. Those rows
+        are no longer portable, which is the trade the configuration asked for;
+        the alternative was failing at ingest with an opaque error.
 
         Args:
-            path: Absolute path inside :attr:`data_dir`.
+            path: Absolute path to a stored audio file.
 
         Returns:
-            POSIX-style relative path.
+            POSIX-style path, relative where possible.
         """
-        return path.resolve().relative_to(self.data_dir.resolve()).as_posix()
+        resolved = path.resolve()
+        try:
+            return resolved.relative_to(self.data_dir.resolve()).as_posix()
+        except ValueError:
+            return resolved.as_posix()
 
     def absolute_audio_path(self, stored: str) -> Path:
         """Inverse of :meth:`relative_audio_path`.
+
+        Works for both forms: joining an absolute stored path onto
+        :attr:`data_dir` yields the stored path unchanged.
 
         Args:
             stored: Path as held in ``items.audio_path``.
