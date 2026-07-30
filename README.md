@@ -255,6 +255,13 @@ surface = "#f1f5f9"            # stat-tile backgrounds on the admin page
 chip = "#e2e8f0"                # small id-badge backgrounds
 marker_border = "rgba(255, 255, 255, 0.8)"  # matched-window box on a spectrogram
 marker_fill = "rgba(255, 255, 255, 0.25)"
+
+# Recolours the spectrogram images themselves, not a GUI widget. Evenly spaced
+# #rrggbb stops from quiet (first) to loud (last); at least 2 required. Keep
+# the ramp monotonically brighter so intensity still reads for colour-blind
+# viewers. Shown values are the default dark-blue -> magenta -> orange -> pale
+# yellow ramp.
+spectrogram_colors = ["#0c0826", "#400c60", "#941a60", "#de5234", "#fca83c", "#fff4c8"]
 ```
 
 ## Development

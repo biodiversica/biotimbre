@@ -130,7 +130,10 @@ def _spectrogram_of(path: Path, *, width: int = 860, height: int = 170) -> str:
     path-addressable endpoint for arbitrary temp files would undo the property
     that requests can only name items.
     """
-    return render_spectrogram(path, width=width, height=height).data_uri()
+    colors = get_state().settings.theme.spectrogram_colors
+    return render_spectrogram(
+        path, width=width, height=height, colors=colors
+    ).data_uri()
 
 
 def _stat_tile(label: str, value: str) -> None:

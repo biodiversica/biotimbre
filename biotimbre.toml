@@ -32,3 +32,4 @@ surface = "#eef1e6"
 chip = "#dde4d1"
 marker_border = "rgba(252, 254, 229, 0.8)"
 marker_fill = "rgba(252, 254, 229, 0.25)"
+# spectrogram_colors = ["#0c0826", "#400c60", "#941a60", "#de5234", "#fca83c", "#fff4c8"]

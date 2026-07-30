@@ -16,6 +16,7 @@ beneath it lines up and a matched window can be marked at the right place.
 from __future__ import annotations
 
 import io
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -40,6 +41,44 @@ PALETTE_COLOURS = 64
 #: a lot of low-level noise; 70 dB keeps faint calls visible without rendering
 #: the noise floor as signal.
 DEFAULT_DYNAMIC_RANGE_DB = 70.0
+
+#: Default colour ramp: dark blue -> magenta -> orange -> pale yellow, evenly
+#: spaced from quiet to loud. Brightness rises monotonically throughout, so
+#: intensity reads correctly even in greyscale or for colour-blind viewers —
+#: a custom ramp should keep that property.
+DEFAULT_SPECTROGRAM_COLORS = (
+    "#0c0826",
+    "#400c60",
+    "#941a60",
+    "#de5234",
+    "#fca83c",
+    "#fff4c8",
+)
+
+
+def _hex_to_rgb(color: str) -> tuple[int, int, int]:
+    """Parse a ``#rrggbb`` string into an ``(r, g, b)`` tuple.
+
+    Args:
+        color: Colour as ``#rrggbb``.
+
+    Returns:
+        The three channel values, 0-255.
+
+    Raises:
+        ValidationError: If the string isn't a 6-digit hex colour.
+    """
+    value = color.strip().lstrip("#")
+    if len(value) != 6:
+        raise ValidationError(
+            f"Spectrogram colour must be #rrggbb, got {color!r}.", "colors"
+        )
+    try:
+        return tuple(int(value[i : i + 2], 16) for i in (0, 2, 4))
+    except ValueError as exc:
+        raise ValidationError(
+            f"Spectrogram colour must be #rrggbb, got {color!r}.", "colors"
+        ) from exc
 
 #: FFT size at 32 kHz, scaled for other rates so frequency resolution stays
 #: roughly constant regardless of the file's sample rate.
@@ -203,35 +242,38 @@ def _levels(
     return floor, top
 
 
-def _colourise(decibels: np.ndarray, dynamic_range_db: float) -> np.ndarray:
-    """Map dB values to RGB using a perceptually monotonic dark-to-bright ramp.
+def _colourise(
+    decibels: np.ndarray,
+    dynamic_range_db: float,
+    colors: Sequence[str] = DEFAULT_SPECTROGRAM_COLORS,
+) -> np.ndarray:
+    """Map dB values to RGB using a colour ramp from quiet to loud.
 
     A monotonic ramp matters: with a non-monotonic palette, two very different
     intensities can render as similar colours and a faint call becomes ambiguous.
+    That property is the caller's responsibility when overriding ``colors``.
 
     Args:
         decibels: ``(height, width)`` dB array.
         dynamic_range_db: Largest dB window to display. See :func:`_levels`.
+        colors: Ramp stops as ``#rrggbb`` strings, evenly spaced from quiet
+            (index 0) to loud (last index). At least two are required.
 
     Returns:
         A ``(height, width, 3)`` uint8 array.
+
+    Raises:
+        ValidationError: If fewer than two colours are given, or one isn't
+            ``#rrggbb``.
     """
+    if len(colors) < 2:
+        raise ValidationError(
+            f"Spectrogram needs at least 2 colours, got {len(colors)}.", "colors"
+        )
     floor, top = _levels(decibels, dynamic_range_db)
     normalised = np.clip((decibels - floor) / max(1e-6, top - floor), 0.0, 1.0)
 
-    # Dark blue -> magenta -> orange -> pale yellow. Brightness rises throughout,
-    # so intensity reads correctly even in greyscale or for colour-blind viewers.
-    stops = np.array(
-        [
-            [12, 8, 38],
-            [64, 12, 96],
-            [148, 26, 96],
-            [222, 82, 52],
-            [252, 168, 60],
-            [255, 244, 200],
-        ],
-        dtype=np.float32,
-    )
+    stops = np.array([_hex_to_rgb(color) for color in colors], dtype=np.float32)
     positions = np.linspace(0.0, 1.0, len(stops))
     flat = normalised.ravel()
     rgb = np.stack(
@@ -276,6 +318,7 @@ def render_spectrogram(
     width: int = DEFAULT_WIDTH,
     height: int = DEFAULT_HEIGHT,
     dynamic_range_db: float = DEFAULT_DYNAMIC_RANGE_DB,
+    colors: Sequence[str] = DEFAULT_SPECTROGRAM_COLORS,
 ) -> Spectrogram:
     """Render an audio file, or part of it, as a spectrogram image.
 
@@ -287,6 +330,7 @@ def render_spectrogram(
         width: Image width in pixels.
         height: Image height in pixels.
         dynamic_range_db: dB below the peak to display.
+        colors: Colour ramp from quiet to loud. See :func:`_colourise`.
 
     Returns:
         The rendered :class:`Spectrogram`.
@@ -324,7 +368,7 @@ def render_spectrogram(
 
     decibels = _magnitude_db(samples, sample_rate, width, height)
     # Flip so low frequencies sit at the bottom of the image, as convention has it.
-    rgb = _colourise(decibels, dynamic_range_db)[::-1]
+    rgb = _colourise(decibels, dynamic_range_db, colors)[::-1]
 
     return Spectrogram(
         png=_encode_png(rgb),

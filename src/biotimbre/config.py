@@ -57,6 +57,12 @@ class Theme:
     query cap"), ``surface`` (stat-tile backgrounds), ``chip`` (small
     id-badge backgrounds), and ``marker_border``/``marker_fill`` (the
     highlighted time-window box drawn over a search result's spectrogram).
+
+    ``spectrogram_colors`` recolours the spectrogram images themselves
+    (:func:`biotimbre.viz.render_spectrogram`), not a GUI widget — evenly
+    spaced ``#rrggbb`` stops from quiet to loud; at least 2 required, and
+    the ramp should stay monotonically brighter so intensity still reads
+    correctly for colour-blind viewers.
     """
 
     primary: str = "#118b50"
@@ -85,6 +91,17 @@ class Theme:
     chip: str = "#e2e8f0"
     marker_border: str = "rgba(255, 255, 255, 0.8)"
     marker_fill: str = "rgba(255, 255, 255, 0.25)"
+    #: Spectrogram colour ramp, quiet to loud. Must stay in sync with
+    #: :data:`biotimbre.viz.DEFAULT_SPECTROGRAM_COLORS` — duplicated rather than
+    #: imported so loading settings doesn't require the viz/PIL stack.
+    spectrogram_colors: tuple[str, ...] = (
+        "#0c0826",
+        "#400c60",
+        "#941a60",
+        "#de5234",
+        "#fca83c",
+        "#fff4c8",
+    )
 
 
 @dataclass(frozen=True)
@@ -301,12 +318,20 @@ def load_settings(
             f"Expected one of {', '.join(SUPPORTED_LANGUAGES)}."
         )
 
-    theme_section = ui.get("theme", {})
+    theme_section = dict(ui.get("theme", {}))
     unknown_theme_keys = set(theme_section) - set(Theme.__dataclass_fields__)
     if unknown_theme_keys:
         raise ValueError(
             f"Unknown ui.theme key(s): {', '.join(sorted(unknown_theme_keys))}."
         )
+    if "spectrogram_colors" in theme_section:
+        colors = tuple(theme_section["spectrogram_colors"])
+        if len(colors) < 2:
+            raise ValueError(
+                "ui.theme.spectrogram_colors needs at least 2 colours, "
+                f"got {len(colors)}."
+            )
+        theme_section["spectrogram_colors"] = colors
     theme = Theme(**theme_section)
 
     search = raw.get("search", {})

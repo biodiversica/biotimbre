@@ -78,6 +78,7 @@ def register(app) -> None:
                 end_time=end,
                 width=width,
                 height=height,
+                colors=state.settings.theme.spectrogram_colors,
             )
         except NotFoundError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -131,6 +132,7 @@ def register(app) -> None:
                 end_time=end,
                 width=width,
                 height=height,
+                colors=state.settings.theme.spectrogram_colors,
             )
         except BiotimbreError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
