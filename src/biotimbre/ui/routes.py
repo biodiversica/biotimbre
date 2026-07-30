@@ -90,6 +90,57 @@ def register(app) -> None:
             headers={"Cache-Control": "public, max-age=86400, immutable"},
         )
 
+    @app.get("/media/query/{token}")
+    async def query_audio(token: str):
+        """Stream a staged query file by token.
+
+        Tokens are opaque and registry-backed, so an unknown one is a 404 rather
+        than a chance to name a path.
+        """
+        state = get_state()
+        path = state.queries.path(token)
+        if path is None:
+            raise HTTPException(status_code=404, detail="Unknown query token.")
+        return FileResponse(
+            path,
+            media_type="audio/wav",
+            headers={"Cache-Control": "private, max-age=3600"},
+        )
+
+    @app.get("/media/query/{token}/spectrogram")
+    async def query_spectrogram(
+        token: str,
+        w: int = DEFAULT_WIDTH,
+        h: int = DEFAULT_HEIGHT,
+        start: float | None = None,
+        end: float | None = None,
+    ):
+        """Render a staged query file's spectrogram."""
+        state = get_state()
+        path = state.queries.path(token)
+        if path is None:
+            raise HTTPException(status_code=404, detail="Unknown query token.")
+
+        width = max(MIN_DIMENSION, min(MAX_WIDTH, w))
+        height = max(MIN_DIMENSION, min(MAX_HEIGHT, h))
+        try:
+            image = await state.run(
+                render_spectrogram,
+                path,
+                start_time=start,
+                end_time=end,
+                width=width,
+                height=height,
+            )
+        except BiotimbreError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        return Response(
+            content=image.png,
+            media_type="image/png",
+            headers={"Cache-Control": "private, max-age=3600"},
+        )
+
     @app.get("/media/status")
     async def status():
         """Model warm-up state, polled by the page while models load."""

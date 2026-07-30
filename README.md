@@ -43,6 +43,18 @@ duplicate-audio notice, and any Nyquist advisory are shown together.
 Editing warns before saving when you change `speed`, since that recomputes the
 item's embeddings.
 
+The **Search** page takes a query recording, shows its spectrogram, and returns
+ranked matches. Each result carries its own player with the matched window marked
+on its spectrogram, the per-model score breakdown, distance from a location
+filter's centre, and the speed the query was embedded at. The query stays playable
+at the top so you can judge matches by ear, A against B — which is the point, since
+a similarity score is a claim you have to verify.
+
+For a recording longer than the 15 s limit, a range slider over the spectrogram
+picks the segment; dragging past 15 s moves the opposite edge rather than refusing
+the drag. Filters are applied before scoring, and re-running with different filters
+reuses the cached query embeddings, so it returns immediately.
+
 Models load in the background at startup, so the page is usable immediately and
 the header reports progress; on the first run that includes a ~70 MB download.
 

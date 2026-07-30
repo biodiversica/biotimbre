@@ -5,9 +5,9 @@ sample files in `input_example/`, the legacy `../templates/` library, and the
 Auricularia prototype (used as a reference only — **no dependency on its
 packages**).
 
-Status: **phases 1–5 complete** (library core + CLI, 387 tests). Phases 6–9
-(GUI, i18n, public endpoint) not started. Findings from the build are recorded
-in §8, and post-build decisions in §9.
+Status: **phases 1–8 complete** (library core, CLI, both GUI pages, EN/pt-BR;
+502 tests). Phase 9 (public read-only endpoint) not started. Findings from the
+build are recorded in §8, and post-build decisions in §9.
 
 ---
 

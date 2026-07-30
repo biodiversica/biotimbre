@@ -1,22 +1,21 @@
 """NiceGUI application: page registration and server startup.
 
-The two pages proper arrive with phases 6 and 7. What is here now is the frame
-they hang from — shared layout, working navigation and language switching, the
-media routes, and models warmed in the background — plus enough content on each
-page to prove those parts function end to end.
+The two pages live in :mod:`biotimbre.ui.admin` and :mod:`biotimbre.ui.search`;
+this module wires them to routes and starts the server. Both are imported lazily
+inside their page function so importing this module does not drag in the whole
+interface.
 """
 
 from __future__ import annotations
 
 import secrets
-from pathlib import Path
 
 from nicegui import app, ui
 
 from biotimbre.config import Settings, load_settings
 from biotimbre.ui import routes
 from biotimbre.ui.layout import page
-from biotimbre.ui.state import AppState, get_state, set_state
+from biotimbre.ui.state import AppState, set_state
 
 #: Default bind address. Loopback, because this is a local library: exposing it
 #: is a deliberate act, not a default (PLAN.md D5/phase 9).
@@ -35,17 +34,11 @@ async def admin_page() -> None:
 
 @ui.page("/search")
 async def search_page() -> None:
-    """Search page. Query input and results arrive in phase 7."""
-    with page("search") as t:
-        ui.label(t("search.heading")).classes("text-xl font-medium")
-        ui.label(
-            t("search.upload_hint", seconds=f"{get_state().settings.max_query_duration_s:g}")
-        ).classes("text-sm text-slate-600")
-        ui.label(t("search.filters_hint")).classes("text-xs text-slate-500")
+    """Search page: query, filters, and ranked results with players."""
+    from biotimbre.ui import search
 
-        state = get_state()
-        if not state.models.ready:
-            ui.label(t("app.loading_models_hint")).classes("text-amber-700 text-sm")
+    with page("search") as t:
+        await search.render(t)
 
 
 def create_app(settings: Settings | None = None) -> AppState:

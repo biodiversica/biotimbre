@@ -19,7 +19,11 @@ worker thread while holding a lock.
 from __future__ import annotations
 
 import asyncio
+import secrets
+import shutil
+import tempfile
 import threading
+from collections import OrderedDict
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -31,6 +35,60 @@ from biotimbre.embeddings.extractor import ExtractorPool
 from biotimbre.service import LibraryService
 
 T = TypeVar("T")
+
+
+class QueryStore:
+    """Staged query files, addressable by opaque token.
+
+    A query is an upload, so it has no item ID, and a route is needed anyway
+    because a WAV is far too large to inline as a data URI. Serving by token
+    rather than by path preserves the property that a request can never name a
+    filesystem location: an unknown token is simply a 404.
+
+    Tokens are bounded in number so a long session cannot accumulate uploads
+    indefinitely; the oldest is evicted and its file removed.
+    """
+
+    #: Staged queries kept before the oldest is dropped.
+    MAX_ENTRIES = 8
+
+    def __init__(self) -> None:
+        self._paths: OrderedDict[str, Path] = OrderedDict()
+        self._directory = Path(tempfile.mkdtemp(prefix="biotimbre-query-"))
+
+    def add(self, name: str, data: bytes) -> str:
+        """Stage a query file and return its token.
+
+        Args:
+            name: Original filename, used only for its extension and basename.
+            data: File bytes.
+
+        Returns:
+            An opaque token for :meth:`path`.
+        """
+        token = secrets.token_urlsafe(16)
+        # Basename only: an upload name is caller-controlled and must not be able
+        # to escape the staging directory.
+        target = self._directory / f"{token}_{Path(name).name}"
+        target.write_bytes(data)
+        self._paths[token] = target
+
+        while len(self._paths) > self.MAX_ENTRIES:
+            _, stale = self._paths.popitem(last=False)
+            stale.unlink(missing_ok=True)
+        return token
+
+    def path(self, token: str) -> Path | None:
+        """Resolve a token to its staged file, or ``None`` if unknown."""
+        path = self._paths.get(token)
+        return path if path is not None and path.is_file() else None
+
+    def clear(self) -> None:
+        """Remove every staged file."""
+        for path in self._paths.values():
+            path.unlink(missing_ok=True)
+        self._paths.clear()
+        shutil.rmtree(self._directory, ignore_errors=True)
 
 
 @dataclass
@@ -76,6 +134,7 @@ class AppState:
             self.settings, connection=self._connection, pool=self.pool
         )
         self.models = ModelStatus()
+        self.queries = QueryStore()
 
     # ── concurrency ───────────────────────────────────────────────────────────
 
@@ -146,6 +205,10 @@ class AppState:
         """URL of an item's audio, served through the access-controlled route."""
         return f"/media/audio/{item_id}"
 
+    def query_audio_url(self, token: str) -> str:
+        """URL of a staged query file, by token."""
+        return f"/media/query/{token}"
+
     def spectrogram_url(
         self,
         item_id: int,
@@ -169,8 +232,9 @@ class AppState:
         return f"/media/spectrogram/{item_id}{suffix}"
 
     def close(self) -> None:
-        """Release models and the database connection."""
+        """Release models, staged queries and the database connection."""
         with self._lock:
+            self.queries.clear()
             self.service.close()
             self.pool.close()
             self._connection.close()

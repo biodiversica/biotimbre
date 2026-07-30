@@ -145,7 +145,17 @@
     "distance": "{km} km from the search centre",
     "indexed_at_speed": "Indexed at speed {speed}",
     "query_speed_note": "Matched using the query embedded at speed {speed}.",
-    "cache_note": "Query embeddings are reused, so changing filters is instant."
+    "cache_note": "Query embeddings are reused, so changing filters is instant.",
+    "play_query": "Query",
+    "min_score": "Minimum score",
+    "open_item": "Open in library",
+    "whole_file": "Whole file ({duration} s)",
+    "needs_segment": "Longer than {seconds} s — choose a segment to search with.",
+    "no_query": "Choose a recording to search with.",
+    "chosen": "{name} — {duration} s, {rate} Hz",
+    "rank": "#",
+    "compare_hint": "Play the query, then each result, to judge the match by ear.",
+    "marker_hint": "The lighter band marks the window that produced the score."
   },
   "error": {
     "generic": "Something went wrong: {message}",

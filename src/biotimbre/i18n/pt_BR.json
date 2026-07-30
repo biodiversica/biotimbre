@@ -145,7 +145,17 @@
     "distance": "{km} km do centro da busca",
     "indexed_at_speed": "Indexado na velocidade {speed}",
     "query_speed_note": "Correspondência usando a busca calculada na velocidade {speed}.",
-    "cache_note": "Os embeddings da busca são reaproveitados, então mudar filtros é instantâneo."
+    "cache_note": "Os embeddings da busca são reaproveitados, então mudar filtros é instantâneo.",
+    "play_query": "Busca",
+    "min_score": "Pontuação mínima",
+    "open_item": "Abrir na biblioteca",
+    "whole_file": "Arquivo inteiro ({duration} s)",
+    "needs_segment": "Mais longo que {seconds} s — escolha um trecho para buscar.",
+    "no_query": "Escolha uma gravação para buscar.",
+    "chosen": "{name} — {duration} s, {rate} Hz",
+    "rank": "#",
+    "compare_hint": "Reproduza a busca e depois cada resultado para julgar a correspondência de ouvido.",
+    "marker_hint": "A faixa mais clara marca a janela que gerou a pontuação."
   },
   "error": {
     "generic": "Algo deu errado: {message}",
