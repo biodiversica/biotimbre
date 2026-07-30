@@ -14,15 +14,25 @@ Two pragmas matter and are set on every connection:
 from __future__ import annotations
 
 import sqlite3
+import uuid
+from dataclasses import dataclass
 from importlib import resources
 from pathlib import Path
 
-from biotimbre.domain.errors import BiotimbreError
+from biotimbre.domain.errors import BiotimbreError, ValidationError
 
 #: Bumped whenever schema.sql changes in a way that needs a migration.
 SCHEMA_VERSION = 1
 
 _SCHEMA_KEY = "schema_version"
+
+#: schema_meta keys for the library's identity. The UUID is generated once, on
+#: first initialize(), and never changes — it is what lets two copies of a
+#: shared library (e.g. after a directory copy) be recognised as the same
+#: library. The name has no default: it is unset until a caller explicitly
+#: sets one, since "must be set" is only meaningful if nothing invents one.
+_UUID_KEY = "library_uuid"
+_NAME_KEY = "library_name"
 
 
 def _schema_sql() -> str:
@@ -125,6 +135,15 @@ def initialize(
             # found < SCHEMA_VERSION would run migrations here. There are none
             # to run at version 1; the branch exists so the check above is not
             # mistaken for complete migration support.
+
+        has_uuid = conn.execute(
+            "SELECT 1 FROM schema_meta WHERE key = ?", (_UUID_KEY,)
+        ).fetchone()
+        if has_uuid is None:
+            conn.execute(
+                "INSERT INTO schema_meta (key, value) VALUES (?, ?)",
+                (_UUID_KEY, str(uuid.uuid4())),
+            )
         conn.commit()
     except BiotimbreError:
         conn.close()
@@ -133,3 +152,58 @@ def initialize(
         conn.close()
         raise BiotimbreError(f"Could not initialise schema in {path}: {exc}") from exc
     return conn
+
+
+@dataclass(frozen=True)
+class LibraryIdentity:
+    """A library's stable identity, distinct from where it happens to sit.
+
+    Attributes:
+        uuid: Generated once by :func:`initialize` and never changed —
+            stable across renames, moves, and directory copies, so a shared
+            library keeps one identity no matter how many copies exist.
+        name: Human-readable name. ``None`` until :func:`set_library_name`
+            is called — there is no invented default (e.g. the folder name),
+            since a name that nobody chose is not a useful identity.
+    """
+
+    uuid: str
+    name: str | None
+
+
+def get_library_identity(conn: sqlite3.Connection) -> LibraryIdentity:
+    """Read the library's UUID and name.
+
+    Args:
+        conn: An initialised connection (see :func:`initialize`).
+
+    Returns:
+        The current :class:`LibraryIdentity`.
+    """
+    rows = conn.execute(
+        "SELECT key, value FROM schema_meta WHERE key IN (?, ?)",
+        (_UUID_KEY, _NAME_KEY),
+    ).fetchall()
+    values = {row["key"]: row["value"] for row in rows}
+    return LibraryIdentity(uuid=values[_UUID_KEY], name=values.get(_NAME_KEY))
+
+
+def set_library_name(conn: sqlite3.Connection, name: str) -> None:
+    """Set (or rename) the library's name.
+
+    Args:
+        conn: An initialised connection.
+        name: The new name. Must be non-empty.
+
+    Raises:
+        ValidationError: If ``name`` is empty or all whitespace.
+    """
+    name = name.strip()
+    if not name:
+        raise ValidationError("Library name must not be empty.", "name")
+    conn.execute(
+        "INSERT INTO schema_meta (key, value) VALUES (?, ?) "
+        "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        (_NAME_KEY, name),
+    )
+    conn.commit()

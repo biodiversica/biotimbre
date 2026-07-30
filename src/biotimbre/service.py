@@ -25,7 +25,12 @@ from pathlib import Path
 import numpy as np
 
 from biotimbre.config import Settings, load_settings
-from biotimbre.db.connection import initialize
+from biotimbre.db.connection import (
+    LibraryIdentity,
+    get_library_identity,
+    initialize,
+    set_library_name,
+)
 from biotimbre.db.repository import Repository
 from biotimbre.domain.errors import (
     BiotimbreError,
@@ -196,6 +201,27 @@ class LibraryService:
         except Exception:
             self._conn.rollback()
             raise
+
+    # ── identity ──────────────────────────────────────────────────────────────
+
+    def identity(self) -> LibraryIdentity:
+        """The library's UUID and name (name is ``None`` until set)."""
+        return get_library_identity(self._conn)
+
+    def rename(self, name: str) -> LibraryIdentity:
+        """Set or change the library's name.
+
+        Args:
+            name: The new name. Must be non-empty.
+
+        Returns:
+            The updated :class:`LibraryIdentity`.
+
+        Raises:
+            ValidationError: If ``name`` is empty or all whitespace.
+        """
+        set_library_name(self._conn, name)
+        return self.identity()
 
     # ── models ────────────────────────────────────────────────────────────────
 

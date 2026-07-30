@@ -85,7 +85,7 @@ class TestCompleteness:
 class TestTranslator:
     def test_translates(self):
         assert Translator("en")("app.nav.search") == "Search"
-        assert Translator("pt_BR")("app.nav.search") == "Busca"
+        assert Translator("pt_BR")("app.nav.search") == "Ferramenta de busca"
 
     def test_substitutes_fields(self):
         text = Translator("en")("admin.saved", item_id=7, biotimbre_id="00A3")

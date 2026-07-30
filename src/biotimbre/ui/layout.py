@@ -106,8 +106,19 @@ def page(active: str):
     ui.query("body").style(f"background: {theme.page_bg}; color: {theme.text}")
 
     with ui.header().classes(
-        "items-center justify-between px-4 py-2 shadow-sm"
+        "relative items-center justify-between px-4 py-2 shadow-sm"
     ).style(f"background: {theme.header_bg}"):
+        identity = get_state().service.identity()
+        with ui.row().classes(
+            "absolute left-1/2 items-baseline gap-2"
+        ).style("transform: translateX(-50%)"):
+            ui.label(identity.name or t("app.unnamed_library")).classes(
+                "text-sm font-medium"
+            ).style(f"color: {theme.header_text}")
+            ui.label(f"#{identity.uuid[:8]}").classes(
+                "text-xs font-mono"
+            ).style(f"color: {theme.header_inactive_text}").tooltip(identity.uuid)
+
         with ui.row().classes("items-center gap-6"):
             ui.label(t("app.title")).classes("text-lg font-medium").style(
                 f"color: {theme.header_text}"

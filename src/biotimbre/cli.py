@@ -93,7 +93,19 @@ def _print_hits(hits: list[SearchHit], *, show_all_models: bool) -> None:
 def cmd_init(args: argparse.Namespace) -> int:
     """Create the library and register the active models."""
     with _service(args) as service:
-        print(f"Library at {service.settings.data_dir}")
+        identity = service.identity()
+        if args.name:
+            identity = service.rename(args.name)
+        elif identity.name is None:
+            print(
+                "This library has no name yet. A name is required so it can be "
+                "identified when shared with others:\n"
+                "  biotimbre init --name \"My Library\""
+            )
+            return 1
+
+        print(f'Library "{identity.name}" ({identity.uuid})')
+        print(f"  at       {service.settings.data_dir}")
         print(f"  database {service.settings.db_path}")
         print(f"  audio    {service.settings.audio_dir}")
         if args.skip_models:
@@ -338,6 +350,8 @@ def cmd_gui(args: argparse.Namespace) -> int:
 def cmd_stats(args: argparse.Namespace) -> int:
     """Show library totals."""
     with _service(args) as service:
+        identity = service.identity()
+        print(f'library     {identity.name or "(unnamed)"} ({identity.uuid})')
         stats = service.stats()
         print(f"items       {stats['items']}")
         print(f"biotimbres  {stats['biotimbres']}")
@@ -374,6 +388,10 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     p_init = subparsers.add_parser("init", help="Create the library.")
+    p_init.add_argument(
+        "--name",
+        help="Set (or change) the library's name. Required the first time.",
+    )
     p_init.add_argument(
         "--skip-models",
         action="store_true",

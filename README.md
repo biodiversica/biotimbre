@@ -11,11 +11,17 @@ See [PLAN.md](PLAN.md) for the design and the measurements behind it.
 ```bash
 uv venv --python 3.12
 uv sync --extra dev --extra gui
-uv run biotimbre init          # downloads ~70 MB of models, once
+uv run biotimbre init --name "My Library"   # downloads ~70 MB of models, once
 ```
 
 Models are cached after the first download, so everything afterwards works with
 no network.
+
+`--name` is required the first time: every library gets a name and a UUID
+(generated once, stable for its lifetime) so it can be identified after being
+shared — copy the `data_dir` to hand a library to someone else, and both the
+name and UUID travel with it. Both are shown in the GUI header and in
+`biotimbre stats`. Rerun `init --name "..."` any time to rename.
 
 ## Where the library lives
 
@@ -69,7 +75,7 @@ in the background, so the page is usable while the header reports progress.
 ## Commands
 
 ```bash
-biotimbre init [--skip-models]
+biotimbre init [--name NAME] [--skip-models]   # --name required until one is set
 biotimbre add AUDIO [--sidecar FILE | metadata flags]
 biotimbre import-dir DIR              # every sidecar-paired file
 biotimbre list [--biotimbre-id ID] [--limit N]

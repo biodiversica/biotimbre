@@ -6,6 +6,7 @@
       "search": "Search"
     },
     "language": "Language",
+    "unnamed_library": "(unnamed library)",
     "loading_models": "Loading models…",
     "loading_models_hint": "First run downloads about 70 MB. Afterwards this is instant and works offline.",
     "models_ready": "Models ready"

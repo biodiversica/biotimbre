@@ -6,6 +6,7 @@
       "search": "Ferramenta de busca"
     },
     "language": "Idioma",
+    "unnamed_library": "(biblioteca sem nome)",
     "loading_models": "Carregando modelos…",
     "loading_models_hint": "Na primeira execução são baixados cerca de 70 MB. Depois disso é instantâneo e funciona offline.",
     "models_ready": "Modelos prontos"
