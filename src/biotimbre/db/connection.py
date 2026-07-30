@@ -31,13 +31,25 @@ def _schema_sql() -> str:
     )
 
 
-def connect(db_path: str | Path, *, read_only: bool = False) -> sqlite3.Connection:
+def connect(
+    db_path: str | Path,
+    *,
+    read_only: bool = False,
+    allow_threads: bool = False,
+) -> sqlite3.Connection:
     """Open a connection with the library's required pragmas applied.
 
     Args:
         db_path: Path to the SQLite file. Its parent directory must exist.
         read_only: Open via a ``file:`` URI in read-only mode. Useful for a
             public search deployment that must not be able to write.
+        allow_threads: Permit use from threads other than the one that opened it.
+            Required by the web UI, where a request handler and a background
+            inference task do not share a thread; sqlite3 otherwise raises
+            "SQLite objects created in a thread can only be used in that same
+            thread". **The caller must serialise access** — one connection used
+            concurrently is still unsafe, so the UI holds a lock around service
+            calls.
 
     Returns:
         A connection with :class:`sqlite3.Row` row factory.
@@ -49,10 +61,15 @@ def connect(db_path: str | Path, *, read_only: bool = False) -> sqlite3.Connecti
     try:
         if read_only:
             conn = sqlite3.connect(
-                f"file:{path}?mode=ro", uri=True, timeout=30.0
+                f"file:{path}?mode=ro",
+                uri=True,
+                timeout=30.0,
+                check_same_thread=not allow_threads,
             )
         else:
-            conn = sqlite3.connect(str(path), timeout=30.0)
+            conn = sqlite3.connect(
+                str(path), timeout=30.0, check_same_thread=not allow_threads
+            )
     except sqlite3.Error as exc:
         raise BiotimbreError(f"Could not open database {path}: {exc}") from exc
 
@@ -64,13 +81,16 @@ def connect(db_path: str | Path, *, read_only: bool = False) -> sqlite3.Connecti
     return conn
 
 
-def initialize(db_path: str | Path) -> sqlite3.Connection:
+def initialize(
+    db_path: str | Path, *, allow_threads: bool = False
+) -> sqlite3.Connection:
     """Create the schema if absent, then return an open connection.
 
     Idempotent: safe to call on an existing library.
 
     Args:
         db_path: Path to the SQLite file. Parent directories are created.
+        allow_threads: See :func:`connect`.
 
     Returns:
         An initialised connection.
@@ -82,7 +102,7 @@ def initialize(db_path: str | Path) -> sqlite3.Connection:
     path = Path(db_path)
     path.parent.mkdir(parents=True, exist_ok=True)
 
-    conn = connect(path)
+    conn = connect(path, allow_threads=allow_threads)
     try:
         conn.executescript(_schema_sql())
         row = conn.execute(

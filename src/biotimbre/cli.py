@@ -307,6 +307,34 @@ def cmd_export_npy(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_gui(args: argparse.Namespace) -> int:
+    """Start the web interface."""
+    try:
+        from biotimbre.ui.app import run as run_ui
+    except ImportError as exc:
+        print(
+            f"error: the GUI needs the 'gui' extra: uv sync --extra gui ({exc})",
+            file=sys.stderr,
+        )
+        return 2
+
+    settings = load_settings(args.config, data_dir=args.data_dir)
+    if args.models:
+        settings = type(settings)(
+            **{**settings.__dict__, "active_models": tuple(args.models)}
+        )
+    print(f"Library at {settings.data_dir}")
+    print(f"Serving on http://{args.host}:{args.port}")
+    run_ui(
+        settings,
+        host=args.host,
+        port=args.port,
+        show=not args.no_browser,
+        reload=args.reload,
+    )
+    return 0
+
+
 def cmd_stats(args: argparse.Namespace) -> int:
     """Show library totals."""
     with _service(args) as service:
@@ -488,6 +516,21 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_stats = subparsers.add_parser("stats", help="Show library totals.")
     p_stats.set_defaults(func=cmd_stats)
+
+    p_gui = subparsers.add_parser("gui", help="Start the web interface.")
+    p_gui.add_argument(
+        "--host",
+        default="127.0.0.1",
+        help="Bind address. Defaults to loopback; this is a local library.",
+    )
+    p_gui.add_argument("--port", type=int, default=8080, help="Bind port.")
+    p_gui.add_argument(
+        "--no-browser", action="store_true", help="Do not open a browser window."
+    )
+    p_gui.add_argument(
+        "--reload", action="store_true", help="Auto-reload on edits (development)."
+    )
+    p_gui.set_defaults(func=cmd_gui)
 
     return parser
 
