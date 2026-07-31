@@ -215,7 +215,6 @@ def _filters_panel(t: Translator) -> dict[str, ui.element]:
                     t("search.filter.radius"), step=1, suffix=t("common.kilometres")
                 )
             )
-            inputs["device"] = dense(ui.input(t("search.filter.device")))
             inputs["biotimbre_id"] = dense(
                 ui.select(
                     options=[],
@@ -295,7 +294,6 @@ def _build_filters(inputs: dict[str, ui.element]) -> SearchFilters:
         latitude=inputs["latitude"].value,
         longitude=inputs["longitude"].value,
         radius_km=inputs["radius_km"].value,
-        device=text("device"),
     )
 
 

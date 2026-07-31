@@ -139,7 +139,6 @@
       "latitude": "Centre latitude",
       "longitude": "Centre longitude",
       "radius": "Radius",
-      "device": "Device contains",
       "biotimbre_id": "Biotimbre ID",
       "biotimbre_id_help": "Full biotimbre UUID. Copy it from the item detail view or a result's tooltip.",
       "clear": "Clear filters"

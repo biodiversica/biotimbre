@@ -378,14 +378,6 @@ class TestSelectCandidates:
         )
         assert corner not in candidates
 
-    def test_device_substring_is_case_insensitive(self, repo):
-        moth = self._item(repo, "a" * 64, device="AudioMoth 1.2.0")
-        self._item(repo, "b" * 64, device="Zoom H5")
-        candidates, _ = select_candidates(
-            repo.connection, SearchFilters(device="audiomoth")
-        )
-        assert candidates == [moth]
-
     def test_speed_filter(self, repo):
         native = self._item(repo, "a" * 64, speed=1.0)
         slowed = self._item(repo, "b" * 64, speed=0.25)
@@ -405,14 +397,15 @@ class TestSelectCandidates:
 
     def test_filters_combine_conjunctively(self, repo):
         wanted = self._item(
-            repo, "a" * 64, taxa="cicadidae", date="2020-06-01", device="AudioMoth"
+            repo, "a" * 64, taxa="cicadidae", date="2020-06-01", speed=0.5
         )
-        self._item(repo, "b" * 64, taxa="cicadidae", date="2019-06-01", device="AudioMoth")
-        self._item(repo, "c" * 64, taxa="aves", date="2020-06-01", device="AudioMoth")
+        self._item(repo, "b" * 64, taxa="cicadidae", date="2019-06-01", speed=0.5)
+        self._item(repo, "c" * 64, taxa="aves", date="2020-06-01", speed=0.5)
+        self._item(repo, "d" * 64, taxa="cicadidae", date="2020-06-01", speed=1.0)
         candidates, _ = select_candidates(
             repo.connection,
             SearchFilters(
-                taxa=["cicadidae"], date_from="2020-01-01", device="audiomoth"
+                taxa=["cicadidae"], date_from="2020-01-01", speeds=(0.5,)
             ),
         )
         assert candidates == [wanted]

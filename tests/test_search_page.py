@@ -165,7 +165,6 @@ class TestFilterPanel:
 
     async def test_blank_text_is_not_a_filter(self, user: User):
         inputs = await self._panel(user)
-        inputs["device"].value = "   "
         inputs["date_from"].value = ""
         assert _build_filters(inputs).is_empty is True
 

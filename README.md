@@ -111,7 +111,7 @@ biotimbre search dawn_chorus.wav --start-time 92 --end-time 99
 ```
 
 Other `search` options: `--metric {cosine,dot,euclidean}`, `--fusion {max,mean,MODEL_ID}`,
-`--min-score`, `--query-speed`, `--taxa-all`, `--date-to`, `--device`, `--exclude`.
+`--min-score`, `--query-speed`, `--taxa-all`, `--date-to`, `--exclude`.
 
 ## Metadata
 

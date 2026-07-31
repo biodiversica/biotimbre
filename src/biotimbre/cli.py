@@ -277,7 +277,6 @@ def cmd_search(args: argparse.Namespace) -> int:
             latitude=args.latitude,
             longitude=args.longitude,
             radius_km=args.radius_km,
-            device=args.device,
             exclude_item_ids=tuple(args.exclude or ()),
         )
         hits = service.search(
@@ -539,7 +538,6 @@ def build_parser() -> argparse.ArgumentParser:
     p_search.add_argument("--latitude", type=float, help="Search centre latitude.")
     p_search.add_argument("--longitude", type=float, help="Search centre longitude.")
     p_search.add_argument("--radius-km", type=float, help="Search radius in km.")
-    p_search.add_argument("--device", help="Device substring to require.")
     p_search.add_argument(
         "--exclude", nargs="+", type=int, help="Item IDs to omit from results."
     )
