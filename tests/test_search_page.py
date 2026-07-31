@@ -146,14 +146,23 @@ class TestFilterPanel:
         await user.open("/filters")
         return holder["inputs"]
 
-    async def test_empty_panel_matches_everything(self, user: User):
+    async def test_empty_panel_only_filters_by_query_speed(self, user: User):
+        # The query speed filter is always applied — an item embedded at a
+        # different speed is not comparable — so "empty" means every other
+        # field is unset, not that SearchFilters.is_empty is True.
         inputs = await self._panel(user)
-        assert _build_filters(inputs).is_empty is True
+        filters = _build_filters(inputs, query_speed=1.0)
+        assert filters.speeds == (1.0,)
+        assert filters.taxa == ()
+        assert filters.biotimbre_ids == ()
+        assert filters.date_from is None
+        assert filters.date_to is None
+        assert filters.has_location is False
 
     async def test_taxa_are_collected(self, user: User):
         inputs = await self._panel(user)
         inputs["taxa"].value = ["Cicadidae", "insecta"]
-        filters = _build_filters(inputs)
+        filters = _build_filters(inputs, query_speed=1.0)
         # Normalisation is the domain's job, and it happens on construction.
         assert filters.taxa == ("cicadidae", "insecta")
 
@@ -161,19 +170,19 @@ class TestFilterPanel:
         inputs = await self._panel(user)
         inputs["taxa"].value = ["cicadidae"]
         inputs["taxa_all"].value = True
-        assert _build_filters(inputs).taxa_match_all is True
+        assert _build_filters(inputs, query_speed=1.0).taxa_match_all is True
 
     async def test_blank_text_is_not_a_filter(self, user: User):
         inputs = await self._panel(user)
         inputs["date_from"].value = ""
-        assert _build_filters(inputs).is_empty is True
+        assert _build_filters(inputs, query_speed=1.0).date_from is None
 
     async def test_location_is_assembled(self, user: User):
         inputs = await self._panel(user)
         inputs["latitude"].value = -26.0
         inputs["longitude"].value = -48.0
         inputs["radius_km"].value = 50.0
-        filters = _build_filters(inputs)
+        filters = _build_filters(inputs, query_speed=1.0)
         assert filters.has_location is True
 
     async def test_partial_location_is_rejected(self, user: User):
@@ -183,12 +192,16 @@ class TestFilterPanel:
         inputs["latitude"].value = -26.0
         # Latitude without a radius cannot mean anything; the domain says so.
         with pytest.raises(ValidationError, match="together"):
-            _build_filters(inputs)
+            _build_filters(inputs, query_speed=1.0)
 
     async def test_dates_are_canonicalised(self, user: User):
         inputs = await self._panel(user)
         inputs["date_from"].value = "2020-1-5"
-        assert _build_filters(inputs).date_from == "2020-01-05"
+        assert _build_filters(inputs, query_speed=1.0).date_from == "2020-01-05"
+
+    async def test_query_speed_becomes_a_speed_filter(self, user: User):
+        inputs = await self._panel(user)
+        assert _build_filters(inputs, query_speed=0.25).speeds == (0.25,)
 
 
 class TestQueryRoutes:

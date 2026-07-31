@@ -142,6 +142,8 @@
       "clear": "Limpar filtros"
     },
     "options": "Opções",
+    "speed": "Velocidade da busca",
+    "speed_help": "Velocidade em que o áudio de busca é convertido em embeddings. Apenas itens indexados nessa mesma velocidade são buscados.",
     "top_k": "Máximo de resultados",
     "metric": "Métrica",
     "fusion": "Combinar modelos por",

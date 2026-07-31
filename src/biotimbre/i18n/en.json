@@ -142,6 +142,8 @@
       "clear": "Clear filters"
     },
     "options": "Options",
+    "speed": "Query speed",
+    "speed_help": "Speed the query audio is embedded at. Only items indexed at this same speed are searched.",
     "top_k": "Maximum results",
     "metric": "Metric",
     "fusion": "Combine models by",

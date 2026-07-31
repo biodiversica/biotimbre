@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from nicegui import ui
 
 from biotimbre.domain.errors import BiotimbreError, ValidationError
+from biotimbre.domain.item import DEFAULT_SPEED, MAX_SPEED, MIN_SPEED
 from biotimbre.embeddings import audio as audio_io
 from biotimbre.i18n import Translator
 from biotimbre.search.filters import SearchFilters
@@ -239,6 +240,15 @@ def _options_panel(t: Translator) -> dict[str, ui.element]:
         "dense"
     ):
         with ui.grid(columns=2).classes("w-full gap-3"):
+            inputs["speed"] = dense(
+                ui.number(
+                    t("search.speed"),
+                    value=DEFAULT_SPEED,
+                    step=0.05,
+                    min=MIN_SPEED,
+                    max=MAX_SPEED,
+                ).tooltip(t("search.speed_help"))
+            )
             inputs["top_k"] = dense(
                 ui.number(
                     t("search.top_k"), value=settings.default_top_k, min=1, step=1
@@ -274,8 +284,14 @@ def _options_panel(t: Translator) -> dict[str, ui.element]:
     return inputs
 
 
-def _build_filters(inputs: dict[str, ui.element]) -> SearchFilters:
+def _build_filters(inputs: dict[str, ui.element], *, query_speed: float) -> SearchFilters:
     """Assemble :class:`SearchFilters` from the panel's inputs.
+
+    Args:
+        inputs: The filter panel's inputs.
+        query_speed: Speed the query is embedded at. Only items indexed at
+            this same speed are candidates — an item embedded at a different
+            speed is not comparable, so it is filtered out rather than scored.
 
     Raises:
         ValidationError: If the values are inconsistent, e.g. a partial location.
@@ -294,6 +310,7 @@ def _build_filters(inputs: dict[str, ui.element]) -> SearchFilters:
         latitude=inputs["latitude"].value,
         longitude=inputs["longitude"].value,
         radius_km=inputs["radius_km"].value,
+        speeds=(query_speed,),
     )
 
 
@@ -472,8 +489,9 @@ async def render(t: Translator) -> None:
             ui.notify(t("search.no_query"), type="warning", position="top")
             return
 
+        query_speed = float(options["speed"].value or DEFAULT_SPEED)
         try:
-            search_filters = _build_filters(filters)
+            search_filters = _build_filters(filters, query_speed=query_speed)
         except ValidationError as exc:
             notify_error(t, exc)
             return
@@ -491,6 +509,7 @@ async def render(t: Translator) -> None:
                 metric=options["metric"].value,
                 fusion=options["fusion"].value,
                 min_score=options["min_score"].value,
+                query_speed=query_speed,
                 start_time=start,
                 end_time=end,
             )
