@@ -454,6 +454,20 @@ async def render(t: Translator) -> None:
     filters = _filters_panel(t)
     options = _options_panel(t)
 
+    with ui.row().classes("items-center gap-3"):
+        run_button = ui.button(
+            t("search.run"), icon="search", on_click=lambda: run_search()
+        ).props("text-color=button-text")
+        spinner = ui.row().classes("items-center gap-2")
+        with spinner:
+            ui.spinner(size="1.2rem")
+            ui.label(t("search.running")).classes("text-sm text-muted")
+        spinner.set_visibility(False)
+        ui.label(t("search.cache_note")).classes("text-xs text-muted")
+
+    if not state.models.ready:
+        ui.label(t("app.loading_models_hint")).classes("text-notice text-sm")
+
     results_area = ui.column().classes("w-full gap-2")
 
     async def run_search() -> None:
@@ -515,17 +529,3 @@ async def render(t: Translator) -> None:
                         speed=", ".join(f"{s:g}" for s in speeds),
                     )
                 ).classes("text-xs text-notice")
-
-    with ui.row().classes("items-center gap-3"):
-        run_button = ui.button(
-            t("search.run"), icon="search", on_click=run_search
-        ).props("text-color=button-text")
-        spinner = ui.row().classes("items-center gap-2")
-        with spinner:
-            ui.spinner(size="1.2rem")
-            ui.label(t("search.running")).classes("text-sm text-muted")
-        spinner.set_visibility(False)
-        ui.label(t("search.cache_note")).classes("text-xs text-muted")
-
-    if not state.models.ready:
-        ui.label(t("app.loading_models_hint")).classes("text-notice text-sm")
