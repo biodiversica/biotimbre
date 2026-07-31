@@ -172,7 +172,6 @@ def _add_card(t: Translator, on_added) -> None:
 
     with ui.card().classes("w-full p-4 gap-3 bg-card"):
         ui.label(t("admin.add_heading")).classes("text-lg font-medium")
-        ui.label(t("admin.upload_hint")).classes("text-xs text-muted")
 
         preview = ui.column().classes("w-full gap-1")
         with preview:
@@ -296,8 +295,6 @@ def _add_card(t: Translator, on_added) -> None:
                 ui.spinner(size="1.2rem")
                 ui.label(t("admin.adding")).classes("text-sm text-muted")
             spinner.set_visibility(False)
-
-        ui.label(t("admin.bulk_hint")).classes("text-xs text-muted")
 
 
 def _ingest_report(t: Translator, result) -> None:

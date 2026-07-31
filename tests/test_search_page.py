@@ -239,7 +239,7 @@ class TestSearchPageRenders:
 
         await user.open("/search")
         await user.should_see("Find similar samples")
-        await user.should_see("Choose a recording to search with.")
+        await user.should_see("Choose a recording to search with")
         await user.should_see("Search")
 
     async def test_mentions_the_query_limit(self, user: User):

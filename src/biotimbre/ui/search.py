@@ -316,17 +316,11 @@ async def render(t: Translator) -> None:
         )
 
         query_area = ui.column().classes("w-full gap-2")
-        with query_area:
-            ui.label(t("search.no_query")).classes("text-sm text-muted")
 
         def draw_query() -> None:
             """Redraw the query preview, player and segment picker."""
             query_area.clear()
             if query.token is None or query.properties is None:
-                with query_area:
-                    ui.label(t("search.no_query")).classes(
-                        "text-sm text-muted"
-                    )
                 return
 
             with query_area:
@@ -463,7 +457,6 @@ async def render(t: Translator) -> None:
             ui.spinner(size="1.2rem")
             ui.label(t("search.running")).classes("text-sm text-muted")
         spinner.set_visibility(False)
-        ui.label(t("search.cache_note")).classes("text-xs text-muted")
 
     if not state.models.ready:
         ui.label(t("app.loading_models_hint")).classes("text-notice text-sm")
