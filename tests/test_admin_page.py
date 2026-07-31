@@ -249,6 +249,39 @@ class TestEditPrefill:
         assert form.inputs["lowpass"].value is None
         assert form.inputs["biotimbre_id"].value == item.biotimbre_id
 
+    async def test_blanking_biotimbre_id_on_edit_is_rejected(
+        self, user: User, installed_state
+    ):
+        # update_item() treats a blank biotimbre_id as "unchanged" (an edit
+        # never allocates), so a blank field here must be rejected up front —
+        # otherwise saving silently no-ops and looks like nothing happened.
+        from biotimbre.io.sidecar import draft_from_sidecar
+
+        result = installed_state.call(
+            installed_state.service.add_item,
+            GUYVIR,
+            draft_from_sidecar(EXAMPLES_DIR / "GUYVIR.txt"),
+            compute_embeddings=False,
+        )
+        item = result.item
+
+        holder: dict = {}
+
+        @ui.page("/edit2")
+        def edit_page():
+            holder["form"] = metadata_form(
+                Translator("en"), item, allow_new_biotimbre=False
+            )
+
+        await user.open("/edit2")
+        form = holder["form"]
+        form.inputs["biotimbre_id"].value = ""
+
+        with pytest.raises(ValidationError) as exc:
+            form.draft()
+        assert exc.value.field == "biotimbre_id"
+        assert form.show_error(exc.value) is True
+
 
 @pytest.mark.usefixtures("installed_state")
 class TestAdminPageRenders:

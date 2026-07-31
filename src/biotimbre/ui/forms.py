@@ -68,6 +68,7 @@ class MetadataForm:
 
     t: Translator
     inputs: dict[str, ui.element]
+    allow_new_biotimbre: bool = True
 
     def clear_errors(self) -> None:
         """Remove any error state left from a previous attempt."""
@@ -117,6 +118,14 @@ class MetadataForm:
         if start is None or end is None:
             raise ValidationError(self.t("common.required"), "sample_window")
 
+        biotimbre_id = _blank_to_none(values["biotimbre_id"])
+        if biotimbre_id is None and not self.allow_new_biotimbre:
+            # An update never allocates a new biotimbre (repository.update_item)
+            # — a blank field here would silently leave the item's biotimbre
+            # unchanged, which looks like the edit did nothing. Reject it
+            # instead: keep the existing ID, or type a different one to join.
+            raise ValidationError(self.t("common.required"), "biotimbre_id")
+
         band = FilteredBand.parse(
             (_blank_to_none(values["highpass"]), _blank_to_none(values["lowpass"]))
         )
@@ -126,7 +135,7 @@ class MetadataForm:
             time=values["time"] or "",
             location=Location.parse((latitude, longitude)),
             sample_window=SampleWindow.parse((start, end)),
-            biotimbre_id=_blank_to_none(values["biotimbre_id"]),
+            biotimbre_id=biotimbre_id,
             taxa=values["taxa"] or (),
             device=_blank_to_none(values["device"]),
             filtered_band=band,
@@ -220,7 +229,11 @@ def metadata_form(
                 t("field.biotimbre_id"),
                 value=draft.biotimbre_id if draft else "",
                 placeholder="" if allow_new_biotimbre else None,
-            ).tooltip(t("field.biotimbre_id_help"))
+            ).tooltip(
+                t("field.biotimbre_id_help")
+                if allow_new_biotimbre
+                else t("field.biotimbre_id_edit_help")
+            )
         )
         inputs["taxa"] = dense(
             ui.select(
@@ -279,4 +292,4 @@ def metadata_form(
         .props("autogrow")
     )
 
-    return MetadataForm(t=t, inputs=inputs)
+    return MetadataForm(t=t, inputs=inputs, allow_new_biotimbre=allow_new_biotimbre)

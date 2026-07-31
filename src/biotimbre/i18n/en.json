@@ -36,6 +36,7 @@
     "item_id": "Item ID",
     "biotimbre_id": "Biotimbre ID",
     "biotimbre_id_help": "Leave empty to allocate a new one. Give an existing ID to file this sample under the same biotimbre.",
+    "biotimbre_id_edit_help": "Editing an item never allocates a new biotimbre. Give a different existing ID to move this sample to it.",
     "taxa": "Taxa",
     "taxa_help": "Comma-separated tags, e.g. insecta, orthoptera. Empty means unknown.",
     "date": "Date",

@@ -36,6 +36,7 @@
     "item_id": "ID do item",
     "biotimbre_id": "ID do biotimbre",
     "biotimbre_id_help": "Deixe vazio para gerar um novo. Informe um ID existente para registrar esta amostra no mesmo biotimbre.",
+    "biotimbre_id_edit_help": "Editar um item nunca gera um novo biotimbre. Informe um ID existente diferente para mover esta amostra para ele.",
     "taxa": "Táxons",
     "taxa_help": "Etiquetas separadas por vírgula, ex.: insecta, orthoptera. Vazio significa desconhecido.",
     "date": "Data",
