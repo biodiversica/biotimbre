@@ -37,7 +37,7 @@ from biotimbre.domain.errors import (
     NotFoundError,
     ValidationError,
 )
-from biotimbre.domain.item import ItemDraft, LibraryItem
+from biotimbre.domain.item import FilteredBand, ItemDraft, LibraryItem
 from biotimbre.embeddings import audio as audio_io
 from biotimbre.embeddings.extractor import ExtractorPool, WindowEmbeddings
 from biotimbre.embeddings.query_cache import AudioKey, QueryEmbeddingCache
@@ -726,6 +726,8 @@ class LibraryService:
         query_speed: float | None = None,
         start_time: float | None = None,
         end_time: float | None = None,
+        filter_band: FilteredBand | None = None,
+        filter_order: int = 4,
     ) -> list[SearchHit]:
         """Find the library items most similar to a short query recording.
 
@@ -751,18 +753,27 @@ class LibraryService:
                 the library's speeds. Use when the query itself needs shifting.
             start_time: Start of the segment to search with, in seconds.
             end_time: End of the segment to search with, in seconds.
+            filter_band: Butterworth highpass/lowpass/bandpass cutoffs to apply
+                to the query before embedding. ``None`` or an unset band applies
+                no filter. Unlike ``items.filtered_band``, which only records
+                filtering already done elsewhere, this actually runs the filter
+                (see :func:`biotimbre.embeddings.audio.apply_filter`).
+            filter_order: Order of the Butterworth filter. Ignored when
+                ``filter_band`` is unset.
 
         Returns:
             Descending :class:`SearchHit` list.
 
         Raises:
-            ValidationError: If the query audio is unusable, or is longer than the
-                limit without a segment being chosen.
+            ValidationError: If the query audio is unusable, is longer than the
+                limit without a segment being chosen, or the filter cutoffs are
+                invalid.
         """
         filters = filters or SearchFilters()
         k = k if k is not None else self.settings.default_top_k
         metric = metric or self.settings.default_metric
         fusion = fusion or self.settings.default_fusion
+        band = filter_band if filter_band is not None else FilteredBand()
 
         # Resolved from the header alone, so an over-long file is rejected before
         # anything is decoded or any model is loaded.
@@ -787,15 +798,32 @@ class LibraryService:
             else sorted(set(item_speeds.values())) or [1.0]
         )
 
-        # Cached per (audio, model, speed), so re-running the same query with a
-        # different filter re-uses the embeddings instead of re-decoding the file
-        # and re-running both models. The loader is only called on a miss.
-        queries = self.query_cache.embed(
-            AudioKey.for_path(audio_path, segment=segment),
-            speeds,
-            loader=lambda: audio_io.load_mono(
+        def load_query() -> tuple[np.ndarray, int]:
+            samples, native_rate = audio_io.load_mono(
                 audio_path, start_time=segment[0], end_time=segment[1]
-            ),
+            )
+            if band.is_unset:
+                return samples, native_rate
+            return (
+                audio_io.apply_filter(
+                    samples,
+                    native_rate,
+                    low_hz=band.low,
+                    high_hz=band.high,
+                    order=filter_order,
+                ),
+                native_rate,
+            )
+
+        # Cached per (audio, model, speed, filter), so re-running the same query
+        # with a different metadata filter re-uses the embeddings instead of
+        # re-decoding, re-filtering and re-running both models. The loader is
+        # only called on a miss.
+        filter_key = "" if band.is_unset else f"{band.low},{band.high},{filter_order}"
+        queries = self.query_cache.embed(
+            AudioKey.for_path(audio_path, segment=segment, filter_key=filter_key),
+            speeds,
+            loader=load_query,
         )
         resolved_speeds = _resolve_query_speeds(item_speeds, speeds)
         per_model = self._score_all_models(

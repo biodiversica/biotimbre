@@ -301,6 +301,81 @@ def resample(audio: np.ndarray, from_rate: float, to_rate: int) -> np.ndarray:
     )
 
 
+def apply_filter(
+    audio: np.ndarray,
+    sample_rate: int,
+    *,
+    low_hz: float | None,
+    high_hz: float | None,
+    order: int = 4,
+) -> np.ndarray:
+    """Apply a zero-phase Butterworth filter to mono audio.
+
+    Unlike ``items.filtered_band``, which only *records* filtering someone else
+    already applied before the sample was submitted, this actually runs the
+    filter — used to let a search query be filtered on the fly. Cutoffs are real
+    Hz values, so filtering happens here, at the audio's native rate, before any
+    speed shift or resampling would change what a given Hz means.
+
+    ``sosfiltfilt`` (forward-backward, zero-phase) is used instead of a causal
+    ``lfilter`` so the filter introduces no group delay — a delay would shift
+    window boundaries and misalign the matched-window marker.
+
+    Args:
+        audio: 1-D float32 samples at ``sample_rate``.
+        sample_rate: The audio's sample rate in Hz.
+        low_hz: Highpass cutoff, or ``None`` for none. With ``high_hz`` also set,
+            the two form a bandpass.
+        high_hz: Lowpass cutoff, or ``None`` for none.
+        order: Butterworth filter order.
+
+    Returns:
+        Filtered 1-D float32 samples, same length as the input. Returned
+        unchanged when both cutoffs are ``None``.
+
+    Raises:
+        ValidationError: If a cutoff is not strictly between 0 and the Nyquist
+            frequency, if ``low_hz >= high_hz``, if ``order < 1``, or if the
+            audio is too short for the resulting filter.
+    """
+    if low_hz is None and high_hz is None:
+        return audio
+    if order < 1:
+        raise ValidationError(f"Filter order must be >= 1, got {order}.", "filter_order")
+
+    nyquist = sample_rate / 2.0
+    for name, value in (("Highpass cutoff", low_hz), ("Lowpass cutoff", high_hz)):
+        if value is not None and not 0 < value < nyquist:
+            raise ValidationError(
+                f"{name} {value:g} Hz must be between 0 and the Nyquist "
+                f"frequency ({nyquist:g} Hz for this {sample_rate} Hz audio).",
+                "filtered_band",
+            )
+    if low_hz is not None and high_hz is not None and low_hz >= high_hz:
+        raise ValidationError(
+            f"Highpass cutoff ({low_hz:g} Hz) must be below the lowpass cutoff "
+            f"({high_hz:g} Hz).",
+            "filtered_band",
+        )
+
+    from scipy.signal import butter, sosfiltfilt
+
+    if low_hz is not None and high_hz is not None:
+        sos = butter(order, [low_hz, high_hz], btype="bandpass", fs=sample_rate, output="sos")
+    elif low_hz is not None:
+        sos = butter(order, low_hz, btype="highpass", fs=sample_rate, output="sos")
+    else:
+        sos = butter(order, high_hz, btype="lowpass", fs=sample_rate, output="sos")
+
+    try:
+        filtered = sosfiltfilt(sos, audio)
+    except ValueError as exc:
+        raise ValidationError(
+            f"Audio is too short to filter at order {order}: {exc}", "filter_order"
+        ) from None
+    return np.ascontiguousarray(filtered, dtype=np.float32)
+
+
 def frame(
     audio: np.ndarray, window_samples: int, stride_samples: int
 ) -> np.ndarray:

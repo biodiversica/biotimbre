@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from nicegui import ui
 
 from biotimbre.domain.errors import BiotimbreError, ValidationError
-from biotimbre.domain.item import DEFAULT_SPEED, MAX_SPEED, MIN_SPEED
+from biotimbre.domain.item import DEFAULT_SPEED, MAX_SPEED, MIN_SPEED, FilteredBand
 from biotimbre.embeddings import audio as audio_io
 from biotimbre.i18n import Translator
 from biotimbre.search.filters import SearchFilters
@@ -281,6 +281,21 @@ def _options_panel(t: Translator) -> dict[str, ui.element]:
                     label=t("search.fusion"),
                 )
             )
+            inputs["highpass"] = dense(
+                ui.number(
+                    t("search.highpass"), step=100, suffix=t("common.hertz")
+                ).tooltip(t("search.filter_help"))
+            )
+            inputs["lowpass"] = dense(
+                ui.number(
+                    t("search.lowpass"), step=100, suffix=t("common.hertz")
+                ).tooltip(t("search.filter_help"))
+            )
+            inputs["filter_order"] = dense(
+                ui.number(
+                    t("search.filter_order"), value=4, step=1, min=1
+                ).tooltip(t("search.filter_order_help"))
+            )
     return inputs
 
 
@@ -492,9 +507,13 @@ async def render(t: Translator) -> None:
         query_speed = float(options["speed"].value or DEFAULT_SPEED)
         try:
             search_filters = _build_filters(filters, query_speed=query_speed)
+            filter_band = FilteredBand.parse(
+                (options["highpass"].value, options["lowpass"].value)
+            )
         except ValidationError as exc:
             notify_error(t, exc)
             return
+        filter_order = int(options["filter_order"].value or 4)
 
         start, end = query.segment()
         run_button.disable()
@@ -512,6 +531,8 @@ async def render(t: Translator) -> None:
                 query_speed=query_speed,
                 start_time=start,
                 end_time=end,
+                filter_band=filter_band,
+                filter_order=filter_order,
             )
         except BiotimbreError as exc:
             notify_error(t, exc)

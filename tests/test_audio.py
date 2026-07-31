@@ -112,6 +112,71 @@ class TestResample:
         assert peak_hz == pytest.approx(3000.0, abs=25.0)
 
 
+class TestApplyFilter:
+    RATE = 32_000
+
+    def _two_tones(self, low_hz: float, high_hz: float) -> np.ndarray:
+        t = np.arange(self.RATE, dtype=np.float32) / self.RATE
+        return (
+            np.sin(2 * np.pi * low_hz * t) + np.sin(2 * np.pi * high_hz * t)
+        ).astype(np.float32)
+
+    def _magnitude_at(self, signal: np.ndarray, hz: float) -> float:
+        spectrum = np.abs(np.fft.rfft(signal))
+        freqs = np.fft.rfftfreq(signal.size, 1 / self.RATE)
+        return float(spectrum[np.argmin(np.abs(freqs - hz))])
+
+    def test_no_cutoffs_returns_audio_unchanged(self):
+        audio = self._two_tones(500.0, 8000.0)
+        out = audio_io.apply_filter(audio, self.RATE, low_hz=None, high_hz=None)
+        np.testing.assert_array_equal(out, audio)
+
+    def test_highpass_removes_the_low_tone(self):
+        audio = self._two_tones(300.0, 8000.0)
+        out = audio_io.apply_filter(audio, self.RATE, low_hz=3000.0, high_hz=None)
+        assert self._magnitude_at(out, 300.0) < 0.05 * self._magnitude_at(audio, 300.0)
+        assert self._magnitude_at(out, 8000.0) > 0.9 * self._magnitude_at(audio, 8000.0)
+
+    def test_lowpass_removes_the_high_tone(self):
+        audio = self._two_tones(300.0, 8000.0)
+        out = audio_io.apply_filter(audio, self.RATE, low_hz=None, high_hz=3000.0)
+        assert self._magnitude_at(out, 8000.0) < 0.05 * self._magnitude_at(audio, 8000.0)
+        assert self._magnitude_at(out, 300.0) > 0.9 * self._magnitude_at(audio, 300.0)
+
+    def test_bandpass_keeps_only_the_middle_tone(self):
+        t = np.arange(self.RATE, dtype=np.float32) / self.RATE
+        audio = (
+            np.sin(2 * np.pi * 300.0 * t)
+            + np.sin(2 * np.pi * 5000.0 * t)
+            + np.sin(2 * np.pi * 12_000.0 * t)
+        ).astype(np.float32)
+        out = audio_io.apply_filter(audio, self.RATE, low_hz=2000.0, high_hz=8000.0)
+        assert self._magnitude_at(out, 5000.0) > 0.9 * self._magnitude_at(audio, 5000.0)
+        assert self._magnitude_at(out, 300.0) < 0.05 * self._magnitude_at(audio, 300.0)
+        assert self._magnitude_at(out, 12_000.0) < 0.05 * self._magnitude_at(audio, 12_000.0)
+
+    def test_rejects_low_at_or_above_high(self):
+        audio = self._two_tones(300.0, 8000.0)
+        with pytest.raises(ValidationError, match="below the lowpass"):
+            audio_io.apply_filter(audio, self.RATE, low_hz=5000.0, high_hz=5000.0)
+
+    @pytest.mark.parametrize("low_hz,high_hz", [(0.0, None), (-100.0, None), (None, 16_000.0)])
+    def test_rejects_cutoff_outside_nyquist(self, low_hz, high_hz):
+        audio = self._two_tones(300.0, 8000.0)
+        with pytest.raises(ValidationError, match="Nyquist"):
+            audio_io.apply_filter(audio, self.RATE, low_hz=low_hz, high_hz=high_hz)
+
+    def test_rejects_order_below_one(self):
+        audio = self._two_tones(300.0, 8000.0)
+        with pytest.raises(ValidationError, match="order"):
+            audio_io.apply_filter(audio, self.RATE, low_hz=1000.0, high_hz=None, order=0)
+
+    def test_rejects_audio_too_short_for_the_order(self):
+        audio = np.ones(10, dtype=np.float32)
+        with pytest.raises(ValidationError, match="too short"):
+            audio_io.apply_filter(audio, self.RATE, low_hz=1000.0, high_hz=None, order=8)
+
+
 class TestFrame:
     def test_exact_length_yields_one_window_at_any_overlap(self):
         # 5 s of audio under a 5 s window leaves no room for a second hop.

@@ -10,7 +10,7 @@ import pytest
 
 from biotimbre.config import Settings
 from biotimbre.domain.errors import NotFoundError, ValidationError
-from biotimbre.domain.item import ItemDraft, Location, SampleWindow
+from biotimbre.domain.item import FilteredBand, ItemDraft, Location, SampleWindow
 from biotimbre.search.filters import SearchFilters
 from biotimbre.service import LibraryService
 from conftest import EXAMPLES_DIR
@@ -298,6 +298,25 @@ class TestEndToEnd:
         service.import_directory(EXAMPLES_DIR)
         hit = service.search(GUYVIR_WAV, k=1, fusion="perch_v2")[0]
         assert set(hit.per_model) == {"perch_v2"}
+
+    def test_filter_band_changes_the_query_embedding(self, service):
+        service.import_directory(EXAMPLES_DIR)
+        unfiltered = service.search(GUYVIR_WAV, k=1)[0]
+        # Keeping only a sliver right below Nyquist strips out virtually all of
+        # a bioacoustic recording's real content, so the self-match must degrade
+        # relative to the unfiltered query — proof the filter actually ran
+        # before embedding, not just that a filter argument was accepted.
+        gutted = service.search(
+            GUYVIR_WAV, k=1, filter_band=FilteredBand(low=15_000.0, high=None)
+        )[0]
+        assert gutted.score < unfiltered.score
+
+    def test_filter_band_cutoff_beyond_nyquist_is_rejected(self, service):
+        service.import_directory(EXAMPLES_DIR)
+        with pytest.raises(ValidationError, match="Nyquist"):
+            service.search(
+                GUYVIR_WAV, k=1, filter_band=FilteredBand(low=None, high=100_000.0)
+            )
 
     def test_export_npy_round_trips(self, service, draft_for_guyvir, tmp_path):
         item = service.add_item(GUYVIR_WAV, draft_for_guyvir).item

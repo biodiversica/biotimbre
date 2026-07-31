@@ -116,6 +116,20 @@ class TestAudioKey:
             GUYVIR_WAV, segment=(1.0, 3.0)
         ) == AudioKey.for_path(GUYVIR_WAV, segment=(1.0, 3.0))
 
+    def test_filter_key_is_part_of_the_path_key(self):
+        # A filtered and an unfiltered query are different audio by the time
+        # they reach the model, so they must not share a cache entry.
+        unfiltered = AudioKey.for_path(GUYVIR_WAV)
+        filtered = AudioKey.for_path(GUYVIR_WAV, filter_key="1000,None,4")
+        other_filter = AudioKey.for_path(GUYVIR_WAV, filter_key="2000,None,4")
+        assert len({unfiltered, filtered, other_filter}) == 3
+
+    def test_filter_key_is_part_of_the_array_key(self):
+        a = np.zeros(5000, dtype=np.float32)
+        assert AudioKey.for_array(a, 32_000) != AudioKey.for_array(
+            a, 32_000, filter_key="1000,None,4"
+        )
+
 
 class TestCaching:
     def test_first_call_computes_every_model_and_speed(self, cache, pool):

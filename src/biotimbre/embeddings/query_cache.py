@@ -55,8 +55,9 @@ class AudioKey:
         path: str | Path,
         *,
         segment: tuple[float, float] | None = None,
+        filter_key: str = "",
     ) -> "AudioKey":
-        """Key a file by identity, modification state and searched segment.
+        """Key a file by identity, modification state, segment and DSP filter.
 
         Uses size and nanosecond mtime rather than a content hash so that a cache
         hit avoids reading the file at all — which is the point, since decoding is
@@ -66,12 +67,17 @@ class AudioKey:
 
         The segment is part of the key: two different 15 s windows of the same
         recording are different queries, and serving one for the other would be
-        silently wrong.
+        silently wrong. The same applies to ``filter_key``: filtering happens
+        before embedding (see :func:`biotimbre.embeddings.audio.apply_filter`),
+        so a query filtered one way and one filtered another are different audio
+        as far as the cache is concerned.
 
         Args:
             path: Path to the query audio.
             segment: ``(start, end)`` in seconds being searched, if not the whole
                 file.
+            filter_key: Opaque string identifying any DSP filter applied before
+                embedding. Empty means unfiltered.
 
         Returns:
             The key.
@@ -82,13 +88,16 @@ class AudioKey:
         resolved = Path(path).resolve()
         stat = resolved.stat()
         span = "" if segment is None else f"|{segment[0]:.6f}-{segment[1]:.6f}"
+        filt = "" if not filter_key else f"|{filter_key}"
         return cls(
             kind="path",
-            token=f"{resolved}|{stat.st_size}|{stat.st_mtime_ns}{span}",
+            token=f"{resolved}|{stat.st_size}|{stat.st_mtime_ns}{span}{filt}",
         )
 
     @classmethod
-    def for_array(cls, samples: np.ndarray, native_rate: int) -> "AudioKey":
+    def for_array(
+        cls, samples: np.ndarray, native_rate: int, *, filter_key: str = ""
+    ) -> "AudioKey":
         """Key in-memory audio by a sampled fingerprint.
 
         Hashing every sample of a long recording would cost more than the
@@ -99,13 +108,15 @@ class AudioKey:
         Args:
             samples: 1-D audio samples.
             native_rate: The audio's sample rate in Hz.
+            filter_key: Opaque string identifying any DSP filter applied before
+                embedding. Empty means unfiltered.
 
         Returns:
             The key.
         """
         flat = np.ascontiguousarray(samples, dtype=np.float32).ravel()
         digest = hashlib.sha256()
-        digest.update(f"{flat.size}|{native_rate}".encode())
+        digest.update(f"{flat.size}|{native_rate}|{filter_key}".encode())
         edge = _ARRAY_FINGERPRINT_BYTES // 4
         digest.update(flat[:edge].tobytes())
         if flat.size > edge:

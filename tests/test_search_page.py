@@ -269,6 +269,15 @@ class TestSearchPageRenders:
         await user.should_see("Filters")
         await user.should_see("Options")
 
+    async def test_shows_the_dsp_filter_controls(self, user: User):
+        from biotimbre.ui import app as ui_app  # noqa: F401
+
+        await user.open("/search")
+        await user.should_see("Query speed")
+        await user.should_see("Highpass cutoff")
+        await user.should_see("Lowpass cutoff")
+        await user.should_see("Filter order")
+
     async def test_translates_to_portuguese(self, user: User):
         from biotimbre.ui import app as ui_app  # noqa: F401
 
