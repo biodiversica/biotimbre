@@ -216,6 +216,15 @@ def _filters_panel(t: Translator) -> dict[str, ui.element]:
                 )
             )
             inputs["device"] = dense(ui.input(t("search.filter.device")))
+            inputs["biotimbre_id"] = dense(
+                ui.select(
+                    options=[],
+                    value=[],
+                    label=t("search.filter.biotimbre_id"),
+                    multiple=True,
+                    new_value_mode="add-unique",
+                ).props("use-chips").tooltip(t("search.filter.biotimbre_id_help"))
+            )
     return inputs
 
 
@@ -280,6 +289,7 @@ def _build_filters(inputs: dict[str, ui.element]) -> SearchFilters:
     return SearchFilters(
         taxa=tuple(inputs["taxa"].value or ()),
         taxa_match_all=bool(inputs["taxa_all"].value),
+        biotimbre_ids=tuple(inputs["biotimbre_id"].value or ()),
         date_from=text("date_from"),
         date_to=text("date_to"),
         latitude=inputs["latitude"].value,

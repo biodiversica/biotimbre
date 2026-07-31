@@ -128,6 +128,8 @@
       "longitude": "Longitude central",
       "radius": "Raio",
       "device": "Equipamento contém",
+      "biotimbre_id": "ID do biotimbre",
+      "biotimbre_id_help": "UUID completo do biotimbre. Copie da visão detalhada do item ou da dica de um resultado.",
       "clear": "Limpar filtros"
     },
     "options": "Opções",
