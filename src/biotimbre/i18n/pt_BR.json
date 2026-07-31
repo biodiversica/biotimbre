@@ -37,6 +37,8 @@
     "biotimbre_id": "ID do biotimbre",
     "biotimbre_id_help": "Deixe vazio para gerar um novo. Informe um ID existente para registrar esta amostra no mesmo biotimbre.",
     "biotimbre_id_edit_help": "Editar um item nunca gera um novo biotimbre. Informe um ID existente diferente para mover esta amostra para ele.",
+    "biotimbre_label": "Nome do biotimbre",
+    "biotimbre_label_help": "Nome legível para o biotimbre desta amostra. Compartilhado por todos os itens registrados sob o mesmo ID de biotimbre.",
     "taxa": "Táxons",
     "taxa_help": "Etiquetas separadas por vírgula, ex.: insecta, orthoptera. Vazio significa desconhecido.",
     "date": "Data",
@@ -89,6 +91,7 @@
     "column": {
       "id": "ID",
       "biotimbre": "Biotimbre",
+      "biotimbre_label": "Nome",
       "taxa": "Táxons",
       "date": "Data",
       "duration": "Duração",

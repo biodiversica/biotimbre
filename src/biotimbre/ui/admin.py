@@ -257,6 +257,19 @@ def _add_card(t: Translator, on_added) -> None:
                 spinner.set_visibility(False)
                 save_button.enable()
 
+            if form.label:
+                # Blank means "don't touch it": on a fresh biotimbre there is
+                # nothing to clear, and on one the user joined by ID an empty
+                # field should not wipe out a label set elsewhere.
+                try:
+                    await state.run(
+                        state.service.set_biotimbre_label,
+                        result.item.biotimbre_id,
+                        form.label,
+                    )
+                except BiotimbreError as exc:
+                    notify_error(t, exc)
+
             ui.notify(
                 t(
                     "admin.saved",
@@ -315,10 +328,13 @@ def _ingest_report(t: Translator, result) -> None:
 # ── detail, edit, delete ──────────────────────────────────────────────────────
 
 
-def _metadata_rows(t: Translator, item: LibraryItem, counts: dict[str, int]) -> None:
+def _metadata_rows(
+    t: Translator, item: LibraryItem, counts: dict[str, int], biotimbre_label: str | None
+) -> None:
     """Render an item's stored values as a definition list."""
     rows = [
         (t("field.biotimbre_id"), item.biotimbre_id),
+        (t("field.biotimbre_label"), biotimbre_label or t("common.none")),
         (t("field.taxa"), item.taxa_display),
         (t("field.date"), f"{item.date} {item.time}"),
         (t("field.location"), str(item.location)),
@@ -359,6 +375,7 @@ async def _open_detail(t: Translator, item_id: int, on_changed) -> None:
     try:
         item = await state.run(state.service.get_item, item_id)
         counts = await state.run(state.service.repo.embedding_counts, item_id)
+        label = await state.run(state.service.get_biotimbre_label, item.biotimbre_id)
     except BiotimbreError:
         ui.notify(t("error.not_found"), type="warning", position="top")
         on_changed()
@@ -372,7 +389,7 @@ async def _open_detail(t: Translator, item_id: int, on_changed) -> None:
             state.spectrogram_url(item.item_id, width=860, height=200)
         ).classes("w-full rounded").props("no-spinner")
         ui.audio(state.audio_url(item.item_id)).classes("w-full")
-        _metadata_rows(t, item, counts)
+        _metadata_rows(t, item, counts, label)
 
         with ui.row().classes("justify-end gap-2 w-full"):
             ui.button(t("common.close"), on_click=dialog.close).props("flat")
@@ -419,15 +436,18 @@ def _confirm_delete(t: Translator, item: LibraryItem, parent, on_changed) -> Non
     confirm.open()
 
 
-def _open_edit(t: Translator, item: LibraryItem, parent, on_changed) -> None:
+async def _open_edit(t: Translator, item: LibraryItem, parent, on_changed) -> None:
     """Edit an item's metadata, warning that a speed change re-embeds."""
     state = get_state()
+    label = await state.run(state.service.get_biotimbre_label, item.biotimbre_id)
 
     with ui.dialog() as dialog, ui.card().classes("w-full max-w-3xl p-4 gap-3 bg-card"):
         ui.label(t("admin.edit_heading", item_id=item.item_id)).classes(
             "text-lg font-medium"
         )
-        form = metadata_form(t, item, allow_new_biotimbre=False)
+        form = metadata_form(
+            t, item, allow_new_biotimbre=False, biotimbre_label=label
+        )
 
         warning = ui.row().classes("items-center gap-2 text-notice")
         with warning:
@@ -454,6 +474,15 @@ def _open_edit(t: Translator, item: LibraryItem, parent, on_changed) -> None:
                 result = await state.run(
                     state.service.update_item, item.item_id, draft
                 )
+                # A biotimbre change means the label field still shows the
+                # *previous* biotimbre's label; applying it to the new one
+                # would silently overwrite an unrelated group's name.
+                if draft.biotimbre_id == item.biotimbre_id:
+                    await state.run(
+                        state.service.set_biotimbre_label,
+                        result.item.biotimbre_id,
+                        form.label,
+                    )
             except BiotimbreError as exc:
                 notify_error(t, exc)
                 return
@@ -501,6 +530,9 @@ async def _items_table(t: Translator, container, on_changed) -> None:
             ui.label(t("admin.no_items")).classes("text-muted")
             return
 
+        biotimbres = await state.run(state.service.repo.list_biotimbres)
+        labels = {b["biotimbre_id"]: b["label"] for b in biotimbres}
+
         ui.label(t("admin.item_count", count=len(items))).classes(
             "text-xs text-muted"
         )
@@ -509,6 +541,8 @@ async def _items_table(t: Translator, container, on_changed) -> None:
              "sortable": True, "align": "left"},
             {"name": "biotimbre_id", "label": t("admin.column.biotimbre"),
              "field": "biotimbre_id", "sortable": True, "align": "left"},
+            {"name": "biotimbre_label", "label": t("admin.column.biotimbre_label"),
+             "field": "biotimbre_label", "sortable": True, "align": "left"},
             {"name": "taxa", "label": t("admin.column.taxa"), "field": "taxa",
              "align": "left"},
             {"name": "date", "label": t("admin.column.date"), "field": "date",
@@ -522,6 +556,7 @@ async def _items_table(t: Translator, container, on_changed) -> None:
             {
                 "item_id": item.item_id,
                 "biotimbre_id": item.biotimbre_id[:8],
+                "biotimbre_label": labels.get(item.biotimbre_id) or "",
                 "taxa": item.taxa_display,
                 "date": f"{item.date} {item.time}",
                 "duration": f"{item.duration_s:.2f}",

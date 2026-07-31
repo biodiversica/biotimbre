@@ -151,12 +151,21 @@ class MetadataForm:
         value = self.inputs["speed"].value
         return float(value) if value is not None else DEFAULT_SPEED
 
+    @property
+    def label(self) -> str | None:
+        """The biotimbre label field's current value, or ``None`` if blank."""
+        value = self.inputs["biotimbre_label"].value
+        if not isinstance(value, str):
+            return None
+        return value.strip() or None
+
 
 def metadata_form(
     t: Translator,
     item: LibraryItem | None = None,
     *,
     allow_new_biotimbre: bool = True,
+    biotimbre_label: str | None = None,
 ) -> MetadataForm:
     """Render the metadata inputs and return a handle to them.
 
@@ -165,6 +174,9 @@ def metadata_form(
         item: Existing item to pre-fill from, for the edit flow.
         allow_new_biotimbre: Whether an empty biotimbre ID is meaningful. On edit
             it is not — an update never allocates — so the field is required there.
+        biotimbre_label: Current label of the item's biotimbre, to pre-fill the
+            label field on edit. Left blank on add, since a freshly allocated
+            biotimbre has none yet.
 
     Returns:
         The :class:`MetadataForm` handle.
@@ -234,6 +246,11 @@ def metadata_form(
                 if allow_new_biotimbre
                 else t("field.biotimbre_id_edit_help")
             )
+        )
+        inputs["biotimbre_label"] = dense(
+            ui.input(
+                t("field.biotimbre_label"), value=biotimbre_label or ""
+            ).tooltip(t("field.biotimbre_label_help"))
         )
         inputs["taxa"] = dense(
             ui.select(

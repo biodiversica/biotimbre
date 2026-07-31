@@ -223,6 +223,33 @@ class LibraryService:
         set_library_name(self._conn, name)
         return self.identity()
 
+    # ── biotimbres ────────────────────────────────────────────────────────────
+
+    def get_biotimbre_label(self, biotimbre_id: str) -> str | None:
+        """The human-readable label of a biotimbre, if it has one.
+
+        Args:
+            biotimbre_id: ID in any accepted form.
+
+        Returns:
+            The label, or ``None`` if unset or the biotimbre does not exist.
+        """
+        row = self.repo.get_biotimbre(biotimbre_id)
+        return row["label"] if row else None
+
+    def set_biotimbre_label(self, biotimbre_id: str, label: str | None) -> None:
+        """Set or clear a biotimbre's label.
+
+        Args:
+            biotimbre_id: ID in any accepted form.
+            label: New label, or ``None``/empty to clear it.
+
+        Raises:
+            NotFoundError: If the biotimbre does not exist.
+        """
+        with self._transaction():
+            self.repo.set_biotimbre_label(biotimbre_id, label)
+
     # ── models ────────────────────────────────────────────────────────────────
 
     def ensure_models_registered(self) -> dict[str, int]:

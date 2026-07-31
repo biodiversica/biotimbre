@@ -132,6 +132,24 @@ class Repository:
         ).fetchone()
         return row is not None
 
+    def get_biotimbre(self, biotimbre_id: str) -> dict | None:
+        """Fetch one biotimbre's row.
+
+        Args:
+            biotimbre_id: ID in any accepted form.
+
+        Returns:
+            Dict of ``biotimbre_id``, ``label``, ``created_at``, or ``None`` if
+            it does not exist.
+        """
+        canonical = parse_biotimbre_id(biotimbre_id)
+        row = self._conn.execute(
+            "SELECT biotimbre_id, label, created_at FROM biotimbres "
+            "WHERE biotimbre_id = ?",
+            (canonical,),
+        ).fetchone()
+        return dict(row) if row is not None else None
+
     def set_biotimbre_label(self, biotimbre_id: str, label: str | None) -> None:
         """Set or clear a biotimbre's human-readable label.
 
