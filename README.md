@@ -120,7 +120,8 @@ Other `search` options: `--metric {cosine,dot,euclidean}`, `--fusion {max,mean,M
 
 **Optional:** `biotimbre_id` (omit to allocate a new one; give an existing one to
 file the sample under the same biotimbre), `taxa` (empty means unknown), `device`,
-`filtered_band`, `noise_reduction`, `speed`, `link_to_full_recording`, `notes`.
+`microphone`, `recorded_by`, `filtered_band`, `filter_type`, `filter_order`,
+`temperature`, `humidity`, `speed`, `link_to_full_recording`, `notes`.
 
 `item_id` is assigned automatically, never reused, and library-specific — just a
 row identifier. A `biotimbre` is a sound-being: a sonotype whose species identity

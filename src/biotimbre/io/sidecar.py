@@ -32,8 +32,13 @@ SIDECAR_FIELDS: dict[str, str] = {
     "time": "time",
     "location": "location",
     "device": "device",
+    "microphone": "microphone",
+    "recorded_by": "recorded_by",
     "filtered_band": "filtered_band",
-    "noise_reduction": "noise_reduction",
+    "filter_type": "filter_type",
+    "filter_order": "filter_order",
+    "temperature": "temperature",
+    "humidity": "humidity",
     "sample_window": "sample_window",
     "speed": "speed",
     "link_to_full_recording": "link_to_full_recording",
@@ -159,15 +164,27 @@ def draft_from_fields(fields: dict[str, str]) -> ItemDraft:
         )
 
     optional: dict[str, object] = {}
-    for name in ("device", "link_to_full_recording", "notes", "taxa"):
+    for name in (
+        "device",
+        "microphone",
+        "recorded_by",
+        "filter_type",
+        "link_to_full_recording",
+        "notes",
+        "taxa",
+    ):
         if fields.get(name):
             optional[name] = fields[name]
     if fields.get("biotimbre_id"):
         optional["biotimbre_id"] = fields["biotimbre_id"]
     if fields.get("filtered_band"):
         optional["filtered_band"] = fields["filtered_band"]
-    if fields.get("noise_reduction"):
-        optional["noise_reduction"] = fields["noise_reduction"]
+    if fields.get("filter_order"):
+        optional["filter_order"] = fields["filter_order"]
+    if fields.get("temperature"):
+        optional["temperature"] = fields["temperature"]
+    if fields.get("humidity"):
+        optional["humidity"] = fields["humidity"]
     if fields.get("speed"):
         optional["speed"] = fields["speed"]
 

@@ -161,7 +161,9 @@ class TestMetadataOnlyCommands:
         out = capsys.readouterr().out
         for label in (
             "item ID", "biotimbre ID", "taxa", "filtered_band",
-            "noise_reduction", "speed", "sample_window", "sha256", "embeddings",
+            "microphone", "recorded_by", "filter_type", "filter_order",
+            "temperature", "humidity",
+            "speed", "sample_window", "sha256", "embeddings",
         ):
             assert label in out
         # The open-ended band from the real sidecar round-trips as "2000,-".

@@ -183,7 +183,6 @@ class TestItemDraft:
         assert draft.taxa == ()
         assert draft.taxa_display == "unknown"
         assert draft.filtered_band.high is None
-        assert draft.noise_reduction is False
         assert draft.speed == 1.0
         assert draft.biotimbre_id is None
 
@@ -257,36 +256,30 @@ class TestItemDraft:
 
     def test_coerces_string_numerics(self):
         # A web form delivers everything as strings.
-        draft = self._base(speed="0.25", noise_reduction="yes").validated()
+        draft = self._base(
+            speed="0.25", filter_order="4", temperature="21.5", humidity="55"
+        ).validated()
         assert draft.speed == 0.25
-        assert draft.noise_reduction is True
+        assert draft.filter_order == 4
+        assert draft.temperature == 21.5
+        assert draft.humidity == 55.0
 
-    @pytest.mark.parametrize(
-        "value,expected",
-        [
-            ("yes", True),
-            ("YES", True),
-            ("true", True),
-            ("1", True),
-            ("no", False),
-            ("NO", False),
-            ("false", False),
-            ("0", False),
-            ("", False),
-            (None, False),
-            (True, True),
-            (False, False),
-        ],
-    )
-    def test_parses_noise_reduction_words(self, value, expected):
-        # The spec writes this field as [yes/no], and plain bool("no") is True,
-        # so text has to be parsed rather than coerced.
-        assert self._base(noise_reduction=value).validated().noise_reduction is expected
+    def test_blank_optional_numerics_become_none(self):
+        draft = self._base(filter_order="", temperature="", humidity="").validated()
+        assert draft.filter_order is None
+        assert draft.temperature is None
+        assert draft.humidity is None
 
-    @pytest.mark.parametrize("value", ["maybe", "sim", "2", "nope"])
-    def test_rejects_ambiguous_noise_reduction(self, value):
-        # Guessing would silently invert the user's intent. Note "sim" is
-        # rejected deliberately: the domain layer stays language-neutral, and
-        # translating localised input to a bool is the UI's job (see PLAN.md D7).
-        with pytest.raises(ValidationError, match="yes/no"):
-            self._base(noise_reduction=value).validated()
+    def test_rejects_non_integer_filter_order(self):
+        with pytest.raises(ValidationError, match="filter_order"):
+            self._base(filter_order=4.5).validated()
+
+    def test_rejects_non_numeric_temperature(self):
+        with pytest.raises(ValidationError, match="temperature"):
+            self._base(temperature="warm").validated()
+
+    def test_blank_optional_text_becomes_none_for_new_fields(self):
+        draft = self._base(microphone="  ", recorded_by="", filter_type=" ").validated()
+        assert draft.microphone is None
+        assert draft.recorded_by is None
+        assert draft.filter_type is None

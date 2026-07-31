@@ -19,9 +19,14 @@ CREATE TABLE IF NOT EXISTS items (
     sample_window_start    REAL    NOT NULL,   -- seconds into the FULL recording
     sample_window_end      REAL    NOT NULL,
     device                 TEXT,
+    microphone             TEXT,
+    recorded_by            TEXT,
     filtered_band_low      REAL,               -- NULL = open (the '-' in sidecars)
     filtered_band_high     REAL,
-    noise_reduction        INTEGER NOT NULL DEFAULT 0,
+    filter_type            TEXT,
+    filter_order           INTEGER,
+    temperature            REAL,               -- degrees Celsius
+    humidity               REAL,               -- relative humidity, percent
     speed                  REAL    NOT NULL DEFAULT 1.0,  -- <1 slower, >1 faster
     link_to_full_recording TEXT,
     notes                  TEXT,

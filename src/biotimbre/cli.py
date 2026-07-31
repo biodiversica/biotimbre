@@ -148,8 +148,13 @@ def cmd_add(args: argparse.Namespace) -> int:
                 biotimbre_id=args.biotimbre_id,
                 taxa=args.taxa or (),
                 device=args.device,
+                microphone=args.microphone,
+                recorded_by=args.recorded_by,
                 filtered_band=FilteredBand(args.highpass, args.lowpass),
-                noise_reduction=args.noise_reduction or False,
+                filter_type=args.filter_type,
+                filter_order=args.filter_order,
+                temperature=args.temperature,
+                humidity=args.humidity,
                 speed=args.speed,
                 link_to_full_recording=args.link,
                 notes=args.notes,
@@ -212,8 +217,16 @@ def cmd_show(args: argparse.Namespace) -> int:
             ("time", item.time),
             ("location", str(item.location)),
             ("device", item.device or "-"),
+            ("microphone", item.microphone or "-"),
+            ("recorded_by", item.recorded_by or "-"),
             ("filtered_band", str(item.filtered_band)),
-            ("noise_reduction", "yes" if item.noise_reduction else "no"),
+            ("filter_type", item.filter_type or "-"),
+            ("filter_order", item.filter_order if item.filter_order is not None else "-"),
+            (
+                "temperature",
+                f"{item.temperature:g} °C" if item.temperature is not None else "-",
+            ),
+            ("humidity", f"{item.humidity:g} %" if item.humidity is not None else "-"),
             ("speed", f"{item.speed:g}"),
             ("sample_window", str(item.sample_window)),
             ("link", item.link_to_full_recording or "-"),
@@ -424,6 +437,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_add.add_argument("--taxa", nargs="+", help="Taxon tags.")
     p_add.add_argument("--device", help="Recording device brand/model.")
+    p_add.add_argument("--microphone", help="Microphone brand/model.")
+    p_add.add_argument("--recorded-by", help="Person or organisation who recorded it.")
     p_add.add_argument(
         "--highpass", type=float, help="Highpass cutoff already applied, in Hz."
     )
@@ -431,7 +446,21 @@ def build_parser() -> argparse.ArgumentParser:
         "--lowpass", type=float, help="Lowpass cutoff already applied, in Hz."
     )
     p_add.add_argument(
-        "--noise-reduction", action="store_true", help="Noise reduction was applied."
+        "--filter-type",
+        help="Kind of filter used to apply the band, e.g. Butterworth.",
+    )
+    p_add.add_argument(
+        "--filter-order", type=int, help="Order of the filter used to apply the band."
+    )
+    p_add.add_argument(
+        "--temperature",
+        type=float,
+        help="Ambient temperature at recording time, in degrees Celsius.",
+    )
+    p_add.add_argument(
+        "--humidity",
+        type=float,
+        help="Ambient relative humidity at recording time, in percent.",
     )
     p_add.add_argument(
         "--speed",

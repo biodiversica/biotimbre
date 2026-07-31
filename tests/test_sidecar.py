@@ -103,17 +103,27 @@ class TestParsing:
         )
         assert draft.speed == 0.25
 
-    def test_accepts_noise_reduction_word(self):
+    def test_accepts_new_optional_fields(self):
         draft = draft_from_fields(
             {
                 "date": "2020-01-01",
                 "time": "09:00:00",
                 "location": "-26,-48",
                 "sample_window": "0,5",
-                "noise_reduction": "yes",
+                "microphone": "SMX-II",
+                "recorded_by": "J. Doe",
+                "filter_type": "Butterworth",
+                "filter_order": "4",
+                "temperature": "21.5",
+                "humidity": "55",
             }
         )
-        assert draft.noise_reduction is True
+        assert draft.microphone == "SMX-II"
+        assert draft.recorded_by == "J. Doe"
+        assert draft.filter_type == "Butterworth"
+        assert draft.filter_order == 4
+        assert draft.temperature == 21.5
+        assert draft.humidity == 55.0
 
 
 class TestMandatoryFields:

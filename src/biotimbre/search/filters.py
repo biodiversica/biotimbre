@@ -102,7 +102,6 @@ class SearchFilters:
         longitude: Centre longitude for a radius filter.
         radius_km: Radius in kilometres. Requires latitude and longitude.
         device: Case-insensitive substring match on the device field.
-        noise_reduction: Restrict to items with or without noise reduction.
         speeds: Restrict to items indexed at these speed factors.
         exclude_item_ids: Items to omit, e.g. the query's own item.
     """
@@ -116,7 +115,6 @@ class SearchFilters:
     longitude: float | None = None
     radius_km: float | None = None
     device: str | None = None
-    noise_reduction: bool | None = None
     speeds: tuple[float, ...] = ()
     exclude_item_ids: tuple[int, ...] = ()
 
@@ -164,7 +162,6 @@ class SearchFilters:
             and self.date_to is None
             and self.radius_km is None
             and self.device is None
-            and self.noise_reduction is None
             and not self.speeds
             and not self.exclude_item_ids
         )
@@ -245,10 +242,6 @@ def build_candidate_query(filters: SearchFilters) -> tuple[str, list[object]]:
     if filters.device is not None:
         clauses.append("i.device IS NOT NULL AND LOWER(i.device) LIKE ?")
         params.append(f"%{filters.device.strip().lower()}%")
-
-    if filters.noise_reduction is not None:
-        clauses.append("i.noise_reduction = ?")
-        params.append(int(filters.noise_reduction))
 
     if filters.speeds:
         placeholders = ", ".join("?" * len(filters.speeds))

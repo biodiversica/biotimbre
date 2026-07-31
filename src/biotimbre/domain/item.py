@@ -444,47 +444,6 @@ class SampleWindow:
         return f"{self.start:g},{self.end:g}"
 
 
-#: Accepted spellings for a boolean supplied as text. The spec writes
-#: ``noise_reduction: [yes/no]``, and plain ``bool("no")`` is True, so text must
-#: be parsed rather than coerced.
-_TRUE_WORDS = frozenset({"yes", "y", "true", "t", "1", "on"})
-_FALSE_WORDS = frozenset({"no", "n", "false", "f", "0", "off", ""})
-
-
-def _parse_bool(value: object, field_name: str) -> bool:
-    """Interpret a boolean supplied as a bool, number, or word.
-
-    Args:
-        value: The value as supplied.
-        field_name: Field name for error reporting.
-
-    Returns:
-        The boolean meaning.
-
-    Raises:
-        ValidationError: If a string is not a recognised yes/no spelling.
-            Guessing would silently invert the user's intent.
-    """
-    if isinstance(value, bool):
-        return value
-    if value is None:
-        return False
-    if isinstance(value, (int, float)):
-        return bool(value)
-    if isinstance(value, str):
-        text = value.strip().lower()
-        if text in _TRUE_WORDS:
-            return True
-        if text in _FALSE_WORDS:
-            return False
-        raise ValidationError(
-            f"{value!r} is not a yes/no value. Use yes or no.", field_name
-        )
-    raise ValidationError(
-        f"Expected yes/no, got {type(value).__name__}.", field_name
-    )
-
-
 def _validate_speed(value: object) -> float:
     speed = _as_float(value, "speed")
     if not MIN_SPEED <= speed <= MAX_SPEED:
@@ -508,6 +467,25 @@ def _clean_optional_text(value: object, field_name: str) -> str | None:
     return text or None
 
 
+def _clean_optional_float(value: object, field_name: str) -> float | None:
+    if value is None:
+        return None
+    if isinstance(value, str) and not value.strip():
+        return None
+    return _as_float(value, field_name)
+
+
+def _clean_optional_int(value: object, field_name: str) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, str) and not value.strip():
+        return None
+    as_float = _as_float(value, field_name)
+    if as_float != int(as_float):
+        raise ValidationError(f"{value!r} is not a whole number.", field_name)
+    return int(as_float)
+
+
 @dataclass(frozen=True)
 class ItemDraft:
     """An item as submitted, before it is stored.
@@ -528,8 +506,13 @@ class ItemDraft:
         biotimbre_id: Existing biotimbre to join, or ``None`` to allocate.
         taxa: Taxon tags; empty means unknown.
         device: Recording device brand/model.
+        microphone: Microphone brand/model.
+        recorded_by: Person or organisation who recorded the sample.
         filtered_band: Bandpass already applied to the sample.
-        noise_reduction: Whether noise reduction was applied.
+        filter_type: Kind of filter used to apply the band, e.g. "Butterworth".
+        filter_order: Order of the filter used to apply the band.
+        temperature: Ambient temperature at recording time, in degrees Celsius.
+        humidity: Ambient relative humidity at recording time, in percent.
         speed: Playback-speed factor applied before embedding (PLAN.md D2b).
         link_to_full_recording: URL of the full recording.
         notes: Free text.
@@ -542,8 +525,13 @@ class ItemDraft:
     biotimbre_id: str | None = None
     taxa: tuple[str, ...] = ()
     device: str | None = None
+    microphone: str | None = None
+    recorded_by: str | None = None
     filtered_band: FilteredBand = field(default_factory=FilteredBand)
-    noise_reduction: bool = False
+    filter_type: str | None = None
+    filter_order: int | None = None
+    temperature: float | None = None
+    humidity: float | None = None
     speed: float = DEFAULT_SPEED
     link_to_full_recording: str | None = None
     notes: str | None = None
@@ -573,8 +561,13 @@ class ItemDraft:
             ),
             taxa=normalize_taxa(self.taxa),
             device=_clean_optional_text(self.device, "device"),
+            microphone=_clean_optional_text(self.microphone, "microphone"),
+            recorded_by=_clean_optional_text(self.recorded_by, "recorded_by"),
             filtered_band=FilteredBand.parse(self.filtered_band),
-            noise_reduction=_parse_bool(self.noise_reduction, "noise_reduction"),
+            filter_type=_clean_optional_text(self.filter_type, "filter_type"),
+            filter_order=_clean_optional_int(self.filter_order, "filter_order"),
+            temperature=_clean_optional_float(self.temperature, "temperature"),
+            humidity=_clean_optional_float(self.humidity, "humidity"),
             speed=_validate_speed(self.speed),
             link_to_full_recording=_clean_optional_text(
                 self.link_to_full_recording, "link_to_full_recording"
@@ -610,8 +603,13 @@ class LibraryItem:
         updated_at: ISO-8601 UTC last-modification timestamp.
         taxa: Taxon tags; empty means unknown.
         device: Recording device brand/model.
+        microphone: Microphone brand/model.
+        recorded_by: Person or organisation who recorded the sample.
         filtered_band: Bandpass already applied to the sample.
-        noise_reduction: Whether noise reduction was applied.
+        filter_type: Kind of filter used to apply the band, e.g. "Butterworth".
+        filter_order: Order of the filter used to apply the band.
+        temperature: Ambient temperature at recording time, in degrees Celsius.
+        humidity: Ambient relative humidity at recording time, in percent.
         speed: Playback-speed factor used to compute this item's embeddings.
         link_to_full_recording: URL of the full recording.
         notes: Free text.
@@ -632,8 +630,13 @@ class LibraryItem:
     updated_at: str
     taxa: tuple[str, ...] = ()
     device: str | None = None
+    microphone: str | None = None
+    recorded_by: str | None = None
     filtered_band: FilteredBand = field(default_factory=FilteredBand)
-    noise_reduction: bool = False
+    filter_type: str | None = None
+    filter_order: int | None = None
+    temperature: float | None = None
+    humidity: float | None = None
     speed: float = DEFAULT_SPEED
     link_to_full_recording: str | None = None
     notes: str | None = None
@@ -673,8 +676,13 @@ class LibraryItem:
             biotimbre_id=self.biotimbre_id,
             taxa=self.taxa,
             device=self.device,
+            microphone=self.microphone,
+            recorded_by=self.recorded_by,
             filtered_band=self.filtered_band,
-            noise_reduction=self.noise_reduction,
+            filter_type=self.filter_type,
+            filter_order=self.filter_order,
+            temperature=self.temperature,
+            humidity=self.humidity,
             speed=self.speed,
             link_to_full_recording=self.link_to_full_recording,
             notes=self.notes,

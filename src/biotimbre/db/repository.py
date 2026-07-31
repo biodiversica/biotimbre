@@ -39,8 +39,9 @@ VECTOR_DTYPE = np.float32
 
 _ITEM_COLUMNS = """
     item_id, biotimbre_id, date, time, latitude, longitude,
-    sample_window_start, sample_window_end, device,
-    filtered_band_low, filtered_band_high, noise_reduction, speed,
+    sample_window_start, sample_window_end, device, microphone, recorded_by,
+    filtered_band_low, filtered_band_high, filter_type, filter_order,
+    temperature, humidity, speed,
     link_to_full_recording, notes, audio_path, audio_sha256,
     duration_s, sample_rate, channels, created_at, updated_at
 """
@@ -255,11 +256,15 @@ class Repository:
             """
             INSERT INTO items (
                 biotimbre_id, date, time, latitude, longitude,
-                sample_window_start, sample_window_end, device,
-                filtered_band_low, filtered_band_high, noise_reduction, speed,
+                sample_window_start, sample_window_end, device, microphone,
+                recorded_by, filtered_band_low, filtered_band_high, filter_type,
+                filter_order, temperature, humidity, speed,
                 link_to_full_recording, notes, audio_path, audio_sha256,
                 duration_s, sample_rate, channels, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (
+                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                ?, ?
+            )
             """,
             (
                 biotimbre_id,
@@ -270,9 +275,14 @@ class Repository:
                 draft.sample_window.start,
                 draft.sample_window.end,
                 draft.device,
+                draft.microphone,
+                draft.recorded_by,
                 draft.filtered_band.low,
                 draft.filtered_band.high,
-                int(draft.noise_reduction),
+                draft.filter_type,
+                draft.filter_order,
+                draft.temperature,
+                draft.humidity,
                 draft.speed,
                 draft.link_to_full_recording,
                 draft.notes,
@@ -370,8 +380,10 @@ class Repository:
                 biotimbre_id = ?, date = ?, time = ?,
                 latitude = ?, longitude = ?,
                 sample_window_start = ?, sample_window_end = ?,
-                device = ?, filtered_band_low = ?, filtered_band_high = ?,
-                noise_reduction = ?, speed = ?,
+                device = ?, microphone = ?, recorded_by = ?,
+                filtered_band_low = ?, filtered_band_high = ?,
+                filter_type = ?, filter_order = ?,
+                temperature = ?, humidity = ?, speed = ?,
                 link_to_full_recording = ?, notes = ?,
                 audio_path = ?, updated_at = ?
             WHERE item_id = ?
@@ -385,9 +397,14 @@ class Repository:
                 draft.sample_window.start,
                 draft.sample_window.end,
                 draft.device,
+                draft.microphone,
+                draft.recorded_by,
                 draft.filtered_band.low,
                 draft.filtered_band.high,
-                int(draft.noise_reduction),
+                draft.filter_type,
+                draft.filter_order,
+                draft.temperature,
+                draft.humidity,
                 draft.speed,
                 draft.link_to_full_recording,
                 draft.notes,
@@ -891,10 +908,21 @@ class Repository:
             updated_at=row["updated_at"],
             taxa=taxa,
             device=row["device"],
+            microphone=row["microphone"],
+            recorded_by=row["recorded_by"],
             filtered_band=FilteredBand(
                 row["filtered_band_low"], row["filtered_band_high"]
             ),
-            noise_reduction=bool(row["noise_reduction"]),
+            filter_type=row["filter_type"],
+            filter_order=(
+                int(row["filter_order"]) if row["filter_order"] is not None else None
+            ),
+            temperature=(
+                float(row["temperature"]) if row["temperature"] is not None else None
+            ),
+            humidity=(
+                float(row["humidity"]) if row["humidity"] is not None else None
+            ),
             speed=float(row["speed"]) if row["speed"] is not None else DEFAULT_SPEED,
             link_to_full_recording=row["link_to_full_recording"],
             notes=row["notes"],

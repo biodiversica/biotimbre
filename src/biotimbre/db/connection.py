@@ -25,7 +25,9 @@ from biotimbre.domain.errors import BiotimbreError, ValidationError
 #: 2: biotimbre_id switched from a per-library 4-hex-char code to a UUID
 #: (so it means the same thing across libraries). No migration is provided —
 #: a version-1 database fails to open with a clear message instead.
-SCHEMA_VERSION = 2
+#: 3: items.noise_reduction removed; items.microphone, recorded_by, filter_type,
+#: filter_order, temperature, humidity added. No migration is provided.
+SCHEMA_VERSION = 3
 
 _SCHEMA_KEY = "schema_version"
 
@@ -140,8 +142,8 @@ def initialize(
                 raise BiotimbreError(
                     f"Database {path} has schema version {found}, but this "
                     f"software requires version {SCHEMA_VERSION}. No "
-                    f"automatic migration is provided (schema 2 changed "
-                    f"biotimbre_id from a 4-hex-char code to a UUID). Move "
+                    f"automatic migration is provided (see SCHEMA_VERSION's "
+                    f"docstring for what changed between versions). Move "
                     f"this data_dir aside and run `biotimbre init` to start "
                     f"a fresh library, or reinstall an older biotimbre-library "
                     f"version to keep using this one."

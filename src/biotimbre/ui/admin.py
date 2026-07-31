@@ -339,10 +339,21 @@ def _metadata_rows(
         (t("field.date"), f"{item.date} {item.time}"),
         (t("field.location"), str(item.location)),
         (t("field.device"), item.device or t("common.none")),
+        (t("field.microphone"), item.microphone or t("common.none")),
+        (t("field.recorded_by"), item.recorded_by or t("common.none")),
         (t("field.filtered_band"), str(item.filtered_band)),
+        (t("field.filter_type"), item.filter_type or t("common.none")),
         (
-            t("field.noise_reduction"),
-            t("common.yes") if item.noise_reduction else t("common.no"),
+            t("field.filter_order"),
+            str(item.filter_order) if item.filter_order is not None else t("common.none"),
+        ),
+        (
+            t("field.temperature"),
+            f"{item.temperature:g} °C" if item.temperature is not None else t("common.none"),
+        ),
+        (
+            t("field.humidity"),
+            f"{item.humidity:g} %" if item.humidity is not None else t("common.none"),
         ),
         (t("field.speed"), f"{item.speed:g}"),
         (t("field.sample_window"), f"{item.sample_window} {t('common.seconds')}"),
