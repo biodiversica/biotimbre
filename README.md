@@ -1,10 +1,6 @@
-# Biotimbre Library
+# Biotimbre: A vocalization library management tool
 
-A local library of animal vocalization samples with embedding-based similarity
-search, using the Perch v2 and BirdNET 2.4 ONNX backbones via `onnxruntime`.
-
-Library core, CLI and both web pages (EN / pt-BR) are complete; 514 tests pass.
-See [PLAN.md](PLAN.md) for the design and the measurements behind it.
+A tool for creating and managing libraries of animal vocalization blueprints with embedding-based similarity search, using ONNX backbones via `onnxruntime` (e.g. Perch v2, BirdNET 2.4).
 
 ## Setup
 
@@ -23,7 +19,7 @@ shared — copy the `data_dir` to hand a library to someone else, and both the
 name and UUID travel with it. Both are shown in the GUI header and in
 `biotimbre stats`. Rerun `init --name "..."` any time to rename.
 
-## Where the library lives
+## Library path
 
 By default, `./data` relative to the current directory. Three ways to change it:
 
