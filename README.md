@@ -1,6 +1,6 @@
 # Biotimbre: A vocalization library management tool
 
-A tool for creating and managing libraries of animal vocalization blueprints with embedding-based similarity search, using ONNX backbones via `onnxruntime` (e.g. Perch v2, BirdNET 2.4).
+A tool for creating and managing libraries of animal vocalization templates with embedding-based similarity search, using ONNX backbones via `onnxruntime` (e.g. Perch v2, BirdNET 2.4).
 
 ## Setup
 

@@ -6,6 +6,7 @@ thread-safe access, and the HTTP routes the pages depend on.
 
 from __future__ import annotations
 
+import socket
 import threading
 
 import pytest
@@ -15,6 +16,7 @@ pytest.importorskip("nicegui", reason="needs the 'gui' extra")
 from fastapi import FastAPI  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
+from biotimbre.ui import app as ui_app  # noqa: E402
 from biotimbre.ui import routes  # noqa: E402
 from biotimbre.ui.state import AppState, get_state, set_state  # noqa: E402
 from conftest import EXAMPLES_DIR  # noqa: E402
@@ -220,3 +222,39 @@ class TestMediaRoutes:
         payload = client.get("/media/status").json()
         assert payload["items"] == 2
         assert payload["ready"] is True
+
+
+class TestBrowserLaunch:
+    """``open_browser`` must open one tab, whatever the platform's launchers do."""
+
+    def test_launches_a_single_browser(self, monkeypatch):
+        import webbrowser
+
+        opened = []
+
+        class Recorder:
+            def open(self, url, new=0, autoraise=True):
+                opened.append(url)
+                # A launcher that has already exited reports failure even
+                # though it opened a tab; nothing may retry on that.
+                return False
+
+        monkeypatch.setattr(webbrowser, "get", lambda *a: Recorder())
+        monkeypatch.setattr(webbrowser, "open", lambda *a, **k: pytest.fail("fallback chain used"))
+
+        with socket.socket() as server:
+            server.bind(("127.0.0.1", 0))
+            server.listen(1)
+            port = server.getsockname()[1]
+            ui_app.open_browser("127.0.0.1", port, timeout=5.0)
+
+        assert opened == [f"http://127.0.0.1:{port}/"]
+
+    def test_gives_up_when_the_port_never_answers(self, monkeypatch):
+        import webbrowser
+
+        monkeypatch.setattr(webbrowser, "get", lambda *a: pytest.fail("opened too early"))
+        with socket.socket() as probe:
+            probe.bind(("127.0.0.1", 0))
+            free_port = probe.getsockname()[1]
+        ui_app.open_browser("127.0.0.1", free_port, timeout=0.3)
