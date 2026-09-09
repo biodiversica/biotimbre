@@ -380,3 +380,85 @@ class TestLanguageSelect:
         # colour, which is the header's own green on a dark popup.
         assert select._props["options-selected-class"] == "text-accent"
         assert select._props["color"] == "white"
+
+
+@pytest.mark.usefixtures("installed_state")
+class TestItemDetail:
+    """The dialog opened from a row, and what a change to it leaves behind."""
+
+    @staticmethod
+    def _add(state, **overrides):
+        import dataclasses
+
+        from biotimbre.io.sidecar import draft_from_sidecar
+
+        draft = draft_from_sidecar(EXAMPLES_DIR / "ZAMTYM.txt")
+        if overrides:
+            draft = dataclasses.replace(draft, **overrides)
+        return state.call(
+            state.service.add_item, GUYVIR, draft, compute_embeddings=False
+        )
+
+    async def test_shows_the_link_and_the_timestamps(self, user: User, installed_state):
+        from biotimbre.ui import app as ui_app  # noqa: F401
+
+        item = self._add(
+            installed_state, link_to_full_recording="https://example.org/rec"
+        ).item
+        await user.open("/")
+        await user.should_see("1 item(s)")
+        user.find(ui.table).trigger("rowClick", args=[None, {"item_id": item.item_id}])
+
+        await user.should_see("Link to full recording")
+        await user.should_see("https://example.org/rec")
+        await user.should_see("Created")
+        await user.should_see("Updated")
+
+        # The dialog's card is a scrolling flex column: without ``shrink-0``
+        # the player collapses to nothing and the spectrogram loses most of
+        # its height as soon as the content overflows.
+        image = next(iter(user.find(ui.image).elements))
+        audio = next(iter(user.find(ui.audio).elements))
+        assert "shrink-0" in image._classes
+        assert "shrink-0" in audio._classes
+
+    async def test_names_the_link_field_even_when_unset(self, user: User, installed_state):
+        from biotimbre.ui import app as ui_app  # noqa: F401
+
+        item = self._add(installed_state).item
+        await user.open("/")
+        await user.should_see("1 item(s)")
+        user.find(ui.table).trigger("rowClick", args=[None, {"item_id": item.item_id}])
+
+        await user.should_see("Link to full recording")
+
+    async def test_list_survives_an_edit(self, user: User, installed_state):
+        import asyncio
+
+        from biotimbre.ui import app as ui_app  # noqa: F401
+
+        item = self._add(installed_state).item
+        await user.open("/")
+        await user.should_see("1 item(s)")
+
+        user.find(ui.table).trigger("rowClick", args=[None, {"item_id": item.item_id}])
+        await user.should_see("Edit")
+        user.find("Edit").click()
+        await user.should_see("Save")
+        user.find("Save").click()
+
+        # The redraw runs from a timer, and saving used to create that timer
+        # inside the very subtree the redraw clears: deleting the timer
+        # cancelled the redraw at its next read, leaving the page with no list
+        # at all until it was reloaded. The live element registry is the oracle
+        # here — ``should_see`` still matches elements that have been deleted.
+        for _ in range(40):
+            await asyncio.sleep(0.05)
+            tables = [
+                element
+                for element in user.client.elements.values()
+                if isinstance(element, ui.table)
+            ]
+            if tables:
+                break
+        assert tables, "the item list never came back after saving an edit"

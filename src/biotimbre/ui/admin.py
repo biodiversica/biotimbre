@@ -29,6 +29,13 @@ from biotimbre.viz import render_spectrogram
 #: Accepted upload extensions, matching what soundfile can decode.
 ACCEPTED = ".wav,.flac,.ogg,.aiff,.aif,.w64"
 
+#: Spectrogram render size for the detail dialog. Taller than a list thumbnail:
+#: this is the one place a sample is meant to be read, not just recognised. The
+#: image is scaled to the dialog's width, so it is the ratio that decides how
+#: tall it ends up on screen.
+DETAIL_WIDTH = 900
+DETAIL_HEIGHT = 360
+
 
 @dataclass
 class Upload:
@@ -365,16 +372,27 @@ def _metadata_rows(
             or t("admin.embeddings_none"),
         ),
         (t("field.notes"), item.notes or t("common.none")),
+        (t("field.created"), item.created_at),
+        (t("field.updated"), item.updated_at),
     ]
     with ui.grid(columns=2).classes("gap-x-4 gap-y-1 text-sm"):
         for label, value in rows:
             ui.label(label).classes("text-muted")
             ui.label(str(value))
 
-    if item.link_to_full_recording:
-        ui.link(
-            t("admin.open_full_recording"), item.link_to_full_recording, new_tab=True
-        ).classes("text-sm text-link")
+        # The link is a field like any other, so it keeps its place in the list
+        # rather than hiding when unset; only its value is clickable.
+        ui.label(t("field.link")).classes("text-muted")
+        if item.link_to_full_recording:
+            ui.link(
+                item.link_to_full_recording,
+                item.link_to_full_recording,
+                new_tab=True,
+            ).classes("text-link break-all").tooltip(
+                t("admin.open_full_recording")
+            )
+        else:
+            ui.label(t("common.none"))
 
 
 async def _open_detail(t: Translator, item_id: int, on_changed) -> None:
@@ -393,10 +411,16 @@ async def _open_detail(t: Translator, item_id: int, on_changed) -> None:
         ui.label(t("admin.detail", item_id=item.item_id)).classes(
             "text-lg font-medium"
         )
+        # The card is a flex column that scrolls, so anything without an
+        # intrinsic height is free to shrink away: the player collapsed to
+        # nothing and the spectrogram lost most of its height. Neither may
+        # shrink.
         ui.image(
-            state.spectrogram_url(item.item_id, width=860, height=200)
-        ).classes("w-full rounded").props("no-spinner")
-        ui.audio(state.audio_url(item.item_id)).classes("w-full")
+            state.spectrogram_url(
+                item.item_id, width=DETAIL_WIDTH, height=DETAIL_HEIGHT
+            )
+        ).classes("w-full rounded shrink-0").props("no-spinner")
+        ui.audio(state.audio_url(item.item_id)).classes("w-full shrink-0")
         _metadata_rows(t, item, counts, label)
 
         with ui.row().classes("justify-end gap-2 w-full"):
@@ -530,16 +554,18 @@ async def _open_edit(t: Translator, item: LibraryItem, parent, on_changed) -> No
 async def _items_table(t: Translator, container, on_changed) -> None:
     """Render the item list into ``container``."""
     state = get_state()
+    # Everything is read before the container is emptied: an await after the
+    # clear leaves the list blank for as long as it takes, and a redraw that is
+    # cancelled at that point leaves it blank for good.
     items = await state.run(state.service.list_items)
+    biotimbres = await state.run(state.service.repo.list_biotimbres)
+    labels = {b["biotimbre_id"]: b["label"] for b in biotimbres}
 
     container.clear()
     with container:
         if not items:
             ui.label(t("admin.no_items")).classes("text-muted")
             return
-
-        biotimbres = await state.run(state.service.repo.list_biotimbres)
-        labels = {b["biotimbre_id"]: b["label"] for b in biotimbres}
 
         ui.label(t("admin.item_count", count=len(items))).classes(
             "text-xs text-muted"
@@ -593,6 +619,9 @@ async def render(t: Translator) -> None:
     summary_container = ui.column().classes("w-full")
     add_container = ui.column().classes("w-full")
     table_container = ui.column().classes("w-full gap-2")
+    # Home for the timers ``refresh`` schedules. See below for why they cannot
+    # live wherever the caller happens to be.
+    schedule_anchor = ui.element("div")
 
     async def redraw() -> None:
         """Re-render the totals and the list after any change."""
@@ -602,8 +631,16 @@ async def render(t: Translator) -> None:
         await _items_table(t, table_container, refresh)
 
     def refresh() -> None:
-        """Schedule a redraw from a synchronous callback."""
-        ui.timer(0.1, redraw, once=True)
+        """Schedule a redraw from a synchronous callback.
+
+        The timer is anchored on the page rather than in the caller's slot. A
+        dialog's callback runs inside the list subtree, so the timer would be
+        created there too, and the redraw's own ``clear()`` would then delete
+        the element running it — cancelling the redraw mid-way and leaving the
+        list empty until the page was reloaded.
+        """
+        with schedule_anchor:
+            ui.timer(0.1, redraw, once=True)
 
     with add_container:
         _add_card(t, refresh)
