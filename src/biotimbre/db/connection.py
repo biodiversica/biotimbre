@@ -13,6 +13,7 @@ Two pragmas matter and are set on every connection:
 
 from __future__ import annotations
 
+import re
 import sqlite3
 import uuid
 from dataclasses import dataclass
@@ -27,7 +28,10 @@ from biotimbre.domain.errors import BiotimbreError, ValidationError
 #: a version-1 database fails to open with a clear message instead.
 #: 3: items.noise_reduction removed; items.microphone, recorded_by, filter_type,
 #: filter_order, temperature, humidity added. No migration is provided.
-SCHEMA_VERSION = 3
+#: 4: items.sample_window_start/_end are nullable — the window locates a sample
+#: inside a full recording, which not every sample has. Migrated in place by
+#: :func:`_migrate_3_to_4`; nothing is lost, since only a constraint relaxes.
+SCHEMA_VERSION = 4
 
 _SCHEMA_KEY = "schema_version"
 
@@ -96,6 +100,120 @@ def connect(
     return conn
 
 
+def _items_table_ddl(name: str) -> str:
+    """The current ``items`` definition from schema.sql, under another name.
+
+    A migration that rebuilds the table must not restate its columns: two
+    definitions of the same table drift apart. This lifts the one in
+    schema.sql and only changes the name it is created under.
+
+    Args:
+        name: Name to create the table as.
+
+    Returns:
+        A ``CREATE TABLE`` statement.
+
+    Raises:
+        BiotimbreError: If schema.sql no longer holds a recognisable
+            ``items`` definition.
+    """
+    match = re.search(
+        r"CREATE TABLE IF NOT EXISTS items\s*\(.*?\n\);", _schema_sql(), re.S
+    )
+    if match is None:
+        raise BiotimbreError(
+            "schema.sql no longer contains an 'items' table definition; "
+            "the 3 → 4 migration cannot rebuild it."
+        )
+    return re.sub(
+        r"^CREATE TABLE IF NOT EXISTS items\s*\(",
+        f"CREATE TABLE {name} (",
+        match.group(0),
+        count=1,
+    )
+
+
+def _migrate_3_to_4(conn: sqlite3.Connection) -> None:
+    """Drop the NOT NULL on items.sample_window_start/_end, keeping every row.
+
+    SQLite cannot relax a column constraint in place, so this is the standard
+    rebuild: copy into a table with the new definition, drop the old one, take
+    its name. Every existing row already has a window, so nothing changes but
+    what is allowed from here on.
+
+    Args:
+        conn: An open connection to the version-3 database.
+    """
+    # Foreign keys off for the swap: item_taxa and embeddings point at
+    # items, and dropping it with them enforced would cascade the rows away.
+    # It has to be off *outside* a transaction to take effect.
+    conn.commit()
+    conn.execute("PRAGMA foreign_keys = OFF")
+    try:
+        conn.execute("BEGIN")
+        conn.execute(_items_table_ddl("items_migrating"))
+        columns = ", ".join(
+            row["name"]
+            for row in conn.execute("PRAGMA table_info(items_migrating)")
+        )
+        conn.execute(
+            f"INSERT INTO items_migrating ({columns}) SELECT {columns} FROM items"
+        )
+        conn.execute("DROP TABLE items")
+        conn.execute("ALTER TABLE items_migrating RENAME TO items")
+        # The old table's indexes went with it; schema.sql recreates them.
+        conn.executescript(_schema_sql())
+        broken = conn.execute("PRAGMA foreign_key_check").fetchall()
+        if broken:
+            raise BiotimbreError(
+                f"Migration to schema version 4 would leave {len(broken)} "
+                f"orphaned row(s) behind; the database was left unchanged."
+            )
+        conn.commit()
+    except BaseException:
+        conn.rollback()
+        raise
+    finally:
+        conn.execute("PRAGMA foreign_keys = ON")
+
+
+#: How to get from one schema version to the next, keyed by the version being
+#: left behind. A version with no entry here has no migration and fails to open.
+_MIGRATIONS = {3: _migrate_3_to_4}
+
+
+def _migrate(conn: sqlite3.Connection, found: int, path: Path) -> None:
+    """Bring a database up to :data:`SCHEMA_VERSION`, one version at a time.
+
+    Args:
+        conn: An open connection to the database.
+        found: The version the database is at.
+        path: Where the database lives, for error messages.
+
+    Raises:
+        BiotimbreError: If some step on the way has no migration.
+    """
+    while found < SCHEMA_VERSION:
+        step = _MIGRATIONS.get(found)
+        if step is None:
+            raise BiotimbreError(
+                f"Database {path} has schema version {found}, but this "
+                f"software requires version {SCHEMA_VERSION}. No "
+                f"automatic migration is provided from version {found} "
+                f"(see SCHEMA_VERSION's docstring for what changed between "
+                f"versions). Move this data_dir aside and run `biotimbre "
+                f"init` to start a fresh library, or reinstall an older "
+                f"biotimbre-library version to keep using this one."
+            )
+        step(conn)
+        found += 1
+        conn.execute(
+            "UPDATE schema_meta SET value = ? WHERE key = ?",
+            (str(found), _SCHEMA_KEY),
+        )
+        conn.commit()
+
+
 def initialize(
     db_path: str | Path, *, allow_threads: bool = False
 ) -> sqlite3.Connection:
@@ -113,7 +231,7 @@ def initialize(
     Raises:
         BiotimbreError: If the file holds a schema from a newer version of this
             software, which this code cannot safely read, or an older version
-            this code no longer supports (no migration path is provided).
+            with no migration path to the current one.
     """
     path = Path(db_path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -139,15 +257,7 @@ def initialize(
                     f"Upgrade biotimbre-library."
                 )
             elif found < SCHEMA_VERSION:
-                raise BiotimbreError(
-                    f"Database {path} has schema version {found}, but this "
-                    f"software requires version {SCHEMA_VERSION}. No "
-                    f"automatic migration is provided (see SCHEMA_VERSION's "
-                    f"docstring for what changed between versions). Move "
-                    f"this data_dir aside and run `biotimbre init` to start "
-                    f"a fresh library, or reinstall an older biotimbre-library "
-                    f"version to keep using this one."
-                )
+                _migrate(conn, found, path)
 
         has_uuid = conn.execute(
             "SELECT 1 FROM schema_meta WHERE key = ?", (_UUID_KEY,)

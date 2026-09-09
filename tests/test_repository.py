@@ -9,7 +9,11 @@ import numpy as np
 import pytest
 
 from biotimbre.db.connection import SCHEMA_VERSION, initialize
-from biotimbre.domain.errors import NotFoundError, ValidationError
+from biotimbre.domain.errors import (
+    BiotimbreError,
+    NotFoundError,
+    ValidationError,
+)
 from biotimbre.domain.item import ItemDraft, Location, SampleWindow
 from conftest import add_item, unit_vectors
 
@@ -33,6 +37,92 @@ class TestSchema:
         ).fetchone()
         assert int(row["value"]) == SCHEMA_VERSION
         second.close()
+
+    def test_migrates_a_version_3_database(self, settings):
+        # A version-3 items table is today's, with the sample window still
+        # mandatory; building it from schema.sql keeps the two in step.
+        import re
+        import sqlite3
+
+        from biotimbre.db import connection as connection_module
+
+        schema = re.sub(
+            r"sample_window_(start|end)(\s+)REAL,",
+            r"sample_window_\1\2REAL NOT NULL,",
+            connection_module._schema_sql(),
+        )
+        assert len(re.findall(r"sample_window_\w+\s+REAL NOT NULL,", schema)) == 2
+
+        settings.db_path.parent.mkdir(parents=True, exist_ok=True)
+        old_db = sqlite3.connect(settings.db_path)
+        old_db.executescript(schema)
+        old_db.execute(
+            "INSERT INTO schema_meta (key, value) VALUES ('schema_version', '3')"
+        )
+        old_db.execute(
+            "INSERT INTO biotimbres (biotimbre_id, created_at) VALUES (?, ?)",
+            ("11111111-2222-3333-4444-555555555555", "2020-01-01T00:00:00Z"),
+        )
+        old_db.execute(
+            """
+            INSERT INTO items (
+                item_id, biotimbre_id, date, time, latitude, longitude,
+                sample_window_start, sample_window_end, speed, audio_path,
+                audio_sha256, duration_s, sample_rate, channels,
+                created_at, updated_at
+            ) VALUES (7, ?, '2020-01-01', '09:00:00', -26.0, -48.0, 5, 10, 1.0,
+                      'audio/x/7.wav', 'a', 5.0, 32000, 1,
+                      '2020-01-01T00:00:00Z', '2020-01-01T00:00:00Z')
+            """,
+            ("11111111-2222-3333-4444-555555555555",),
+        )
+        old_db.execute("INSERT INTO item_taxa (item_id, tag) VALUES (7, 'cicadidae')")
+        old_db.commit()
+        old_db.close()
+
+        conn = initialize(settings.db_path)
+        try:
+            version = conn.execute(
+                "SELECT value FROM schema_meta WHERE key = 'schema_version'"
+            ).fetchone()
+            assert int(version["value"]) == SCHEMA_VERSION
+
+            # Nothing lost: the row, its taxa, and the item's own ID.
+            row = conn.execute("SELECT * FROM items WHERE item_id = 7").fetchone()
+            assert (row["sample_window_start"], row["sample_window_end"]) == (5.0, 10.0)
+            assert conn.execute("SELECT count(*) FROM item_taxa").fetchone()[0] == 1
+            assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
+
+            # The point of the migration: a window may now be absent.
+            conn.execute(
+                "UPDATE items SET sample_window_start = NULL, "
+                "sample_window_end = NULL WHERE item_id = 7"
+            )
+            # The rebuilt table keeps its indexes and its autoincrement.
+            indexes = {
+                r["name"]
+                for r in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type = 'index' "
+                    "AND tbl_name = 'items' AND name LIKE 'idx%'"
+                )
+            }
+            assert "idx_items_sha256" in indexes
+            assert conn.execute(
+                "SELECT name FROM sqlite_master WHERE name LIKE '%migrating%'"
+            ).fetchall() == []
+        finally:
+            conn.close()
+
+    def test_refuses_a_version_it_cannot_migrate(self, settings):
+        import sqlite3
+
+        conn = initialize(settings.db_path)
+        conn.execute("UPDATE schema_meta SET value = '2' WHERE key = 'schema_version'")
+        conn.commit()
+        conn.close()
+
+        with pytest.raises(BiotimbreError, match="No automatic migration"):
+            initialize(settings.db_path)
 
     def test_foreign_keys_are_enforced(self, conn):
         # Off by default in SQLite, and per-connection; without it the
@@ -106,6 +196,17 @@ class TestItemCrud:
         path = repo.delete_item(item_id)
         # The repository never touches the filesystem; it hands back the path.
         assert path.endswith(".wav")
+
+    def test_item_without_a_sample_window_round_trips(self, repo, draft):
+        windowless = dataclasses.replace(draft, sample_window=None).validated()
+        item_id = add_item(repo, windowless)
+        assert repo.get_item(item_id).sample_window is None
+
+    def test_update_can_clear_a_sample_window(self, repo, draft):
+        item_id = add_item(repo, draft)
+        cleared = dataclasses.replace(draft, sample_window=None).validated()
+        repo.update_item(item_id, cleared)
+        assert repo.get_item(item_id).sample_window is None
 
     def test_taxa_round_trip(self, repo):
         tagged = ItemDraft(

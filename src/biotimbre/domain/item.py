@@ -167,6 +167,11 @@ def validate_time(value: str) -> str:
     return parsed.strftime(TIME_FORMAT)
 
 
+def _is_blank(value: object) -> bool:
+    """True for the several ways a form or sidecar spells "nothing here"."""
+    return value is None or (isinstance(value, str) and not value.strip())
+
+
 def _as_float(value: object, field_name: str) -> float:
     if isinstance(value, bool):
         raise ValidationError("Expected a number, got a boolean.", field_name)
@@ -459,6 +464,40 @@ class SampleWindow:
             "sample_window",
         )
 
+    @classmethod
+    def parse_optional(cls, value: object) -> "SampleWindow | None":
+        """Parse a window that may be absent, returning ``None`` when it is.
+
+        The window says where the sample sits inside a full recording, which
+        only means anything when there is a full recording to point at — so it
+        is optional. ``None``, an empty string, ``"-"`` and a pair of blanks
+        all mean "not recorded". Giving one end without the other is an error
+        rather than a half-window.
+
+        Args:
+            value: The window as supplied.
+
+        Returns:
+            A validated :class:`SampleWindow`, or ``None``.
+
+        Raises:
+            ValidationError: If only one end is given, or a value is invalid.
+        """
+        if value is None:
+            return None
+        if isinstance(value, str) and value.strip() in ("", "-"):
+            return None
+        if isinstance(value, (tuple, list)) and len(value) == 2:
+            blank = [_is_blank(bound) for bound in value]
+            if all(blank):
+                return None
+            if any(blank):
+                raise ValidationError(
+                    "Give both ends of the sample window, or neither.",
+                    "sample_window.start" if blank[0] else "sample_window.end",
+                )
+        return cls.parse(value)
+
     @property
     def display(self) -> str:
         """The window for reading, as ``"5 - 10"``.
@@ -518,8 +557,8 @@ def _clean_optional_int(value: object, field_name: str) -> int | None:
 class ItemDraft:
     """An item as submitted, before it is stored.
 
-    Mandatory: ``date``, ``time``, ``location``, ``sample_window``. Everything
-    else is optional, per the spec. ``biotimbre_id`` is optional in the sense
+    Mandatory: ``date``, ``time``, ``location``. Everything else is optional,
+    per the spec. ``biotimbre_id`` is optional in the sense
     that omitting it requests a freshly allocated ID; supplying one attaches this
     sample to an existing biotimbre.
 
@@ -530,7 +569,9 @@ class ItemDraft:
         date: Recording date, ``YYYY-MM-DD``.
         time: Recording time, ``HH:MM:SS``.
         location: Recording location.
-        sample_window: Position of the sample within the full recording.
+        sample_window: Position of the sample within the full recording, or
+            ``None`` when it was not recorded — it only says anything when
+            there is a full recording to point at.
         biotimbre_id: Existing biotimbre to join, or ``None`` to allocate.
         taxa: Taxon tags; empty means unknown.
         device: Recording device brand/model.
@@ -549,7 +590,7 @@ class ItemDraft:
     date: str
     time: str
     location: Location
-    sample_window: SampleWindow
+    sample_window: SampleWindow | None = None
     biotimbre_id: str | None = None
     taxa: tuple[str, ...] = ()
     device: str | None = None
@@ -581,7 +622,7 @@ class ItemDraft:
             date=validate_date(self.date),
             time=validate_time(self.time),
             location=Location.parse(self.location),
-            sample_window=SampleWindow.parse(self.sample_window),
+            sample_window=SampleWindow.parse_optional(self.sample_window),
             biotimbre_id=(
                 None
                 if self.biotimbre_id is None or str(self.biotimbre_id).strip() == ""
@@ -620,7 +661,8 @@ class LibraryItem:
         date: Recording date, ``YYYY-MM-DD``.
         time: Recording time, ``HH:MM:SS``.
         location: Recording location.
-        sample_window: Position of the sample within the full recording.
+        sample_window: Position of the sample within the full recording, or
+            ``None`` when it was not recorded.
         audio_path: Path to the stored WAV, relative to the data directory.
         audio_sha256: Hex digest of the stored file, for integrity and
             duplicate detection.
@@ -648,7 +690,7 @@ class LibraryItem:
     date: str
     time: str
     location: Location
-    sample_window: SampleWindow
+    sample_window: SampleWindow | None
     audio_path: str
     audio_sha256: str
     duration_s: float

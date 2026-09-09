@@ -119,6 +119,28 @@ class TestMetadataForm:
         # An untouched biotimbre field means "allocate a new one".
         assert draft.biotimbre_id is None
 
+    async def test_blank_window_builds_a_draft_without_one(self, user: User):
+        form = await self._form(user)
+        form.inputs["date"].value = "2021-03-05"
+        form.inputs["time"].value = "22:10:00"
+        form.inputs["latitude"].value = -26.9
+        form.inputs["longitude"].value = -48.7
+
+        assert form.draft().sample_window is None
+
+    async def test_half_a_window_is_reported_on_its_input(self, user: User):
+        form = await self._form(user)
+        form.inputs["date"].value = "2021-03-05"
+        form.inputs["time"].value = "22:10:00"
+        form.inputs["latitude"].value = -26.9
+        form.inputs["longitude"].value = -48.7
+        form.inputs["window_start"].value = 12.0
+
+        with pytest.raises(ValidationError) as exc:
+            form.draft()
+        assert exc.value.field == "sample_window.end"
+        assert form.show_error(exc.value) is True
+
     async def test_missing_location_is_reported_on_the_latitude_input(
         self, user: User
     ):

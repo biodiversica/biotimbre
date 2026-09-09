@@ -111,13 +111,15 @@ Other `search` options: `--metric {cosine,dot,euclidean}`, `--fusion {max,mean,M
 
 ## Metadata
 
-**Required:** `date` (YYYY-MM-DD), `time` (HH:MM:SS), location, sample window
-(start and end in seconds *within the full recording*).
+**Required:** `date` (YYYY-MM-DD), `time` (HH:MM:SS), location.
 
 **Optional:** `biotimbre_id` (omit to allocate a new one; give an existing one to
-file the sample under the same biotimbre), `taxa` (empty means unknown), `device`,
-`microphone`, `recorded_by`, `filtered_band`, `filter_type`, `filter_order`,
-`temperature`, `humidity`, `speed`, `link_to_full_recording`, `notes`.
+file the sample under the same biotimbre), `taxa` (empty means unknown),
+`sample_window` (start and end in seconds *within the full recording* — it only
+places the sample if there is a full recording to place it in, so it pairs with
+`link_to_full_recording`; give both ends or neither), `device`, `microphone`,
+`recorded_by`, `filtered_band`, `filter_type`, `filter_order`, `temperature`,
+`humidity`, `speed`, `link_to_full_recording`, `notes`.
 
 `item_id` is assigned automatically, never reused, and library-specific — just a
 row identifier. A `biotimbre` is a sound-being: a sonotype whose species identity

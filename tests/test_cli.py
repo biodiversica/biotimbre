@@ -112,6 +112,19 @@ class TestMetadataOnlyCommands:
         out = capsys.readouterr().out
         assert "unknown" in out
 
+    def test_add_without_a_sample_window(self, data_dir, capsys):
+        run(data_dir, "init", "--skip-models", "--name", "Test Library")
+        code = run(
+            data_dir, "add", str(GUYVIR_WAV),
+            "--date", "2021-03-05", "--time", "22:10:00",
+            "--latitude", "-26.9", "--longitude", "-48.7",
+            "--no-embeddings",
+        )
+        assert code == 0
+        capsys.readouterr()
+        assert run(data_dir, "show", "1") == 0
+        assert "sample_window  -" in capsys.readouterr().out
+
     def test_add_with_explicit_flags(self, data_dir, capsys):
         run(data_dir, "init", "--skip-models", "--name", "Test Library")
         code = run(

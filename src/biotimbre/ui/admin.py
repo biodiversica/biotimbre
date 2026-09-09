@@ -362,7 +362,9 @@ def _metadata_rows(
         (t("field.speed"), f"{item.speed:g}"),
         (
             t("field.sample_window"),
-            f"{item.sample_window.display} {t('common.seconds')}",
+            f"{item.sample_window.display} {t('common.seconds')}"
+            if item.sample_window
+            else t("common.none"),
         ),
         (t("field.duration"), f"{item.duration_s:.3f} {t('common.seconds')}"),
         (

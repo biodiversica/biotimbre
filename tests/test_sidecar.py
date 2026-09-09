@@ -140,9 +140,14 @@ class TestMandatoryFields:
     def test_accepts_the_minimum(self):
         assert draft_from_fields(self._fields()).date == "2020-01-01"
 
-    @pytest.mark.parametrize(
-        "missing", ["date", "time", "location", "sample_window"]
-    )
+    def test_sample_window_is_optional(self):
+        # It places the sample inside a full recording; a sample that did not
+        # come from one has nothing to place.
+        fields = self._fields()
+        del fields["sample_window"]
+        assert draft_from_fields(fields).sample_window is None
+
+    @pytest.mark.parametrize("missing", ["date", "time", "location"])
     def test_rejects_each_missing_mandatory_field(self, missing):
         fields = self._fields()
         del fields[missing]
@@ -156,7 +161,6 @@ class TestMandatoryFields:
         message = str(exc.value)
         assert "time" in message
         assert "location" in message
-        assert "sample_window" in message
 
     def test_empty_mandatory_value_counts_as_missing(self):
         with pytest.raises(ValidationError, match="location"):

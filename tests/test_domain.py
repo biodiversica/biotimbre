@@ -180,6 +180,29 @@ class TestSampleWindow:
         with pytest.raises(ValidationError, match="negative"):
             SampleWindow.parse("-1,5")
 
+    @pytest.mark.parametrize("value", [None, "", "-", (None, None), ("", "")])
+    def test_absent_window_parses_as_none(self, value):
+        assert SampleWindow.parse_optional(value) is None
+
+    @pytest.mark.parametrize(
+        ("value", "field"),
+        [
+            ((None, 5), "sample_window.start"),
+            ((5, None), "sample_window.end"),
+            (("", 5), "sample_window.start"),
+        ],
+    )
+    def test_rejects_half_a_window(self, value, field):
+        # Half a window places nothing; it is a typo, not a shorter window.
+        with pytest.raises(ValidationError, match="both ends") as exc:
+            SampleWindow.parse_optional(value)
+        assert exc.value.field == field
+
+    def test_parse_optional_still_validates_a_given_window(self):
+        assert SampleWindow.parse_optional("34,39").duration == 5.0
+        with pytest.raises(ValidationError, match="greater than start"):
+            SampleWindow.parse_optional((39, 34))
+
     def test_displays_the_bounds_with_a_dash(self):
         assert SampleWindow.parse("5,10").display == "5 - 10"
 
@@ -197,6 +220,12 @@ class TestItemDraft:
         }
         fields.update(overrides)
         return ItemDraft(**fields)
+
+    def test_window_is_optional(self):
+        draft = ItemDraft(
+            date="2020-01-12", time="09:40:21", location="-26,-48"
+        ).validated()
+        assert draft.sample_window is None
 
     def test_validates_guyvir_example(self):
         """input_example/GUYVIR.txt — no taxa line, open-ended filtered band."""

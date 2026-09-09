@@ -16,8 +16,8 @@ CREATE TABLE IF NOT EXISTS items (
     time                   TEXT    NOT NULL,   -- HH:MM:SS
     latitude               REAL    NOT NULL,
     longitude              REAL    NOT NULL,
-    sample_window_start    REAL    NOT NULL,   -- seconds into the FULL recording
-    sample_window_end      REAL    NOT NULL,
+    sample_window_start    REAL,               -- seconds into the FULL recording;
+    sample_window_end      REAL,               -- NULL when it was not recorded
     device                 TEXT,
     microphone             TEXT,
     recorded_by            TEXT,

@@ -118,11 +118,6 @@ class MetadataForm:
                 self.t("common.required"), "location"
             )
 
-        start = _blank_to_none(values["window_start"])
-        end = _blank_to_none(values["window_end"])
-        if start is None or end is None:
-            raise ValidationError(self.t("common.required"), "sample_window")
-
         biotimbre_id = _blank_to_none(values["biotimbre_id"])
         if biotimbre_id is None and not self.allow_new_biotimbre:
             # An update never allocates a new biotimbre (repository.update_item)
@@ -139,7 +134,14 @@ class MetadataForm:
             date=values["date"] or "",
             time=values["time"] or "",
             location=Location.parse((latitude, longitude)),
-            sample_window=SampleWindow.parse((start, end)),
+            # Optional: the window locates the sample inside a full
+            # recording, and not every sample comes from one.
+            sample_window=SampleWindow.parse_optional(
+                (
+                    _blank_to_none(values["window_start"]),
+                    _blank_to_none(values["window_end"]),
+                )
+            ),
             biotimbre_id=biotimbre_id,
             taxa=values["taxa"] or (),
             device=_blank_to_none(values["device"]),
@@ -224,22 +226,6 @@ def metadata_form(
                 format="%.6f",
                 step=0.000001,
             )
-        )
-        inputs["window_start"] = dense(
-            ui.number(
-                t("field.window_start"),
-                value=draft.sample_window.start if draft else None,
-                step=0.1,
-                suffix=t("common.seconds"),
-            ).tooltip(t("field.window_help"))
-        )
-        inputs["window_end"] = dense(
-            ui.number(
-                t("field.window_end"),
-                value=draft.sample_window.end if draft else None,
-                step=0.1,
-                suffix=t("common.seconds"),
-            ).tooltip(t("field.window_help"))
         )
 
     ui.label(t("admin.optional_section")).classes(
@@ -348,6 +334,30 @@ def metadata_form(
                 t("field.link"),
                 value=(draft.link_to_full_recording if draft else "") or "",
             )
+        )
+        inputs["window_start"] = dense(
+            ui.number(
+                t("field.window_start"),
+                value=(
+                    draft.sample_window.start
+                    if draft and draft.sample_window
+                    else None
+                ),
+                step=0.1,
+                suffix=t("common.seconds"),
+            ).tooltip(t("field.window_help"))
+        )
+        inputs["window_end"] = dense(
+            ui.number(
+                t("field.window_end"),
+                value=(
+                    draft.sample_window.end
+                    if draft and draft.sample_window
+                    else None
+                ),
+                step=0.1,
+                suffix=t("common.seconds"),
+            ).tooltip(t("field.window_help"))
         )
 
     inputs["notes"] = dense(

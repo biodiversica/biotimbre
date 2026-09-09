@@ -154,7 +154,7 @@ def draft_from_fields(fields: dict[str, str]) -> ItemDraft:
             Mandatory fields are reported together, so a user fixing a sidecar
             sees everything wrong with it at once rather than one error per run.
     """
-    mandatory = ("date", "time", "location", "sample_window")
+    mandatory = ("date", "time", "location")
     missing = [name for name in mandatory if not fields.get(name)]
     if missing:
         raise ValidationError(
@@ -177,6 +177,8 @@ def draft_from_fields(fields: dict[str, str]) -> ItemDraft:
             optional[name] = fields[name]
     if fields.get("biotimbre_id"):
         optional["biotimbre_id"] = fields["biotimbre_id"]
+    if fields.get("sample_window"):
+        optional["sample_window"] = fields["sample_window"]
     if fields.get("filtered_band"):
         optional["filtered_band"] = fields["filtered_band"]
     if fields.get("filter_order"):
@@ -192,7 +194,6 @@ def draft_from_fields(fields: dict[str, str]) -> ItemDraft:
         date=fields["date"],
         time=fields["time"],
         location=fields["location"],
-        sample_window=fields["sample_window"],
         **optional,
     ).validated()
 

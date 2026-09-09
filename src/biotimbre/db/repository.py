@@ -272,8 +272,8 @@ class Repository:
                 draft.time,
                 draft.location.latitude,
                 draft.location.longitude,
-                draft.sample_window.start,
-                draft.sample_window.end,
+                draft.sample_window.start if draft.sample_window else None,
+                draft.sample_window.end if draft.sample_window else None,
                 draft.device,
                 draft.microphone,
                 draft.recorded_by,
@@ -394,8 +394,8 @@ class Repository:
                 draft.time,
                 draft.location.latitude,
                 draft.location.longitude,
-                draft.sample_window.start,
-                draft.sample_window.end,
+                draft.sample_window.start if draft.sample_window else None,
+                draft.sample_window.end if draft.sample_window else None,
                 draft.device,
                 draft.microphone,
                 draft.recorded_by,
@@ -896,8 +896,14 @@ class Repository:
             date=row["date"],
             time=row["time"],
             location=Location(float(row["latitude"]), float(row["longitude"])),
-            sample_window=SampleWindow(
-                float(row["sample_window_start"]), float(row["sample_window_end"])
+            sample_window=(
+                None
+                if row["sample_window_start"] is None
+                or row["sample_window_end"] is None
+                else SampleWindow(
+                    float(row["sample_window_start"]),
+                    float(row["sample_window_end"]),
+                )
             ),
             audio_path=row["audio_path"],
             audio_sha256=row["audio_sha256"],

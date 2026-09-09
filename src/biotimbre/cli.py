@@ -129,8 +129,6 @@ def cmd_add(args: argparse.Namespace) -> int:
                     ("--time", args.time),
                     ("--latitude", args.latitude),
                     ("--longitude", args.longitude),
-                    ("--window-start", args.window_start),
-                    ("--window-end", args.window_end),
                 )
                 if value is None
             ]
@@ -144,7 +142,9 @@ def cmd_add(args: argparse.Namespace) -> int:
                 date=args.date,
                 time=args.time,
                 location=Location(args.latitude, args.longitude),
-                sample_window=SampleWindow(args.window_start, args.window_end),
+                sample_window=SampleWindow.parse_optional(
+                    (args.window_start, args.window_end)
+                ),
                 biotimbre_id=args.biotimbre_id,
                 taxa=args.taxa or (),
                 device=args.device,
@@ -228,7 +228,7 @@ def cmd_show(args: argparse.Namespace) -> int:
             ),
             ("humidity", f"{item.humidity:g} %" if item.humidity is not None else "-"),
             ("speed", f"{item.speed:g}"),
-            ("sample_window", str(item.sample_window)),
+            ("sample_window", str(item.sample_window or "-")),
             ("link", item.link_to_full_recording or "-"),
             ("notes", item.notes or "-"),
             ("audio", item.audio_path),
@@ -427,12 +427,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_add.add_argument(
         "--window-start",
         type=float,
-        help="Sample start, in seconds within the full recording.",
+        help="Optional sample start, in seconds within the full recording.",
     )
     p_add.add_argument(
         "--window-end",
         type=float,
-        help="Sample end, in seconds within the full recording.",
+        help="Optional sample end, in seconds within the full recording.",
     )
     p_add.add_argument("--taxa", nargs="+", help="Taxon tags.")
     p_add.add_argument("--device", help="Recording device brand/model.")
