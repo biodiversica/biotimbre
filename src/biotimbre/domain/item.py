@@ -356,6 +356,25 @@ class FilteredBand:
             _bound(parts[1], "filtered_band.high"),
         )
 
+    @property
+    def display(self) -> str:
+        """The band for reading, as ``"2000 - 10000"``.
+
+        A comma between two frequencies reads like a decimal separator, so a
+        closed band joins its bounds with a dash instead. With one side open
+        the cutoff alone would not say which side it is, so it keeps the
+        comparison that names it: ``"≥ 2000"`` for a highpass, ``"≤ 10000"``
+        for a lowpass. An unset band is the empty string, for the caller to
+        replace with its own wording.
+        """
+        if self.low is not None and self.high is not None:
+            return f"{self.low:g} - {self.high:g}"
+        if self.low is not None:
+            return f"≥ {self.low:g}"
+        if self.high is not None:
+            return f"≤ {self.high:g}"
+        return ""
+
     def __str__(self) -> str:
         low = "-" if self.low is None else f"{self.low:g}"
         high = "-" if self.high is None else f"{self.high:g}"
@@ -439,6 +458,15 @@ class SampleWindow:
             f"Cannot read a sample window from {type(value).__name__}.",
             "sample_window",
         )
+
+    @property
+    def display(self) -> str:
+        """The window for reading, as ``"5 - 10"``.
+
+        Same reasoning as :attr:`FilteredBand.display`: a comma between two
+        numbers reads as a decimal separator. Both bounds are always present.
+        """
+        return f"{self.start:g} - {self.end:g}"
 
     def __str__(self) -> str:
         return f"{self.start:g},{self.end:g}"

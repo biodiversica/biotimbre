@@ -422,6 +422,20 @@ class TestItemDetail:
         assert "shrink-0" in image._classes
         assert "shrink-0" in audio._classes
 
+    async def test_reads_the_band_and_window_with_dashes(
+        self, user: User, installed_state
+    ):
+        from biotimbre.ui import app as ui_app  # noqa: F401
+
+        # ZAMTYM.txt: filtered_band 2000,10000 and sample_window 5,10.
+        item = self._add(installed_state).item
+        await user.open("/")
+        await user.should_see("1 item(s)")
+        user.find(ui.table).trigger("rowClick", args=[None, {"item_id": item.item_id}])
+
+        await user.should_see("2000 - 10000")
+        await user.should_see("5 - 10 s")
+
     async def test_names_the_link_field_even_when_unset(self, user: User, installed_state):
         from biotimbre.ui import app as ui_app  # noqa: F401
 

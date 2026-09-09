@@ -345,7 +345,7 @@ def _metadata_rows(
         (t("field.device"), item.device or t("common.none")),
         (t("field.microphone"), item.microphone or t("common.none")),
         (t("field.recorded_by"), item.recorded_by or t("common.none")),
-        (t("field.filtered_band"), str(item.filtered_band)),
+        (t("field.filtered_band"), item.filtered_band.display or t("common.none")),
         (t("field.filter_type"), item.filter_type or t("common.none")),
         (
             t("field.filter_order"),
@@ -360,7 +360,10 @@ def _metadata_rows(
             f"{item.humidity:g} %" if item.humidity is not None else t("common.none"),
         ),
         (t("field.speed"), f"{item.speed:g}"),
-        (t("field.sample_window"), f"{item.sample_window} {t('common.seconds')}"),
+        (
+            t("field.sample_window"),
+            f"{item.sample_window.display} {t('common.seconds')}",
+        ),
         (t("field.duration"), f"{item.duration_s:.3f} {t('common.seconds')}"),
         (
             t("field.sample_rate"),

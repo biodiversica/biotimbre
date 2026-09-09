@@ -143,6 +143,23 @@ class TestFilteredBand:
     def test_roundtrips_open_bound_as_dash(self):
         assert str(FilteredBand.parse("2000,-")) == "2000,-"
 
+    def test_displays_a_closed_band_with_a_dash(self):
+        assert FilteredBand.parse("2000,10000").display == "2000 - 10000"
+
+    @pytest.mark.parametrize(
+        ("value", "shown"), [("2000,-", "≥ 2000"), ("-,10000", "≤ 10000")]
+    )
+    def test_displays_an_open_bound_as_a_comparison(self, value, shown):
+        # A lone cutoff would not say whether it is the highpass or the
+        # lowpass; the comparison names the side without naming the filter.
+        assert FilteredBand.parse(value).display == shown
+
+    def test_displays_an_unset_band_as_nothing(self):
+        assert FilteredBand.parse("-").display == ""
+
+    def test_display_leaves_the_sidecar_form_alone(self):
+        assert str(FilteredBand.parse("2000,10000")) == "2000,10000"
+
 
 class TestSampleWindow:
     def test_parses_sidecar_format(self):
@@ -162,6 +179,12 @@ class TestSampleWindow:
     def test_rejects_negative_start(self):
         with pytest.raises(ValidationError, match="negative"):
             SampleWindow.parse("-1,5")
+
+    def test_displays_the_bounds_with_a_dash(self):
+        assert SampleWindow.parse("5,10").display == "5 - 10"
+
+    def test_display_leaves_the_sidecar_form_alone(self):
+        assert str(SampleWindow.parse("5,10")) == "5,10"
 
 
 class TestItemDraft:
