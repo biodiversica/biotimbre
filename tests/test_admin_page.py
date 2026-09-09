@@ -18,7 +18,7 @@ from nicegui.testing import User  # noqa: E402
 
 from biotimbre.domain.errors import ValidationError  # noqa: E402
 from biotimbre.domain.item import ItemDraft, LibraryItem  # noqa: E402
-from biotimbre.i18n import Translator  # noqa: E402
+from biotimbre.i18n import LANGUAGE_NAMES, Translator  # noqa: E402
 from biotimbre.ui.admin import AddState  # noqa: E402
 from biotimbre.ui.forms import metadata_form  # noqa: E402
 from biotimbre.ui.state import AppState, get_state, set_state  # noqa: E402
@@ -356,3 +356,27 @@ class TestAdminPageRenders:
         await user.open("/")
         await user.should_see("Itens da biblioteca")
         await user.should_see("Adicionar uma amostra")
+
+
+@pytest.mark.usefixtures("installed_state")
+class TestLanguageSelect:
+    """The header select sits on the dark header, where primary is invisible."""
+
+    async def test_marks_the_current_language_readably(self, user: User):
+        from biotimbre.ui import app as ui_app  # noqa: F401
+
+        await user.open("/")
+        # Other pages leave selects in the registry, so pick the one offering
+        # the languages rather than the first one found.
+        select = next(
+            element
+            for element in user.find(ui.select).elements
+            if any(
+                option.get("label") in LANGUAGE_NAMES.values()
+                for option in element._props.get("options", [])
+            )
+        )
+        # Without this the current option keeps Quasar's default, the primary
+        # colour, which is the header's own green on a dark popup.
+        assert select._props["options-selected-class"] == "text-accent"
+        assert select._props["color"] == "white"

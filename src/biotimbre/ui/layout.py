@@ -150,7 +150,15 @@ def page(active: str):
                 {code: LANGUAGE_NAMES[code] for code in LANGUAGES},
                 value=t.language or DEFAULT_LANGUAGE,
                 on_change=lambda event: set_language(event.value),
-            ).props("dense outlined dark options-dense").classes("w-40").tooltip(
+            ).props(
+                # The header is dark, so the field and its popup are too. On a
+                # dark popup Quasar marks the current option with the primary
+                # colour, which is the same green as the header and all but
+                # disappears; accent reads against both. ``color`` keeps the
+                # focus ring off primary green as well.
+                'dense outlined dark options-dense color=white'
+                ' options-selected-class="text-accent"'
+            ).classes("w-40").tooltip(
                 t("app.language")
             )
 
