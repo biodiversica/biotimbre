@@ -303,6 +303,42 @@ class TestSearchPageRenders:
 
 @pytest.mark.models
 @pytest.mark.usefixtures("installed_state")
+class TestQueryRemoval:
+    """Taking back a chosen recording, as the library page allows."""
+
+    async def test_a_chosen_recording_can_be_taken_back(
+        self, user: User, installed_state
+    ):
+        from nicegui.elements.upload_files import SmallFileUpload
+
+        from biotimbre.ui import app as ui_app  # noqa: F401
+
+        await user.open("/search")
+        await user.should_see("Query recording")
+
+        uploader = next(iter(user.find(ui.upload).elements))
+        await uploader.handle_uploads(
+            [SmallFileUpload("GUYVIR.wav", "audio/wav", GUYVIR.read_bytes())]
+        )
+        await user.should_see("GUYVIR.wav")
+        await user.should_see("Remove file")
+        staged = next(iter(user.find(ui.audio).elements))._props["src"]
+        token = staged.split("/media/query/")[1].split("/")[0]
+        assert installed_state.queries.path(token) is not None
+
+        user.find("Remove file").click()
+
+        # Gone from the page and from the staging directory, not merely hidden.
+        await user.should_see("Choose a recording to search with")
+        assert installed_state.queries.path(token) is None
+        # find() insists on a match, so absence is read off the live registry.
+        assert not [
+            element
+            for element in user.client.elements.values()
+            if isinstance(element, ui.audio)
+        ]
+
+
 class TestMetadataOnlySearch:
     """Searching the library without a recording to search with."""
 

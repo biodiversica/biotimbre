@@ -256,7 +256,7 @@ def _add_card(t: Translator, on_added) -> None:
                         )
                     ).classes("text-sm")
                     ui.button(
-                        t("admin.clear_file"), icon="close", on_click=clear_file
+                        t("common.clear_file"), icon="close", on_click=clear_file
                     ).props("flat dense no-caps color=negative")
                 ui.audio(serve_staged(upload.path)).classes("w-full shrink-0")
                 try:

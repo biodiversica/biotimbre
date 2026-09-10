@@ -362,6 +362,22 @@ async def render(t: Translator) -> None:
 
         query_area = ui.column().classes("w-full gap-2")
 
+        def clear_query() -> None:
+            """Drop the staged recording, the same way the library page does.
+
+            Results are cleared with it: they answer a query that is gone.
+            """
+            if query.token is not None:
+                state.queries.discard(query.token)
+            query.token = None
+            query.name = ""
+            query.properties = None
+            query.start = 0.0
+            query.end = 0.0
+            uploader.reset()
+            results_area.clear()
+            draw_query()
+
         def draw_query() -> None:
             """Redraw the query preview, player and segment picker."""
             query_area.clear()
@@ -369,14 +385,18 @@ async def render(t: Translator) -> None:
                 return
 
             with query_area:
-                ui.label(
-                    t(
-                        "search.chosen",
-                        name=query.name,
-                        duration=f"{query.duration:.2f}",
-                        rate=query.properties.sample_rate,
-                    )
-                ).classes("text-sm")
+                with ui.row().classes("items-center gap-2"):
+                    ui.label(
+                        t(
+                            "search.chosen",
+                            name=query.name,
+                            duration=f"{query.duration:.2f}",
+                            rate=query.properties.sample_rate,
+                        )
+                    ).classes("text-sm")
+                    ui.button(
+                        t("common.clear_file"), icon="close", on_click=clear_query
+                    ).props("flat dense no-caps color=negative")
 
                 span_label = ui.label().classes("text-xs text-muted")
 
@@ -482,7 +502,7 @@ async def render(t: Translator) -> None:
             """Report a file the browser refused, e.g. wrong type or too large."""
             ui.notify(t("search.no_query"), type="warning", position="top")
 
-        ui.upload(
+        uploader = ui.upload(
             label=t("search.upload"),
             on_upload=handle_upload,
             on_rejected=handle_rejected,

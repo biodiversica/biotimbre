@@ -97,6 +97,17 @@ class QueryStore:
         path = self._paths.get(token)
         return path if path is not None and path.is_file() else None
 
+    def discard(self, token: str) -> None:
+        """Remove one staged file, if the token is known.
+
+        Args:
+            token: Token returned by :meth:`reserve` or :meth:`add`. An unknown
+                token is not an error: dropping a query twice is harmless.
+        """
+        path = self._paths.pop(token, None)
+        if path is not None:
+            path.unlink(missing_ok=True)
+
     def clear(self) -> None:
         """Remove every staged file."""
         for path in self._paths.values():
