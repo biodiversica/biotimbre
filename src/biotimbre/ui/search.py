@@ -122,13 +122,13 @@ def _marked_spectrogram(
         block makes the browser drop and re-request the PNG, which flashes the
         whole page on every step of a drag.
     """
-    theme = get_state().settings.theme
     with ui.element("div").classes("relative w-full"):
         ui.image(url).classes("w-full rounded").props("no-spinner")
         marker = ui.element("div").classes(
             "absolute top-0 bottom-0 border-x-2 pointer-events-none rounded"
         ).style(
-            f"border-color: {theme.marker_border}; background: {theme.marker_fill}"
+            "border-color: var(--bt-marker-border); "
+            "background: var(--bt-marker-fill)"
         )
     _place_span_marker(marker, span, start, end)
     return marker

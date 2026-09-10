@@ -33,3 +33,22 @@ chip = "#dde4d1"
 marker_border = "rgba(252, 254, 229, 0.8)"
 marker_fill = "rgba(252, 254, 229, 0.25)"
 # spectrogram_colors = ["#0c0826", "#400c60", "#941a60", "#de5234", "#fca83c", "#fff4c8"]
+
+# The dark theme. Same keys, same meanings; omitted ones fall back to the
+# built-in dark defaults, never to the light values above. Readers choose
+# light, dark, or "follow my system" from the header — the choice is theirs and
+# is kept per browser, so this section only says what each theme looks like.
+#
+# spectrogram_colors has no dark counterpart: the images are rendered and
+# cached server-side, where the reader's theme is not known.
+[ui.dark_theme]
+# primary = "#5a9c3e"
+# page_bg = "#111509"
+# text = "#e7ecdc"
+# header_bg = "#0d1a05"
+# card = "#171d10"
+# surface = "#1a2113"
+# chip = "#26301c"
+# link = "#8bd17a"
+# muted = "#9aa88f"
+# notice = "#f0b46a"

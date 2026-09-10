@@ -233,9 +233,9 @@ max_query_duration_s = 15
 language = "en"            # en | pt_BR
 
 [ui.theme]
-# Every key optional; shown values are the defaults. Colours are CSS values
-# (hex, rgb(a), named) — primary..warning feed Quasar's palette, the rest
-# style the header directly.
+# The light palette. Every key optional; shown values are the defaults. Colours
+# are CSS values (hex, rgb(a), named) — primary..warning feed Quasar's palette,
+# the rest style the header directly.
 primary = "#118b50"
 secondary = "#5ba98c"
 accent = "#e9b44c"
@@ -271,7 +271,31 @@ marker_fill = "rgba(255, 255, 255, 0.25)"
 # viewers. Shown values are the default dark-blue -> magenta -> orange -> pale
 # yellow ramp.
 spectrogram_colors = ["#0c0826", "#400c60", "#941a60", "#de5234", "#fca83c", "#fff4c8"]
+
+[ui.dark_theme]
+# The dark palette: same keys, same meanings. Omitted keys fall back to the
+# built-in dark defaults, never to the light values above, so overriding one
+# colour does not drag the light palette into the dark theme.
+# primary = "#5a9c3e"
+# page_bg = "#111509"
+# text = "#e7ecdc"
+# card = "#171d10"
+# spectrogram_colors is not read here: the images are rendered and cached
+# server-side, where the reader's theme is not known, so [ui.theme]'s ramp
+# serves both.
 ```
+
+### Light, dark, or whatever the system says
+
+The header carries a three-state control: **follow the system** (the default),
+**light**, **dark**. The choice is remembered per browser, alongside the
+language, so two people sharing one local instance can read it differently, and
+neither rewrites the config file.
+
+Each colour is declared once, as `light-dark(<light>, <dark>)` against a CSS
+`color-scheme`, so the two palettes cannot drift apart — and native controls no
+stylesheet reaches (scrollbars, the audio player, date pickers) follow the
+theme too. Switching needs no reload.
 
 ## Development
 

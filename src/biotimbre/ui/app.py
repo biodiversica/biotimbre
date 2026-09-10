@@ -148,7 +148,10 @@ def run(
         # Per-browser storage holds only the chosen language. Generated per run
         # rather than committed, since nothing here needs to survive a restart.
         storage_secret=secrets.token_urlsafe(32),
-        dark=False,
+        # Auto until a page says otherwise: every page installs its own
+        # ui.dark_mode from the reader's stored choice (biotimbre.ui.theming),
+        # and following the system is the least wrong thing to show first.
+        dark=None,
     )
 
 

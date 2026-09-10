@@ -464,6 +464,58 @@ class TestLanguageSelect:
 
 
 @pytest.mark.usefixtures("installed_state")
+class TestThemeControl:
+    """The header control that chooses light, dark, or the system's own."""
+
+    @staticmethod
+    def _toggle(user: User):
+        from biotimbre.ui.theming import THEME_ICONS
+
+        return next(
+            element
+            for element in user.find(ui.button).elements
+            if element._props.get("icon") in THEME_ICONS.values()
+        )
+
+    async def test_starts_out_following_the_system(self, user: User):
+        from nicegui import app as nicegui_app
+
+        from biotimbre.ui import app as ui_app  # noqa: F401
+
+        await user.open("/")
+        assert self._toggle(user)._props["icon"] == "brightness_auto"
+        # Nothing stored: "system" is the default, not a pinned choice.
+        assert "theme" not in nicegui_app.storage.user
+
+    async def test_cycles_system_light_dark_and_back(self, user: User):
+        from nicegui import app as nicegui_app
+        from nicegui.testing.user_interaction import UserInteraction
+
+        from biotimbre.ui import app as ui_app  # noqa: F401
+
+        await user.open("/")
+        button = self._toggle(user)
+
+        for expected, icon in (
+            ("light", "light_mode"),
+            ("dark", "dark_mode"),
+            ("system", "brightness_auto"),
+        ):
+            UserInteraction(user, {button}, None).click()
+            assert nicegui_app.storage.user["theme"] == expected
+            assert button._props["icon"] == icon
+
+    async def test_the_page_carries_both_palettes(self, user: User):
+        from biotimbre.ui import app as ui_app  # noqa: F401
+
+        await user.open("/")
+        head = "".join(user.client._head_html)
+        # One declaration per colour, so the palettes cannot drift apart.
+        assert "color-scheme: light dark;" in head
+        assert "--bt-page-bg: light-dark(" in head
+
+
+@pytest.mark.usefixtures("installed_state")
 class TestItemDetail:
     """The dialog opened from a row, and what a change to it leaves behind."""
 

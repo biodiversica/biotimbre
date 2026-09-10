@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import os
 import tomllib
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 DEFAULT_CONFIG_NAME = "biotimbre.toml"
@@ -104,6 +104,43 @@ class Theme:
     )
 
 
+#: Palette used when the interface resolves to dark, field for field the same
+#: as :class:`Theme`'s light defaults. Overridable from ``[ui.dark_theme]``.
+#:
+#: ``spectrogram_colors`` is deliberately absent from the reasoning here: the
+#: images are rendered and cached server-side, where the reader's theme is not
+#: known, so the ramp in ``[ui.theme]`` serves both. It is a dark image either
+#: way.
+DEFAULT_DARK_THEME = Theme(
+    primary="#5a9c3e",
+    secondary="#26331b",
+    accent="#e9b44c",
+    dark="#171d10",
+    positive="#4ade80",
+    negative="#f87171",
+    info="#60a5fa",
+    warning="#fbbf24",
+    button_text="#0f1a08",
+    page_bg="#111509",
+    text="#e7ecdc",
+    header_bg="#0d1a05",
+    header_status_ready="#a8e6a1",
+    header_status_loading="#ffd166",
+    header_status_failed="#ff8a8a",
+    header_text="#fcfee5",
+    header_inactive_text="rgba(252, 254, 229, 0.6)",
+    header_active_bg="rgba(252, 254, 229, 0.15)",
+    card="#171d10",
+    link="#8bd17a",
+    muted="#9aa88f",
+    notice="#f0b46a",
+    surface="#1a2113",
+    chip="#26301c",
+    marker_border="rgba(252, 254, 229, 0.8)",
+    marker_fill="rgba(252, 254, 229, 0.2)",
+)
+
+
 @dataclass(frozen=True)
 class Settings:
     """Resolved library settings.
@@ -118,7 +155,10 @@ class Settings:
         active_models: Model IDs to compute embeddings with on ingest. Must be
             keys of :data:`biotimbre.models_registry.MODEL_SPECS`.
         language: Default UI language, one of :data:`SUPPORTED_LANGUAGES`.
-        theme: UI colour palette.
+        theme: UI colour palette for the light theme.
+        dark_theme: UI colour palette for the dark theme. Which of the two a
+            reader sees is their own choice, made in the header and kept per
+            browser; the default follows the operating system.
         search_batch_size: Embedding rows scored per batch during search.
         inference_batch_size: Audio windows per model inference call. 1 is both
             fastest and safest for the current backbones — batching makes Perch
@@ -140,6 +180,7 @@ class Settings:
     active_models: tuple[str, ...] = ("perch_v2", "birdnet_v2.4")
     language: str = "en"
     theme: Theme = field(default_factory=Theme)
+    dark_theme: Theme = DEFAULT_DARK_THEME
     search_batch_size: int = 8192
     inference_batch_size: int = 1
     inference_threads: int = 0
@@ -318,21 +359,27 @@ def load_settings(
             f"Expected one of {', '.join(SUPPORTED_LANGUAGES)}."
         )
 
-    theme_section = dict(ui.get("theme", {}))
-    unknown_theme_keys = set(theme_section) - set(Theme.__dataclass_fields__)
-    if unknown_theme_keys:
-        raise ValueError(
-            f"Unknown ui.theme key(s): {', '.join(sorted(unknown_theme_keys))}."
-        )
-    if "spectrogram_colors" in theme_section:
-        colors = tuple(theme_section["spectrogram_colors"])
-        if len(colors) < 2:
+    def _theme_section(name: str) -> dict:
+        section = dict(ui.get(name, {}))
+        unknown = set(section) - set(Theme.__dataclass_fields__)
+        if unknown:
             raise ValueError(
-                "ui.theme.spectrogram_colors needs at least 2 colours, "
-                f"got {len(colors)}."
+                f"Unknown ui.{name} key(s): {', '.join(sorted(unknown))}."
             )
-        theme_section["spectrogram_colors"] = colors
-    theme = Theme(**theme_section)
+        if "spectrogram_colors" in section:
+            colors = tuple(section["spectrogram_colors"])
+            if len(colors) < 2:
+                raise ValueError(
+                    f"ui.{name}.spectrogram_colors needs at least 2 colours, "
+                    f"got {len(colors)}."
+                )
+            section["spectrogram_colors"] = colors
+        return section
+
+    theme = Theme(**_theme_section("theme"))
+    # Falls back to the dark defaults rather than the light ones: an override
+    # of one dark colour must not drag the rest of the light palette with it.
+    dark_theme = replace(DEFAULT_DARK_THEME, **_theme_section("dark_theme"))
 
     search = raw.get("search", {})
     batch_size = int(search.get("batch_size", defaults.search_batch_size))
@@ -369,6 +416,7 @@ def load_settings(
         active_models=tuple(active),
         language=language,
         theme=theme,
+        dark_theme=dark_theme,
         search_batch_size=batch_size,
         inference_batch_size=inference_batch,
         inference_threads=threads,
