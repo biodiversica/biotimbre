@@ -339,6 +339,66 @@ class TestQueryRemoval:
         ]
 
 
+class TestSegmentPicker:
+    """Choosing a window in a long recording, without the page thrashing."""
+
+    @staticmethod
+    async def _stage(user: User, path):
+        from nicegui.elements.upload_files import SmallFileUpload
+
+        from biotimbre.ui import app as ui_app  # noqa: F401
+
+        await user.open("/search")
+        await user.should_see("Query recording")
+        uploader = next(iter(user.find(ui.upload).elements))
+        await uploader.handle_uploads(
+            [SmallFileUpload(path.name, "audio/wav", path.read_bytes())]
+        )
+        await user.should_see(path.name)
+
+    async def test_moving_the_span_keeps_the_same_spectrogram_element(
+        self, user: User, installed_state, long_wav
+    ):
+        await self._stage(user, long_wav)
+
+        image = next(iter(user.find(ui.image).elements))
+        marker = next(
+            element
+            for element in user.client.elements.values()
+            if "pointer-events-none" in element._classes
+        )
+        before = marker._style.get("left")
+
+        picker = next(iter(user.find(ui.range).elements))
+        picker.value = {"min": 6.0, "max": 18.0}
+
+        # Rebuilding the block would make the browser re-request the PNG, which
+        # flashed the page on every step of a drag. Only the marker moves.
+        assert next(iter(user.find(ui.image).elements)) is image
+        assert marker._style.get("left") != before
+        assert marker._style["left"] == "15.00%"
+
+    async def test_the_player_is_limited_to_the_chosen_window(
+        self, user: User, installed_state, long_wav
+    ):
+        await self._stage(user, long_wav)
+
+        player = next(iter(user.find(ui.audio).elements))
+        assert player._props["src"].endswith("#t=0.00,15.00")
+
+        picker = next(iter(user.find(ui.range).elements))
+        picker.value = {"min": 6.0, "max": 18.0}
+        # The source follows the settled drag, not every step of it.
+        user.find(ui.range).trigger("change")
+        assert player._props["src"].endswith("#t=6.00,18.00")
+
+    async def test_a_short_recording_plays_whole(self, user: User, installed_state):
+        await self._stage(user, GUYVIR)
+
+        player = next(iter(user.find(ui.audio).elements))
+        assert "#t=" not in player._props["src"]
+
+
 class TestMetadataOnlySearch:
     """Searching the library without a recording to search with."""
 

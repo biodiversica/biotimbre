@@ -75,9 +75,35 @@ class QueryState:
         return round(self.start, 3), round(self.end, 3)
 
 
+def _place_span_marker(
+    marker: ui.element,
+    span: tuple[float, float] | None,
+    start: float,
+    end: float,
+) -> None:
+    """Move a span marker over its spectrogram, or hide it.
+
+    Args:
+        marker: The overlay from :func:`_marked_spectrogram`.
+        span: ``(from, to)`` in seconds to highlight, or ``None`` to hide.
+        start: Time at the image's left edge.
+        end: Time at its right edge.
+    """
+    if span is None or end <= start:
+        marker.set_visibility(False)
+        return
+    left = max(0.0, min(1.0, (span[0] - start) / (end - start)))
+    right = max(0.0, min(1.0, (span[1] - start) / (end - start)))
+    if right <= left:
+        marker.set_visibility(False)
+        return
+    marker.style(f"left:{left * 100:.2f}%; width:{(right - left) * 100:.2f}%")
+    marker.set_visibility(True)
+
+
 def _marked_spectrogram(
     url: str, span: tuple[float, float] | None, start: float, end: float
-) -> None:
+) -> ui.element:
     """Show a spectrogram with an optional highlighted time span.
 
     The marker is a positioned overlay rather than something drawn into the PNG,
@@ -89,22 +115,23 @@ def _marked_spectrogram(
         span: ``(from, to)`` in seconds to highlight, or ``None``.
         start: Time at the image's left edge.
         end: Time at its right edge.
+
+    Returns:
+        The marker overlay. A caller that changes the span moves it with
+        :func:`_place_span_marker` instead of re-rendering: rebuilding the
+        block makes the browser drop and re-request the PNG, which flashes the
+        whole page on every step of a drag.
     """
+    theme = get_state().settings.theme
     with ui.element("div").classes("relative w-full"):
         ui.image(url).classes("w-full rounded").props("no-spinner")
-        if span is None or end <= start:
-            return
-        left = max(0.0, min(1.0, (span[0] - start) / (end - start)))
-        right = max(0.0, min(1.0, (span[1] - start) / (end - start)))
-        if right <= left:
-            return
-        theme = get_state().settings.theme
-        ui.element("div").classes(
+        marker = ui.element("div").classes(
             "absolute top-0 bottom-0 border-x-2 pointer-events-none rounded"
         ).style(
-            f"left:{left * 100:.2f}%; width:{(right - left) * 100:.2f}%; "
             f"border-color: {theme.marker_border}; background: {theme.marker_fill}"
         )
+    _place_span_marker(marker, span, start, end)
+    return marker
 
 
 def _result_card(t: Translator, hit: SearchHit, rank: int) -> None:
@@ -400,22 +427,27 @@ async def render(t: Translator) -> None:
 
                 span_label = ui.label().classes("text-xs text-muted")
 
-                image = ui.column().classes("w-full")
+                def play_segment() -> None:
+                    """Point the player at the chosen segment.
 
-                def redraw_marker() -> None:
-                    image.clear()
-                    with image:
-                        _marked_spectrogram(
-                            f"/media/query/{query.token}/spectrogram"
-                            f"?w={QUERY_WIDTH}&h={QUERY_HEIGHT}",
-                            (query.start, query.end)
-                            if query.needs_segment
-                            else None,
-                            0.0,
-                            query.duration,
-                        )
+                    A media fragment, not a trimmed file: the browser seeks to
+                    the start and stops at the end by itself, and one cached
+                    file still serves every segment. A browser that ignores the
+                    end simply plays on, which is what it did before.
+                    """
+                    source = state.query_audio_url(query.token)
+                    if query.needs_segment:
+                        source += f"#t={query.start:.2f},{query.end:.2f}"
+                    player.set_source(source)
 
-                redraw_marker()
+                # Built once. Only the marker moves as the segment changes.
+                marker = _marked_spectrogram(
+                    f"/media/query/{query.token}/spectrogram"
+                    f"?w={QUERY_WIDTH}&h={QUERY_HEIGHT}",
+                    (query.start, query.end) if query.needs_segment else None,
+                    0.0,
+                    query.duration,
+                )
 
                 if query.needs_segment:
                     ui.label(
@@ -452,9 +484,14 @@ async def render(t: Translator) -> None:
                                 duration=f"{query.duration:.2f}",
                             )
                         )
-                        redraw_marker()
+                        _place_span_marker(
+                            marker, (low, high), 0.0, query.duration
+                        )
 
                     picker.on_value_change(on_span)
+                    # Only once the drag settles: changing the source reloads
+                    # the media, which would stutter on every step.
+                    picker.on("change", lambda _: play_segment())
                     span_label.set_text(
                         t(
                             "search.segment_of",
@@ -472,7 +509,10 @@ async def render(t: Translator) -> None:
                     ui.label(t("search.play_query")).classes(
                         "text-xs text-muted"
                     )
-                    ui.audio(state.query_audio_url(query.token)).classes("grow")
+                    player = ui.audio(state.query_audio_url(query.token)).classes(
+                        "grow"
+                    )
+                play_segment()
 
         async def handle_upload(event) -> None:
             # event.file is a NiceGUI FileUpload: .name plus async read()/save().
