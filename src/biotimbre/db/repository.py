@@ -537,6 +537,26 @@ class Repository:
                 result.setdefault(int(row["item_id"]), []).append(row["tag"])
         return {item_id: tuple(tags) for item_id, tags in result.items()}
 
+    def biotimbres_with_taxon(self, tag: str) -> list[str]:
+        """Biotimbres of the items carrying a tag, oldest item first.
+
+        Args:
+            tag: A normalised tag.
+
+        Returns:
+            Distinct biotimbre IDs, ordered by the first item to carry the tag.
+            Empty when nothing in the library carries it.
+        """
+        rows = self._conn.execute(
+            "SELECT items.biotimbre_id AS biotimbre_id, "
+            "       MIN(items.item_id) AS first_item "
+            "FROM item_taxa JOIN items USING (item_id) "
+            "WHERE item_taxa.tag = ? "
+            "GROUP BY items.biotimbre_id ORDER BY first_item",
+            (tag,),
+        ).fetchall()
+        return [row["biotimbre_id"] for row in rows]
+
     def all_taxa(self) -> list[tuple[str, int]]:
         """Every tag in use with how many items carry it.
 

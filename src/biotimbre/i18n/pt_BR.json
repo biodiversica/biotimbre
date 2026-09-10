@@ -97,6 +97,7 @@
     "delete_confirm": "Excluir o item {item_id} ({taxa})? O áudio e os embeddings também serão removidos.",
     "windows_written": "{count} janela(s)",
     "duplicate_warning": "Áudio byte a byte idêntico já está armazenado no(s) item(ns) {items}. Adicionar novamente é permitido.",
+    "joined_species": "Arquivado no biotimbre que {species} já possui ({biotimbre_id}).",
     "speed_change_warning": "Alterar a velocidade recalcula os embeddings deste item.",
     "reembedded": "Embeddings recalculados: {summary}.",
     "no_items": "A biblioteca está vazia. Adicione uma amostra para começar.",

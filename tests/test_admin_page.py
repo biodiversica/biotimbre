@@ -688,6 +688,75 @@ class TestLanguageSelect:
 
 
 @pytest.mark.usefixtures("installed_state")
+class TestSpeciesJoinsItsBiotimbre:
+    """One species, one biotimbre — through the page that adds items."""
+
+    @staticmethod
+    async def _add(user: User, taxon: str) -> None:
+        from nicegui.elements.upload_files import SmallFileUpload
+        from nicegui.testing.user_interaction import UserInteraction
+
+        uploader = next(iter(user.find(ui.upload).elements))
+        await uploader.handle_uploads(
+            [SmallFileUpload("GUYVIR.wav", "audio/wav", GUYVIR.read_bytes())]
+        )
+        await user.should_see(
+            "Drag to keep only part of the recording.", retries=60
+        )
+
+        inputs = {
+            element._props.get("label"): element
+            for element in [*user.find(ui.input).elements,
+                            *user.find(ui.number).elements,
+                            *user.find(ui.select).elements]
+        }
+        inputs["Date"].value = "2021-03-05"
+        inputs["Time"].value = "22:10:00"
+        inputs["Latitude"].value = -26.9
+        inputs["Longitude"].value = -48.7
+        inputs["Taxa"].value = [taxon]
+
+        button = next(
+            element
+            for element in user.find(ui.button).elements
+            if element._props.get("label") == "Add to library"
+        )
+        UserInteraction(user, {button}, None).click()
+
+    async def test_a_second_sample_of_a_species_joins_the_first(
+        self, user: User, installed_state
+    ):
+        from biotimbre.ui import app as ui_app  # noqa: F401
+
+        await user.open("/")
+        await self._add(user, "Guyalna bonaerensis")
+        await user.should_see("1 item(s)", retries=200)
+
+        # Typed the other way round, and still the same sound-being.
+        await self._add(user, "guyalna bonaerensis")
+        await user.should_see("Filed under the biotimbre", retries=200)
+
+        items = installed_state.call(installed_state.service.list_items)
+        assert len(items) == 2
+        assert items[0].biotimbre_id == items[1].biotimbre_id
+
+    async def test_a_family_does_not_join_anything(
+        self, user: User, installed_state
+    ):
+        from biotimbre.ui import app as ui_app  # noqa: F401
+
+        await user.open("/")
+        await self._add(user, "Cicadidae")
+        await user.should_see("1 item(s)", retries=200)
+        await self._add(user, "Cicadidae")
+        await user.should_see("2 item(s)", retries=200)
+
+        items = installed_state.call(installed_state.service.list_items)
+        # A family names no being, so each sample keeps its own identity.
+        assert items[0].biotimbre_id != items[1].biotimbre_id
+
+
+@pytest.mark.usefixtures("installed_state")
 class TestThemeControl:
     """The header control that chooses light, dark, or the system's own."""
 

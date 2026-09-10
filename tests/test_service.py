@@ -287,6 +287,97 @@ class TestEndToEnd:
         assert len(hits) == 1
         assert hits[0].item.taxa == ("cicadidae",)
 
+    def test_a_species_joins_the_biotimbre_it_already_has(
+        self, service, draft_for_guyvir
+    ):
+        first = service.add_item(
+            GUYVIR_WAV,
+            dataclasses.replace(draft_for_guyvir, taxa="Guyalna bonaerensis"),
+            compute_embeddings=False,
+        )
+        second = service.add_item(
+            ZAMTYM_WAV,
+            dataclasses.replace(draft_for_guyvir, taxa="guyalna bonaerensis"),
+            compute_embeddings=False,
+        )
+        # One species is one sound-being, however it was typed.
+        assert second.item.biotimbre_id == first.item.biotimbre_id
+        assert second.joined_species == "guyalna bonaerensis"
+        assert first.joined_species is None
+
+    def test_a_rank_starts_its_own_biotimbre(self, service, draft_for_guyvir):
+        first = service.add_item(
+            GUYVIR_WAV,
+            dataclasses.replace(draft_for_guyvir, taxa="cicadidae"),
+            compute_embeddings=False,
+        )
+        second = service.add_item(
+            ZAMTYM_WAV,
+            dataclasses.replace(draft_for_guyvir, taxa="cicadidae"),
+            compute_embeddings=False,
+        )
+        # A family says nothing about which being was recorded.
+        assert second.item.biotimbre_id != first.item.biotimbre_id
+        assert second.joined_species is None
+
+    def test_an_unknown_species_still_starts_one(self, service, draft_for_guyvir):
+        first = service.add_item(
+            GUYVIR_WAV,
+            dataclasses.replace(draft_for_guyvir, taxa="Guyalna sp."),
+            compute_embeddings=False,
+        )
+        second = service.add_item(
+            ZAMTYM_WAV,
+            dataclasses.replace(draft_for_guyvir, taxa="Guyalna sp."),
+            compute_embeddings=False,
+        )
+        assert second.item.biotimbre_id != first.item.biotimbre_id
+
+    def test_a_named_biotimbre_wins_over_the_species(self, service, draft_for_guyvir):
+        first = service.add_item(
+            GUYVIR_WAV,
+            dataclasses.replace(draft_for_guyvir, taxa="Guyalna bonaerensis"),
+            compute_embeddings=False,
+        )
+        elsewhere = service.repo.allocate_biotimbre_id()
+        second = service.add_item(
+            ZAMTYM_WAV,
+            dataclasses.replace(
+                draft_for_guyvir,
+                taxa="Guyalna bonaerensis",
+                biotimbre_id=elsewhere,
+            ),
+            compute_embeddings=False,
+        )
+        # Saying where it goes is not overridden by the rule.
+        assert second.item.biotimbre_id == elsewhere
+        assert second.item.biotimbre_id != first.item.biotimbre_id
+
+    def test_a_species_split_across_biotimbres_converges_on_the_oldest(
+        self, service, draft_for_guyvir
+    ):
+        first = service.add_item(
+            GUYVIR_WAV,
+            dataclasses.replace(draft_for_guyvir, taxa="Guyalna bonaerensis"),
+            compute_embeddings=False,
+        )
+        service.add_item(
+            ZAMTYM_WAV,
+            dataclasses.replace(
+                draft_for_guyvir,
+                taxa="Guyalna bonaerensis",
+                biotimbre_id=service.repo.allocate_biotimbre_id(),
+            ),
+            compute_embeddings=False,
+        )
+        third = service.add_item(
+            GUYVIR_WAV,
+            dataclasses.replace(draft_for_guyvir, taxa="Guyalna bonaerensis"),
+            compute_embeddings=False,
+        )
+        assert third.item.biotimbre_id == first.item.biotimbre_id
+        assert any("2 biotimbres" in warning for warning in third.warnings)
+
     def test_a_stereo_submission_is_stored_as_mono(self, service, draft_for_guyvir,
                                                    tmp_path):
         import numpy as np

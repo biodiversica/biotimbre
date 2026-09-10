@@ -125,6 +125,42 @@ def normalize_taxa(tags: object) -> tuple[str, ...]:
     return tuple(sorted(cleaned))
 
 
+#: A binomial: genus then specific epithet, as ``normalize_taxa`` leaves them.
+#: Letters and hyphens only — a period is how uncertainty is written.
+_SPECIES_NAME = re.compile(r"^[a-z][a-z-]+ [a-z][a-z-]+$")
+
+#: Epithets that name no species. "Guyalna sp." is a genus and an admission
+#: that the species is unknown; two samples carrying it may well be different
+#: species, so they must not be pulled into one biotimbre.
+_OPEN_EPITHETS = frozenset({"sp", "spp", "cf", "aff", "indet", "nr", "gen"})
+
+
+def is_species_name(tag: str) -> bool:
+    """Whether a normalised taxon tag names one species.
+
+    A species is where an identification is complete, and the library gives one
+    species one biotimbre — so telling "guyalna bonaerensis" apart from
+    "cicadidae" is what lets a new sample join the biotimbre its species
+    already has.
+
+    Two words, both of them real names, is the test. Capitalisation cannot be
+    it: tags are stored lowercase, so ``Guyalna bonaerensis`` and ``guyalna
+    bonaerensis`` are the same tag by the time anything looks at them, and a
+    species typed either way must reach the same biotimbre. Open nomenclature
+    ("guyalna sp.", "guyalna cf.") is not a species and is left alone.
+
+    Args:
+        tag: A tag, already normalised by :func:`normalize_taxa`.
+
+    Returns:
+        True for a binomial, False for a rank, an open identification, or
+        anything else.
+    """
+    if not _SPECIES_NAME.match(tag):
+        return False
+    return tag.split(" ")[1] not in _OPEN_EPITHETS
+
+
 def validate_date(value: str) -> str:
     """Validate a date and return it zero-padded.
 

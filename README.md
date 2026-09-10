@@ -121,6 +121,19 @@ places the sample if there is a full recording to place it in, so it pairs with
 `recorded_by`, `filtered_band`, `filter_type`, `filter_order`, `temperature`,
 `humidity`, `speed`, `link_to_full_recording`, `notes`.
 
+### One species, one biotimbre
+
+A species is where an identification is complete, so the library gives it a
+single identity: add a sample tagged with a species already in the library —
+`Guyalna bonaerensis` — and it is filed under that species' existing
+`biotimbre_id` instead of starting a second one for the same animal. Tags are
+stored lowercase, so the capitalisation you type does not matter.
+
+This applies to binomials only. A rank above species (`cicadidae`) says nothing
+about which being was recorded, and open nomenclature (`Guyalna sp.`, `cf.`,
+`aff.`) is precisely an admission that the species is unknown — both keep
+starting their own biotimbre. Naming a `biotimbre_id` yourself always wins.
+
 `item_id` is assigned automatically, never reused, and library-specific — just a
 row identifier. A `biotimbre` is a sound-being: a sonotype whose species identity
 may be unknown, so `biotimbre_id` is a UUID rather than a library-local counter —

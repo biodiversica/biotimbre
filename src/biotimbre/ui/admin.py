@@ -630,6 +630,17 @@ def _ingest_report(t: Translator, result) -> None:
     if counts:
         ui.label(counts).classes("text-sm text-muted")
 
+    if result.joined_species:
+        with ui.row().classes("items-start gap-2"):
+            ui.icon("link", size="1.1rem")
+            ui.label(
+                t(
+                    "admin.joined_species",
+                    species=result.joined_species,
+                    biotimbre_id=result.item.biotimbre_id[:8],
+                )
+            ).classes("text-sm text-muted").tooltip(result.item.biotimbre_id)
+
     if result.duplicate_of:
         with ui.row().classes("items-start gap-2 text-notice"):
             ui.icon("content_copy", size="1.1rem")

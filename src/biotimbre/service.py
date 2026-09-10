@@ -22,7 +22,7 @@ import shutil
 import tempfile
 import zipfile
 from contextlib import contextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 import numpy as np
@@ -40,7 +40,12 @@ from biotimbre.domain.errors import (
     NotFoundError,
     ValidationError,
 )
-from biotimbre.domain.item import FilteredBand, ItemDraft, LibraryItem
+from biotimbre.domain.item import (
+    FilteredBand,
+    ItemDraft,
+    LibraryItem,
+    is_species_name,
+)
 from biotimbre.embeddings import audio as audio_io
 from biotimbre.embeddings.extractor import ExtractorPool, WindowEmbeddings
 from biotimbre.embeddings.query_cache import AudioKey, QueryEmbeddingCache
@@ -175,12 +180,15 @@ class IngestResult:
         window_counts: Windows written per model.
         duplicate_of: Item IDs that already held byte-identical audio.
         warnings: Non-fatal advisories, e.g. a Nyquist mismatch.
+        joined_species: The species tag whose existing biotimbre this item was
+            filed under, or ``None`` when a biotimbre was allocated or given.
     """
 
     item: LibraryItem
     window_counts: dict[str, int] = field(default_factory=dict)
     duplicate_of: tuple[int, ...] = ()
     warnings: tuple[str, ...] = ()
+    joined_species: str | None = None
 
 
 class LibraryService:
@@ -383,6 +391,11 @@ class LibraryService:
         row is inserted and embeddings are computed — all inside one transaction,
         so a failure part-way leaves neither a stray row nor a stray file.
 
+        A submission that names a species already in the library is filed
+        under that species' biotimbre rather than starting a second identity
+        for it — one species, one biotimbre. Naming a ``biotimbre_id``
+        explicitly overrides this; a rank above species does not trigger it.
+
         What is stored is always mono. A multi-channel file is averaged down
         first (:func:`~biotimbre.embeddings.audio.write_processed`), so every
         item's audio is the single channel the models and the spectrograms
@@ -419,13 +432,64 @@ class LibraryService:
             source = Path(staging.name) / f"{source.stem}.wav"
             properties = audio_io.write_processed(audio_path, source)
 
+        joined = None
+        if validated.biotimbre_id is None:
+            validated, joined, species_warnings = self._join_species_biotimbre(
+                validated
+            )
+        else:
+            species_warnings = ()
+
         try:
-            return self._ingest(
+            result = self._ingest(
                 source, validated, properties, compute_embeddings=compute_embeddings
             )
         finally:
             if staging is not None:
                 staging.cleanup()
+
+        return replace(
+            result,
+            joined_species=joined,
+            warnings=result.warnings + species_warnings,
+        )
+
+    def _join_species_biotimbre(
+        self, draft: ItemDraft
+    ) -> tuple[ItemDraft, str | None, tuple[str, ...]]:
+        """Reuse the biotimbre a species already has, if it has one.
+
+        A species is one sound-being: two recordings of *Guyalna bonaerensis*
+        are the same biotimbre by definition, so a submission that names a
+        species already in the library joins it rather than starting a second
+        identity for it. Ranks above species ("cicadidae") say nothing about
+        which being was recorded and are left alone, as is open nomenclature
+        ("guyalna sp."), where the species is precisely what is unknown.
+
+        Args:
+            draft: A validated draft with no biotimbre of its own.
+
+        Returns:
+            The draft (with a biotimbre when one was found), the species tag
+            that supplied it, and any advisories.
+        """
+        for tag in draft.taxa:
+            if not is_species_name(tag):
+                continue
+            existing = self.repo.biotimbres_with_taxon(tag)
+            if not existing:
+                continue
+            warnings: tuple[str, ...] = ()
+            if len(existing) > 1:
+                # Predates this rule, or someone filed the species twice by
+                # hand. The oldest is the one to converge on, and saying so is
+                # better than silently picking.
+                warnings = (
+                    f"{tag} is filed under {len(existing)} biotimbres; this "
+                    f"sample joins the oldest, {existing[0]}.",
+                )
+            return replace(draft, biotimbre_id=existing[0]), tag, warnings
+        return draft, None, ()
 
     def _ingest(
         self,

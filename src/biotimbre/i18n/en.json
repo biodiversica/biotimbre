@@ -97,6 +97,7 @@
     "delete_confirm": "Delete item {item_id} ({taxa})? Its audio and embeddings are removed too.",
     "windows_written": "{count} window(s)",
     "duplicate_warning": "Byte-identical audio is already stored as item(s) {items}. Adding it again is allowed.",
+    "joined_species": "Filed under the biotimbre {species} already has ({biotimbre_id}).",
     "speed_change_warning": "Changing the speed recomputes this item's embeddings.",
     "reembedded": "Embeddings recomputed: {summary}.",
     "no_items": "The library is empty. Add a sample to begin.",

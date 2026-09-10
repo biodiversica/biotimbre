@@ -11,6 +11,7 @@ from biotimbre.domain.item import (
     Location,
     SampleWindow,
     generate_biotimbre_id,
+    is_species_name,
     normalize_taxa,
     parse_biotimbre_id,
 )
@@ -108,6 +109,35 @@ class TestLocation:
 
     def test_roundtrips_through_string(self):
         assert str(Location.parse("-26,-48")) == "-26.0,-48.0"
+
+
+class TestSpeciesNames:
+    """Which tags name a species, and so share one biotimbre."""
+
+    @pytest.mark.parametrize(
+        "tag", ["guyalna bonaerensis", "fidicina mannifera", "dorisiana viridis"]
+    )
+    def test_a_binomial_is_a_species(self, tag):
+        assert is_species_name(tag) is True
+
+    @pytest.mark.parametrize("tag", ["cicadidae", "insecta", "orthoptera"])
+    def test_a_rank_is_not(self, tag):
+        assert is_species_name(tag) is False
+
+    @pytest.mark.parametrize(
+        "tag", ["guyalna sp", "guyalna spp", "guyalna cf", "guyalna aff"]
+    )
+    def test_open_nomenclature_is_not(self, tag):
+        # "Guyalna sp." says the species is unknown; two samples carrying it
+        # may be different species and must not be pulled into one biotimbre.
+        assert is_species_name(tag) is False
+
+    def test_capitalisation_does_not_decide_it(self):
+        # Tags are stored lowercase, so a species typed either way is the same
+        # tag by the time anything looks at it.
+        typed_either_way = normalize_taxa(["Guyalna bonaerensis", "guyalna bonaerensis"])
+        assert typed_either_way == ("guyalna bonaerensis",)
+        assert is_species_name(typed_either_way[0]) is True
 
 
 class TestFilteredBand:
