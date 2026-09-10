@@ -203,6 +203,17 @@ class TestFilterPanel:
         inputs = await self._panel(user)
         assert _build_filters(inputs, query_speed=0.25).speeds == (0.25,)
 
+    async def test_without_a_query_no_speed_is_imposed(self, user: User):
+        # A metadata-only search has no query to embed, so the speed it would
+        # have been embedded at must not narrow the library.
+        inputs = await self._panel(user)
+        filters = _build_filters(inputs, query_speed=None)
+        assert filters.speeds == ()
+        assert filters.is_empty is True
+
+        inputs["taxa"].value = ["cicadidae"]
+        assert _build_filters(inputs, query_speed=None).is_empty is False
+
 
 class TestQueryRoutes:
     @pytest.fixture
@@ -292,6 +303,75 @@ class TestSearchPageRenders:
 
 @pytest.mark.models
 @pytest.mark.usefixtures("installed_state")
+class TestMetadataOnlySearch:
+    """Searching the library without a recording to search with."""
+
+    @staticmethod
+    async def _open(user: User, installed_state):
+        from biotimbre.ui import app as ui_app  # noqa: F401
+
+        installed_state.call(
+            installed_state.service.import_directory,
+            EXAMPLES_DIR,
+            compute_embeddings=False,
+        )
+        await user.open("/search")
+        await user.should_see("Query recording")
+
+    @staticmethod
+    def _run_search(user: User) -> None:
+        """Click the page's Search button, not the header's Search tab.
+
+        ``user.find("Search")`` picks the lowest element id, which is the
+        navigation button in the header — clicking that just reloads the page.
+        """
+        from nicegui.testing.user_interaction import UserInteraction
+
+        button = next(
+            element
+            for element in user.find(ui.button).elements
+            if element._props.get("label") == "Search"
+            and "flat" not in element._props
+        )
+        UserInteraction(user, {button}, None).click()
+
+    @staticmethod
+    def _taxa_input(user: User):
+        return next(
+            element
+            for element in user.find(ui.select).elements
+            if element._props.get("label") == "Taxa"
+        )
+
+    async def test_taxa_alone_finds_items(self, user: User, installed_state):
+        await self._open(user, installed_state)
+
+        # Only ZAMTYM declares taxa; no recording is staged.
+        self._taxa_input(user).value = ["cicadidae"]
+        self._run_search(user)
+
+        await user.should_see("1 match(es)")
+        # Nothing was compared, so the results say so instead of ranking.
+        await user.should_see("not ranked")
+
+    async def test_nothing_at_all_asks_for_a_file_or_a_filter(
+        self, user: User, installed_state
+    ):
+        await self._open(user, installed_state)
+
+        self._run_search(user)
+        await user.should_see("set a filter")
+
+    async def test_a_taxon_nothing_carries_finds_nothing(
+        self, user: User, installed_state
+    ):
+        await self._open(user, installed_state)
+
+        self._taxa_input(user).value = ["mammalia"]
+        self._run_search(user)
+        await user.should_see("No matches")
+
+
 class TestSearchEndToEnd:
     async def test_finds_a_stored_item(self, user: User, installed_state):
         installed_state.warm_models()

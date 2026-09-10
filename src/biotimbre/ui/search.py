@@ -108,19 +108,26 @@ def _marked_spectrogram(
 
 
 def _result_card(t: Translator, hit: SearchHit, rank: int) -> None:
-    """One search result: score, metadata, marked spectrogram and a player."""
+    """One search result: score, metadata, marked spectrogram and a player.
+
+    A hit with no per-model scores came from a metadata-only search, where
+    there is no query to compare against: the score, the per-model column and
+    the matched window are all omitted rather than shown as zeroes.
+    """
     state = get_state()
     item = hit.item
     span = hit.matched_span
+    scored = bool(hit.per_model)
 
     with ui.card().classes("w-full p-3 gap-2 bg-card"):
         with ui.row().classes("items-start justify-between w-full gap-4"):
             with ui.column().classes("gap-1 grow"):
                 with ui.row().classes("items-baseline gap-3"):
                     ui.label(f"{rank}.").classes("text-muted")
-                    ui.label(f"{hit.score:+.4f}").classes(
-                        "text-lg font-medium tabular-nums"
-                    )
+                    if scored:
+                        ui.label(f"{hit.score:+.4f}").classes(
+                            "text-lg font-medium tabular-nums"
+                        )
                     ui.label(item.taxa_display).classes("text-sm")
                     ui.label(item.biotimbre_id[:8]).classes(
                         "font-mono text-xs px-2 py-0.5 rounded bg-chip"
@@ -139,7 +146,7 @@ def _result_card(t: Translator, hit: SearchHit, rank: int) -> None:
                         ).classes("text-notice")
 
             with ui.column().classes("items-end gap-1 min-w-40"):
-                for model, score in sorted(hit.per_model.items()):
+                for model, score in sorted(hit.per_model.items()):  # empty if unscored
                     weight = (
                         "font-medium" if model == hit.best_model else "text-muted"
                     )
@@ -299,7 +306,9 @@ def _options_panel(t: Translator) -> dict[str, ui.element]:
     return inputs
 
 
-def _build_filters(inputs: dict[str, ui.element], *, query_speed: float) -> SearchFilters:
+def _build_filters(
+    inputs: dict[str, ui.element], *, query_speed: float | None
+) -> SearchFilters:
     """Assemble :class:`SearchFilters` from the panel's inputs.
 
     Args:
@@ -307,6 +316,9 @@ def _build_filters(inputs: dict[str, ui.element], *, query_speed: float) -> Sear
         query_speed: Speed the query is embedded at. Only items indexed at
             this same speed are candidates — an item embedded at a different
             speed is not comparable, so it is filtered out rather than scored.
+            ``None`` leaves the speed unconstrained, for a search with no query
+            audio: there, the speed is a property of the query that does not
+            exist, and filtering by it would quietly hide most of the library.
 
     Raises:
         ValidationError: If the values are inconsistent, e.g. a partial location.
@@ -325,7 +337,7 @@ def _build_filters(inputs: dict[str, ui.element], *, query_speed: float) -> Sear
         latitude=inputs["latitude"].value,
         longitude=inputs["longitude"].value,
         radius_km=inputs["radius_km"].value,
-        speeds=(query_speed,),
+        speeds=() if query_speed is None else (query_speed,),
     )
 
 
@@ -346,6 +358,7 @@ async def render(t: Translator) -> None:
         ui.label(t("search.upload_hint", seconds=f"{cap:g}")).classes(
             "text-xs text-muted"
         )
+        ui.label(t("search.query_optional")).classes("text-xs text-muted")
 
         query_area = ui.column().classes("w-full gap-2")
 
@@ -496,13 +509,9 @@ async def render(t: Translator) -> None:
     results_area = ui.column().classes("w-full gap-2")
 
     async def run_search() -> None:
-        if query.token is None:
-            ui.notify(t("search.no_query"), type="warning", position="top")
-            return
-        path = state.queries.path(query.token)
-        if path is None:
-            ui.notify(t("search.no_query"), type="warning", position="top")
-            return
+        path = (
+            None if query.token is None else state.queries.path(query.token)
+        )
 
         query_speed = float(options["speed"].value or DEFAULT_SPEED)
         try:
@@ -514,26 +523,40 @@ async def render(t: Translator) -> None:
             notify_error(t, exc)
             return
         filter_order = int(options["filter_order"].value or 4)
+        top_k = int(options["top_k"].value or state.settings.default_top_k)
+
+        if path is None:
+            # The speed filter is implied by the query, not asked for: without
+            # a query it would silently narrow a metadata search to one speed.
+            search_filters = _build_filters(filters, query_speed=None)
+            if search_filters.is_empty:
+                ui.notify(t("search.no_query"), type="warning", position="top")
+                return
 
         start, end = query.segment()
         run_button.disable()
         spinner.set_visibility(True)
         results_area.clear()
         try:
-            hits = await state.run(
-                state.service.search,
-                path,
-                filters=search_filters,
-                k=int(options["top_k"].value or state.settings.default_top_k),
-                metric=options["metric"].value,
-                fusion=options["fusion"].value,
-                min_score=options["min_score"].value,
-                query_speed=query_speed,
-                start_time=start,
-                end_time=end,
-                filter_band=filter_band,
-                filter_order=filter_order,
-            )
+            if path is None:
+                hits = await state.run(
+                    state.service.filter_items, search_filters, k=top_k
+                )
+            else:
+                hits = await state.run(
+                    state.service.search,
+                    path,
+                    filters=search_filters,
+                    k=top_k,
+                    metric=options["metric"].value,
+                    fusion=options["fusion"].value,
+                    min_score=options["min_score"].value,
+                    query_speed=query_speed,
+                    start_time=start,
+                    end_time=end,
+                    filter_band=filter_band,
+                    filter_order=filter_order,
+                )
         except BiotimbreError as exc:
             notify_error(t, exc)
             return
@@ -550,8 +573,11 @@ async def render(t: Translator) -> None:
                 ui.label(t("search.result_count", count=len(hits))).classes(
                     "text-xs text-muted"
                 )
-            ui.label(t("search.compare_hint")).classes("text-xs text-muted")
-            ui.label(t("search.marker_hint")).classes("text-xs text-muted")
+            if path is None:
+                ui.label(t("search.metadata_only")).classes("text-xs text-muted")
+            else:
+                ui.label(t("search.compare_hint")).classes("text-xs text-muted")
+                ui.label(t("search.marker_hint")).classes("text-xs text-muted")
             for rank, hit in enumerate(hits, start=1):
                 _result_card(t, hit, rank)
             if any(h.query_speed != 1.0 for h in hits):

@@ -287,6 +287,38 @@ class TestEndToEnd:
         assert len(hits) == 1
         assert hits[0].item.taxa == ("cicadidae",)
 
+    def test_filter_items_finds_by_taxa_without_audio(self, service):
+        service.import_directory(EXAMPLES_DIR)
+        hits = service.filter_items(SearchFilters(taxa=["cicadidae"]))
+        assert len(hits) == 1
+        assert hits[0].item.taxa == ("cicadidae",)
+        # Nothing was compared, so nothing is scored: the UI shows no number
+        # rather than a meaningless zero.
+        assert hits[0].per_model == {}
+        assert hits[0].best_model is None
+        assert hits[0].matched_span is None
+
+    def test_filter_items_without_filters_lists_the_library(self, service):
+        service.import_directory(EXAMPLES_DIR)
+        assert len(service.filter_items()) == 2
+
+    def test_filter_items_matching_nothing_returns_nothing(self, service):
+        service.import_directory(EXAMPLES_DIR)
+        assert service.filter_items(SearchFilters(taxa=["mammalia"])) == []
+
+    def test_filter_items_honours_k(self, service):
+        service.import_directory(EXAMPLES_DIR)
+        assert len(service.filter_items(k=1)) == 1
+
+    def test_filter_items_reports_distance(self, service):
+        service.import_directory(EXAMPLES_DIR)
+        # ZAMTYM sits at -20,-46; a centre a little away still catches it.
+        hits = service.filter_items(
+            SearchFilters(latitude=-20.0, longitude=-46.1, radius_km=50.0)
+        )
+        assert hits
+        assert all(hit.distance_km is not None for hit in hits)
+
     def test_filter_matching_nothing_returns_no_hits(self, service):
         service.import_directory(EXAMPLES_DIR)
         hits = service.search(

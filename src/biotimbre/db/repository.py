@@ -437,6 +437,7 @@ class Repository:
         self,
         *,
         biotimbre_id: str | None = None,
+        item_ids: Sequence[int] | None = None,
         limit: int | None = None,
         offset: int = 0,
     ) -> list[LibraryItem]:
@@ -444,6 +445,9 @@ class Repository:
 
         Args:
             biotimbre_id: Restrict to one biotimbre.
+            item_ids: Restrict to these item IDs, e.g. the candidates a
+                metadata filter resolved to. An empty sequence returns nothing,
+                which is different from ``None`` — no restriction at all.
             limit: Maximum rows to return; ``None`` for all.
             offset: Rows to skip.
 
@@ -452,9 +456,18 @@ class Repository:
         """
         sql = f"SELECT {_ITEM_COLUMNS} FROM items"
         params: list[object] = []
+        where: list[str] = []
         if biotimbre_id is not None:
-            sql += " WHERE biotimbre_id = ?"
+            where.append("biotimbre_id = ?")
             params.append(parse_biotimbre_id(biotimbre_id))
+        if item_ids is not None:
+            ids = [int(item_id) for item_id in item_ids]
+            if not ids:
+                return []
+            where.append(f"item_id IN ({', '.join('?' * len(ids))})")
+            params.extend(ids)
+        if where:
+            sql += " WHERE " + " AND ".join(where)
         sql += " ORDER BY item_id DESC"
         if limit is not None:
             sql += " LIMIT ? OFFSET ?"

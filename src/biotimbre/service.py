@@ -714,6 +714,40 @@ class LibraryService:
 
     # ── search ────────────────────────────────────────────────────────────────
 
+    def filter_items(
+        self, filters: SearchFilters | None = None, *, k: int | None = None
+    ) -> list[SearchHit]:
+        """Find items by metadata alone — no query audio, so nothing is scored.
+
+        The same filters :meth:`search` applies before scoring can stand on
+        their own: "every cicadidae recording within 5 km" is a question about
+        metadata, and demanding a recording to ask it would be arbitrary.
+
+        Args:
+            filters: Metadata constraints. An empty instance matches the whole
+                library.
+            k: Maximum items. Defaults to the configured ``top_k``.
+
+        Returns:
+            Matching items, newest first, as hits with no score and no
+            per-model detail — there is no query to compare them against. A
+            location filter still reports each item's distance.
+        """
+        filters = filters or SearchFilters()
+        k = k if k is not None else self.settings.default_top_k
+        candidates, distances = select_candidates(self._conn, filters)
+        if candidates is not None and not candidates:
+            return []
+        items = self.repo.list_items(item_ids=candidates, limit=k)
+        return [
+            SearchHit(
+                item=item,
+                score=0.0,
+                distance_km=distances.get(item.item_id),
+            )
+            for item in items
+        ]
+
     def search(
         self,
         audio_path: str | Path,
