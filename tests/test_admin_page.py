@@ -344,9 +344,33 @@ class TestAdminPageRenders:
         assert table.rows[0]["taxa"] == "cicadidae"
         # The table shows a truncated ID; the tooltip carries the full UUID.
         assert table.rows[0]["biotimbre_id"] == result.item.biotimbre_id[:8]
-        assert table.rows[0]["speed"] == "1"
 
-    async def test_table_reports_a_speed_shifted_item(self, user: User, installed_state):
+    async def test_list_columns_identify_rather_than_describe(
+        self, user: User, installed_state
+    ):
+        from biotimbre.io.sidecar import draft_from_sidecar
+        from biotimbre.ui import app as ui_app  # noqa: F401
+
+        installed_state.call(
+            installed_state.service.add_item,
+            GUYVIR,
+            draft_from_sidecar(EXAMPLES_DIR / "ZAMTYM.txt"),
+            compute_embeddings=False,
+        )
+        await user.open("/")
+        await user.should_see("1 item(s)")
+
+        # Length and speed belong to the item, not to picking it out of a list.
+        table = next(iter(user.find(ui.table).elements))
+        assert [column["name"] for column in table.columns] == [
+            "item_id",
+            "biotimbre_id",
+            "biotimbre_label",
+            "taxa",
+            "date",
+        ]
+
+    async def test_detail_reports_a_speed_shifted_item(self, user: User, installed_state):
         import dataclasses
 
         from biotimbre.io.sidecar import draft_from_sidecar
@@ -355,18 +379,20 @@ class TestAdminPageRenders:
         draft = dataclasses.replace(
             draft_from_sidecar(EXAMPLES_DIR / "GUYVIR.txt"), speed=0.25
         ).validated()
-        installed_state.call(
+        item = installed_state.call(
             installed_state.service.add_item,
             GUYVIR,
             draft,
             compute_embeddings=False,
-        )
+        ).item
         await user.open("/")
         # should_see first: it awaits the page's async render, whereas find()
         # inspects whatever is present at that instant.
         await user.should_see("1 item(s)")
-        table = next(iter(user.find(ui.table).elements))
-        assert table.rows[0]["speed"] == "0.25"
+        user.find(ui.table).trigger("rowClick", args=[None, {"item_id": item.item_id}])
+
+        await user.should_see("Speed")
+        await user.should_see("0.25")
 
     async def test_translates_to_portuguese(self, user: User):
         from biotimbre.ui import app as ui_app  # noqa: F401

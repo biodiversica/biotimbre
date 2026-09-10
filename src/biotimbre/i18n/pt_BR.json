@@ -98,7 +98,7 @@
     "column": {
       "id": "ID",
       "biotimbre": "Biotimbre",
-      "biotimbre_label": "Nome",
+      "biotimbre_label": "Rótulo",
       "taxa": "Táxons",
       "date": "Data",
       "duration": "Duração",

@@ -586,10 +586,6 @@ async def _items_table(t: Translator, container, on_changed) -> None:
              "align": "left"},
             {"name": "date", "label": t("admin.column.date"), "field": "date",
              "sortable": True, "align": "left"},
-            {"name": "duration", "label": t("admin.column.duration"),
-             "field": "duration", "sortable": True, "align": "right"},
-            {"name": "speed", "label": t("admin.column.speed"), "field": "speed",
-             "sortable": True, "align": "right"},
         ]
         rows = [
             {
@@ -598,8 +594,6 @@ async def _items_table(t: Translator, container, on_changed) -> None:
                 "biotimbre_label": labels.get(item.biotimbre_id) or "",
                 "taxa": item.taxa_display,
                 "date": f"{item.date} {item.time}",
-                "duration": f"{item.duration_s:.2f}",
-                "speed": f"{item.speed:g}",
             }
             for item in items
         ]
