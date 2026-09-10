@@ -123,6 +123,13 @@
     "recompute": "Recompute embeddings",
     "recomputed": "Embeddings recomputed."
   },
+  "export": {
+    "label": "Export",
+    "audio": "Audio file",
+    "embeddings_one": "{model} embeddings (.npy)",
+    "embeddings_many": "{model} embeddings ({count} windows, .zip)",
+    "no_embeddings": "No embeddings yet"
+  },
   "search": {
     "heading": "Find similar samples",
     "query": "Query recording",

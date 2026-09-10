@@ -555,6 +555,58 @@ class TestItemDetail:
         assert "shrink-0" in image._classes
         assert "shrink-0" in audio._classes
 
+    async def test_offers_the_audio_and_each_model_for_export(
+        self, user: User, installed_state
+    ):
+        from biotimbre.ui import app as ui_app  # noqa: F401
+
+        import dataclasses
+
+        from conftest import unit_vectors
+        from biotimbre.models_registry import ModelSpec
+
+        item = self._add(installed_state).item
+        spec = ModelSpec(
+            model_id="fake_model",
+            repo_id="test/fake",
+            filename="fake.onnx",
+            sample_rate=32_000,
+            window_duration_s=5.0,
+            window_overlap=0.5,
+            description="test double",
+        )
+        windowed = dataclasses.replace(spec, model_id="windowed_model")
+        for model in (spec, windowed):
+            installed_state.call(
+                installed_state.service.repo.register_model, model, 4
+            )
+        installed_state.call(
+            installed_state.service.repo.set_embeddings,
+            item.item_id,
+            "fake_model",
+            [(0.0, 5.0, unit_vectors(1, 4)[0])],
+        )
+        installed_state.call(
+            installed_state.service.repo.set_embeddings,
+            item.item_id,
+            "windowed_model",
+            [
+                (0.0, 3.0, unit_vectors(2, 4)[0]),
+                (2.0, 5.0, unit_vectors(2, 4)[1]),
+            ],
+        )
+        await user.open("/")
+        await user.should_see("1 item(s)")
+        user.find(ui.table).trigger("rowClick", args=[None, {"item_id": item.item_id}])
+
+        await user.should_see("Export")
+        await user.should_see("Audio file")
+        # Only what the item actually has: a model it was never embedded with
+        # has nothing to hand over.
+        await user.should_see("fake_model embeddings (.npy)")
+        # More than one window means more than one file, so it arrives zipped.
+        await user.should_see("windowed_model embeddings (2 windows, .zip)")
+
     async def test_reads_the_band_and_window_with_dashes(
         self, user: User, installed_state
     ):

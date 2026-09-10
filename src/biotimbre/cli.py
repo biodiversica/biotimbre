@@ -325,7 +325,7 @@ def cmd_backfill(args: argparse.Namespace) -> int:
 
 
 def cmd_export_npy(args: argparse.Namespace) -> int:
-    """Export one item's embeddings to a .npy file."""
+    """Export one item's embeddings: a .npy per window, zipped if several."""
     with _service(args) as service:
         out = service.export_npy(args.item_id, args.model_id, args.output)
         print(f"Wrote {out}")
@@ -553,7 +553,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_backfill.set_defaults(func=cmd_backfill)
 
     p_export = subparsers.add_parser(
-        "export-npy", help="Export one item's embeddings to .npy."
+        "export-npy",
+        help="Export one item's embeddings: one .npy per window, zipped when "
+             "there is more than one.",
     )
     p_export.add_argument("item_id", type=int)
     p_export.add_argument("model_id")

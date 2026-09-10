@@ -287,6 +287,64 @@ class TestEndToEnd:
         assert len(hits) == 1
         assert hits[0].item.taxa == ("cicadidae",)
 
+    def test_a_single_window_exports_as_one_npy(self, service, tmp_path):
+        import io
+
+        service.import_directory(EXAMPLES_DIR)
+        # Perch takes the whole 5 s sample in one window.
+        data, name = service.embeddings_export(1, "perch_v2")
+        assert name == "item_1_perch_v2.npy"
+        vector = np.load(io.BytesIO(data))
+        # One window, one vector: a bare 1-D array, not a matrix of one row.
+        assert vector.ndim == 1
+
+        written = service.export_npy(1, "perch_v2", tmp_path)
+        # One producer of those bytes, so a download and a CLI export of the
+        # same rows are interchangeable.
+        assert written.read_bytes() == data
+        assert written.name == name
+
+    def test_several_windows_export_as_a_file_each(self, service, tmp_path):
+        import io
+        import zipfile
+
+        service.import_directory(EXAMPLES_DIR)
+        # BirdNET cuts the same sample into three windows.
+        data, name = service.embeddings_export(1, "birdnet_v2.4")
+        assert name == "item_1_birdnet_v2.4.zip"
+
+        with zipfile.ZipFile(io.BytesIO(data)) as archive:
+            names = archive.namelist()
+            assert len(names) == 3
+            # Each file says which window and which seconds it holds.
+            assert names[0] == "item_1_birdnet_v2.4_w00_0.00-3.00s.npy"
+            for entry in names:
+                vector = np.load(io.BytesIO(archive.read(entry)))
+                assert vector.ndim == 1
+                assert vector.shape == (1024,)
+
+    def test_a_multi_window_export_is_written_as_an_archive(self, service, tmp_path):
+        service.import_directory(EXAMPLES_DIR)
+        written = service.export_npy(1, "birdnet_v2.4", tmp_path)
+        assert written.name == "item_1_birdnet_v2.4.zip"
+        # Byte-identical to the download of the same rows: the archive records
+        # a fixed timestamp, so it can be checksummed as provenance.
+        data, _ = service.embeddings_export(1, "birdnet_v2.4")
+        assert written.read_bytes() == data
+        assert service.embeddings_export(1, "birdnet_v2.4")[0] == data
+
+    def test_an_explicit_path_keeps_the_right_extension(self, service, tmp_path):
+        service.import_directory(EXAMPLES_DIR)
+        # A name is not a promise about the contents; a zip must not land
+        # under a .npy name.
+        written = service.export_npy(1, "birdnet_v2.4", tmp_path / "vectors.npy")
+        assert written.suffix == ".zip"
+
+    def test_export_refuses_a_model_with_no_embeddings(self, service):
+        service.import_directory(EXAMPLES_DIR)
+        with pytest.raises(NotFoundError, match="no fake_model embeddings"):
+            service.embeddings_export(1, "fake_model")
+
     def test_filter_items_finds_by_taxa_without_audio(self, service):
         service.import_directory(EXAMPLES_DIR)
         hits = service.filter_items(SearchFilters(taxa=["cicadidae"]))
@@ -351,12 +409,20 @@ class TestEndToEnd:
             )
 
     def test_export_npy_round_trips(self, service, draft_for_guyvir, tmp_path):
+        import io
+        import zipfile
+
         item = service.add_item(GUYVIR_WAV, draft_for_guyvir).item
         out = service.export_npy(item.item_id, "birdnet_v2.4", tmp_path)
-        loaded = np.load(out)
-        assert loaded.shape == (3, 1024)
         stored, _ = service.repo.get_embedding_matrix(item.item_id, "birdnet_v2.4")
-        np.testing.assert_array_equal(loaded, stored)
+
+        # Three windows, so three files — reassembled here in window order.
+        with zipfile.ZipFile(out) as archive:
+            rows = [
+                np.load(io.BytesIO(archive.read(name)))
+                for name in sorted(archive.namelist())
+            ]
+        np.testing.assert_array_equal(np.stack(rows), stored)
 
     def test_export_npy_without_embeddings_raises(self, service, draft_for_guyvir, tmp_path):
         item = service.add_item(

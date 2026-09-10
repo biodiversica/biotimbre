@@ -23,6 +23,7 @@ from biotimbre.search.filters import SearchFilters
 from biotimbre.search.vector_search import FUSIONS, METRICS
 from biotimbre.service import SearchHit
 from biotimbre.ui.admin import ACCEPTED
+from biotimbre.ui.exports import export_button
 from biotimbre.ui.layout import notify_error
 from biotimbre.ui.state import get_state
 
@@ -73,6 +74,12 @@ class QueryState:
         if not self.needs_segment:
             return None, None
         return round(self.start, 3), round(self.end, 3)
+
+
+def _embedding_counts(item_ids: list[int]) -> dict[int, dict[str, int]]:
+    """Embedding counts per item, for the export menus."""
+    repo = get_state().service.repo
+    return {item_id: repo.embedding_counts(item_id) for item_id in item_ids}
 
 
 def _place_span_marker(
@@ -134,7 +141,9 @@ def _marked_spectrogram(
     return marker
 
 
-def _result_card(t: Translator, hit: SearchHit, rank: int) -> None:
+def _result_card(
+    t: Translator, hit: SearchHit, rank: int, counts: dict[str, int]
+) -> None:
     """One search result: score, metadata, marked spectrogram and a player.
 
     A hit with no per-model scores came from a metadata-only search, where
@@ -202,12 +211,14 @@ def _result_card(t: Translator, hit: SearchHit, rank: int) -> None:
             )
             with ui.column().classes("grow gap-1"):
                 ui.audio(state.audio_url(item.item_id)).classes("w-full")
-                if item.link_to_full_recording:
-                    ui.link(
-                        t("admin.open_full_recording"),
-                        item.link_to_full_recording,
-                        new_tab=True,
-                    ).classes("text-xs text-link")
+                with ui.row().classes("items-center gap-3"):
+                    export_button(t, item.item_id, counts)
+                    if item.link_to_full_recording:
+                        ui.link(
+                            t("admin.open_full_recording"),
+                            item.link_to_full_recording,
+                            new_tab=True,
+                        ).classes("text-xs text-link")
 
 
 def _filters_panel(t: Translator) -> dict[str, ui.element]:
@@ -624,6 +635,10 @@ async def render(t: Translator) -> None:
             spinner.set_visibility(False)
             run_button.enable()
 
+        # In one trip, so the cards can offer an export without each of them
+        # reaching into the database from the render pass.
+        counts = await state.run(_embedding_counts, [h.item.item_id for h in hits])
+
         with results_area:
             if not hits:
                 ui.label(t("search.no_matches")).classes("text-muted")
@@ -639,7 +654,7 @@ async def render(t: Translator) -> None:
                 ui.label(t("search.compare_hint")).classes("text-xs text-muted")
                 ui.label(t("search.marker_hint")).classes("text-xs text-muted")
             for rank, hit in enumerate(hits, start=1):
-                _result_card(t, hit, rank)
+                _result_card(t, hit, rank, counts.get(hit.item.item_id, {}))
             if any(h.query_speed != 1.0 for h in hits):
                 speeds = sorted({h.query_speed for h in hits if h.query_speed != 1.0})
                 ui.label(

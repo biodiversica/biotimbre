@@ -468,6 +468,65 @@ class TestMetadataOnlySearch:
         await user.should_see("No matches")
 
 
+class TestResultExport:
+    """A hit can be taken away as a file, like an item in the library list."""
+
+    async def test_a_result_offers_the_audio_and_its_embeddings(
+        self, user: User, installed_state
+    ):
+        from biotimbre.models_registry import ModelSpec
+        from biotimbre.ui import app as ui_app  # noqa: F401
+        from conftest import unit_vectors
+
+        installed_state.call(
+            installed_state.service.import_directory,
+            EXAMPLES_DIR,
+            compute_embeddings=False,
+        )
+        spec = ModelSpec(
+            model_id="fake_model",
+            repo_id="test/fake",
+            filename="fake.onnx",
+            sample_rate=32_000,
+            window_duration_s=5.0,
+            window_overlap=0.5,
+            description="test double",
+        )
+        installed_state.call(installed_state.service.repo.register_model, spec, 4)
+        item_id = installed_state.call(
+            installed_state.service.list_items
+        )[0].item_id
+        installed_state.call(
+            installed_state.service.repo.set_embeddings,
+            item_id,
+            "fake_model",
+            [(0.0, 5.0, unit_vectors(1, 4)[0])],
+        )
+
+        await user.open("/search")
+        await user.should_see("Query recording")
+        taxa = next(
+            element
+            for element in user.find(ui.select).elements
+            if element._props.get("label") == "Taxa"
+        )
+        taxa.value = ["cicadidae"]
+        from nicegui.testing.user_interaction import UserInteraction
+
+        button = next(
+            element
+            for element in user.find(ui.button).elements
+            if element._props.get("label") == "Search"
+            and "flat" not in element._props
+        )
+        UserInteraction(user, {button}, None).click()
+
+        await user.should_see("1 match(es)")
+        await user.should_see("Export")
+        await user.should_see("Audio file")
+        await user.should_see("fake_model embeddings (.npy)")
+
+
 class TestSearchEndToEnd:
     async def test_finds_a_stored_item(self, user: User, installed_state):
         installed_state.warm_models()

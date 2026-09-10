@@ -123,6 +123,13 @@
     "recompute": "Recalcular embeddings",
     "recomputed": "Embeddings recalculados."
   },
+  "export": {
+    "label": "Exportar",
+    "audio": "Arquivo de áudio",
+    "embeddings_one": "Embeddings {model} (.npy)",
+    "embeddings_many": "Embeddings {model} ({count} janelas, .zip)",
+    "no_embeddings": "Ainda sem embeddings"
+  },
   "search": {
     "heading": "Encontrar amostras semelhantes",
     "query": "Gravação utilizada na ferramenta de busca",

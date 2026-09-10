@@ -16,8 +16,10 @@ The service owns the pieces the layers below deliberately do not:
 
 from __future__ import annotations
 
+import io
 import math
 import shutil
+import zipfile
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -51,6 +53,71 @@ from biotimbre.search.vector_search import (
     score_matrix,
     top_k,
 )
+
+
+def npy_filename(item_id: int, model_id: str) -> str:
+    """Conventional name for an exported embedding file.
+
+    One place, so a download from the interface and a ``biotimbre export-npy``
+    on the command line produce the same filename for the same rows.
+
+    Args:
+        item_id: The item.
+        model_id: The model.
+
+    Returns:
+        A bare filename, no directory.
+    """
+    return f"item_{item_id}_{model_id}.npy"
+
+
+def npy_archive_filename(item_id: int, model_id: str) -> str:
+    """Conventional name for a multi-window embedding export.
+
+    Args:
+        item_id: The item.
+        model_id: The model.
+
+    Returns:
+        A bare filename, no directory.
+    """
+    return f"item_{item_id}_{model_id}.zip"
+
+
+def window_npy_filename(
+    item_id: int, model_id: str, index: int, start: float, end: float
+) -> str:
+    """Name of one window's file inside an export archive.
+
+    The window's place in the sample is in the name: a loose ``.npy`` extracted
+    from the archive still says which seconds it describes.
+
+    Args:
+        item_id: The item.
+        model_id: The model.
+        index: Window index, in window order.
+        start: Window start in seconds, in the sample's own time base.
+        end: Window end in seconds.
+
+    Returns:
+        A bare filename, no directory.
+    """
+    return (
+        f"item_{item_id}_{model_id}_w{index:02d}_{start:.2f}-{end:.2f}s.npy"
+    )
+
+
+def audio_filename(item_id: int, suffix: str) -> str:
+    """Conventional name for an exported audio file.
+
+    Args:
+        item_id: The item.
+        suffix: Extension of the stored file, dot included.
+
+    Returns:
+        A bare filename, no directory.
+    """
+    return f"item_{item_id}{suffix}"
 
 
 @dataclass(frozen=True)
@@ -608,11 +675,63 @@ class LibraryService:
             written[item_id] = counts.get(model_id, 0)
         return written
 
+    def embeddings_export(self, item_id: int, model_id: str) -> tuple[bytes, str]:
+        """One item's embeddings for one model, as a file per window.
+
+        A window is the unit that means something — one vector, over one span
+        of seconds — so no file here holds more than one of them. A model with
+        a single window exports as a bare ``.npy``; several windows export as a
+        zip of one ``.npy`` each, named with the window's index and its span.
+
+        The same bytes :meth:`export_npy` writes, for a caller that has nowhere
+        to write them — a browser download, say.
+
+        Args:
+            item_id: The item.
+            model_id: The model.
+
+        Returns:
+            The file's bytes and the name to save them under. Each ``.npy``
+            holds one 1-D vector of the model's width.
+
+        Raises:
+            NotFoundError: If the item has no embeddings for this model.
+        """
+        windows = self.repo.get_embeddings(item_id, model_id)
+        if not windows:
+            raise NotFoundError(
+                f"Item {item_id} has no {model_id} embeddings to export."
+            )
+
+        def npy_bytes(vector: np.ndarray) -> bytes:
+            buffer = io.BytesIO()
+            np.save(buffer, vector)
+            return buffer.getvalue()
+
+        if len(windows) == 1:
+            return npy_bytes(windows[0][3]), npy_filename(item_id, model_id)
+
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+            for index, start, end, vector in windows:
+                # A fixed timestamp, so exporting the same rows twice gives the
+                # same bytes: the archive can be checksummed as provenance, and
+                # a download matches a command-line export exactly. 1980-01-01
+                # is the earliest a zip entry can record.
+                entry = zipfile.ZipInfo(
+                    window_npy_filename(item_id, model_id, index, start, end),
+                    date_time=(1980, 1, 1, 0, 0, 0),
+                )
+                entry.compress_type = zipfile.ZIP_DEFLATED
+                archive.writestr(entry, npy_bytes(vector))
+        return buffer.getvalue(), npy_archive_filename(item_id, model_id)
+
     def export_npy(self, item_id: int, model_id: str, destination: str | Path) -> Path:
-        """Write one item's embeddings for one model to a ``.npy`` file.
+        """Write one item's embeddings for one model to disk.
 
         Provided for interop and hand-off; the database remains the source of
-        truth (PLAN.md D1).
+        truth (PLAN.md D1). One window writes a ``.npy``; several write a zip
+        of one ``.npy`` per window — see :meth:`embeddings_export`.
 
         Args:
             item_id: The item.
@@ -625,21 +744,19 @@ class LibraryService:
         Raises:
             NotFoundError: If the item has no embeddings for this model.
         """
-        matrix, _ = self.repo.get_embedding_matrix(item_id, model_id)
-        if matrix.shape[0] == 0:
-            raise NotFoundError(
-                f"Item {item_id} has no {model_id} embeddings to export."
-            )
+        data, name = self.embeddings_export(item_id, model_id)
 
         out = Path(destination)
         if out.is_dir():
-            out = out / f"item_{item_id}_{model_id}.npy"
-        # numpy silently appends .npy when the path lacks it, so normalise first
-        # or the path reported back to the caller is not the file on disk.
-        if out.suffix != ".npy":
-            out = out.with_suffix(out.suffix + ".npy")
+            out = out / name
+        # A name is not a promise about the contents: correct the extension
+        # rather than leave a zip called .npy. Appending, not replacing, since
+        # model ids carry dots of their own ("birdnet_v2.4").
+        suffix = Path(name).suffix
+        if out.suffix != suffix:
+            out = out.with_suffix(out.suffix + suffix)
         out.parent.mkdir(parents=True, exist_ok=True)
-        np.save(out, matrix)
+        out.write_bytes(data)
         return out
 
     # ── read ──────────────────────────────────────────────────────────────────

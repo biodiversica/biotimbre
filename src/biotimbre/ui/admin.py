@@ -22,6 +22,7 @@ from biotimbre.domain.item import LibraryItem
 from biotimbre.embeddings import audio as audio_io
 from biotimbre.i18n import Translator
 from biotimbre.models_registry import get_spec
+from biotimbre.ui.exports import export_button
 from biotimbre.ui.forms import metadata_form
 from biotimbre.ui.layout import notify_error
 from biotimbre.ui.state import get_state
@@ -473,7 +474,8 @@ async def _open_detail(t: Translator, item_id: int, on_changed) -> None:
         ui.audio(state.audio_url(item.item_id)).classes("w-full shrink-0")
         _metadata_rows(t, item, counts, label)
 
-        with ui.row().classes("justify-end gap-2 w-full"):
+        with ui.row().classes("items-center justify-end gap-2 w-full"):
+            export_button(t, item.item_id, counts)
             ui.button(t("common.close"), on_click=dialog.close).props("flat")
             ui.button(
                 t("common.delete"),

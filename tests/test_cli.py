@@ -258,15 +258,35 @@ class TestEndToEndCli:
         run(data_dir, "add", str(GUYVIR_WAV))
         capsys.readouterr()
 
-        target = tmp_path / "vectors"  # no .npy suffix, does not exist yet
+        target = tmp_path / "vectors"  # no suffix, does not exist yet
         assert run(data_dir, "export-npy", "1", "perch_v2", str(target)) == 0
         reported = capsys.readouterr().out.strip().removeprefix("Wrote ")
 
-        # numpy appends .npy silently; the reported path must be the real file.
+        # The extension is chosen by the contents; the reported path must be
+        # the real file either way.
         from pathlib import Path
 
         assert Path(reported).is_file()
-        assert np.load(reported).shape == (1, 1536)
+        assert Path(reported).suffix == ".npy"
+        # Perch takes the whole sample in one window: one vector, one file.
+        assert np.load(reported).shape == (1536,)
+
+    def test_export_npy_zips_a_model_with_several_windows(
+        self, data_dir, tmp_path, capsys
+    ):
+        import zipfile
+
+        run(data_dir, "init", "--name", "Test Library")
+        run(data_dir, "add", str(GUYVIR_WAV))
+        capsys.readouterr()
+
+        assert run(data_dir, "export-npy", "1", "birdnet_v2.4", str(tmp_path)) == 0
+        from pathlib import Path
+
+        reported = Path(capsys.readouterr().out.strip().removeprefix("Wrote "))
+        assert reported.name == "item_1_birdnet_v2.4.zip"
+        with zipfile.ZipFile(reported) as archive:
+            assert len(archive.namelist()) == 3
 
     def test_speed_shifted_item_found_by_native_query(self, data_dir, capsys):
         run(data_dir, "init", "--name", "Test Library")

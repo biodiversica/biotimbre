@@ -1,6 +1,6 @@
-# Biotimbre: A vocalization library management tool
+# Biotimbre: A management tool for animal sound libraries
 
-A tool for creating and managing libraries of animal vocalization templates with embedding-based similarity search, using ONNX backbones via `onnxruntime` (e.g. Perch v2, BirdNET 2.4).
+A tool for creating and managing libraries of animal sound templates with embedding-based similarity search, using ONNX backbones via `onnxruntime` (e.g. Perch v2, BirdNET 2.4).
 
 ## Setup
 
@@ -80,7 +80,7 @@ biotimbre delete ITEM_ID [-y] [--keep-audio]
 biotimbre search AUDIO [-k N] [filters]
 biotimbre models                      # registered models and vector counts
 biotimbre backfill MODEL_ID           # embed items missing this model
-biotimbre export-npy ITEM_ID MODEL_ID OUT
+biotimbre export-npy ITEM_ID MODEL_ID OUT   # .npy per window; .zip if several
 biotimbre stats
 biotimbre gui [--host H] [--port P] [--no-browser]
 ```
@@ -203,7 +203,7 @@ data/
 
 Back up by copying the folder. Vectors live in the database so a metadata filter
 can narrow the candidate set before any vector is scored; use `export-npy` when
-you need a `.npy` for interop.
+you need the vectors as files for interop.
 
 ## Configuration
 
@@ -284,6 +284,20 @@ spectrogram_colors = ["#0c0826", "#400c60", "#941a60", "#de5234", "#fca83c", "#f
 # server-side, where the reader's theme is not known, so [ui.theme]'s ramp
 # serves both.
 ```
+
+### Taking an item away
+
+Both the library list and the search results carry an **Export** button on each
+item: the stored audio file, or one model's embeddings.
+
+A window is the unit that means something — one vector over one span of seconds
+— so no exported file holds more than one of them. A model with a single window
+(Perch, on a short sample) exports as a bare `item_12_perch_v2.npy` holding one
+1-D vector; several windows export as `item_12_birdnet_v2.4.zip`, one `.npy`
+inside per window, each named with its index and span
+(`item_12_birdnet_v2.4_w00_0.00-3.00s.npy`). `biotimbre export-npy` writes
+exactly the same files, so a download and a command-line export of the same
+rows are interchangeable.
 
 ### Light, dark, or whatever the system says
 
