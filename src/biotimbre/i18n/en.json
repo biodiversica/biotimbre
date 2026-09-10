@@ -113,6 +113,7 @@
     "open_full_recording": "Open full recording",
     "no_file": "No file chosen yet.",
     "file_chosen": "{name} — {duration} s, {rate} Hz, {channels} ch",
+    "clear_file": "Remove file",
     "model_limits": "Dashed lines mark each model's frequency limit; content above them is not seen by that model.",
     "recompute": "Recompute embeddings",
     "recomputed": "Embeddings recomputed."

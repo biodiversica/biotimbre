@@ -13,8 +13,9 @@ from __future__ import annotations
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
+from uuid import uuid4
 
-from nicegui import ui
+from nicegui import app, ui
 
 from biotimbre.domain.errors import BiotimbreError, ValidationError
 from biotimbre.domain.item import LibraryItem
@@ -177,12 +178,51 @@ def _add_card(t: Translator, on_added) -> None:
     state = get_state()
     add_state = AddState()
 
+    #: Route currently serving the staged file, so it can be played before it
+    #: is added. Streamed rather than inlined: a sample can be a long recording,
+    #: and a data URI would carry the whole thing into the page.
+    staged_route: str | None = None
+
+    def stop_serving_staged() -> None:
+        nonlocal staged_route
+        if staged_route is not None:
+            app.remove_route(staged_route)
+            staged_route = None
+
+    def serve_staged(path: Path) -> str:
+        """Publish the staged file at a fresh URL and return it."""
+        nonlocal staged_route
+        stop_serving_staged()
+        # A new path each time: the browser caches by URL, and two uploads in
+        # a row can land on the same filename.
+        staged_route = f"/media/staged/{uuid4().hex}"
+        return app.add_media_file(local_file=path, url_path=staged_route)
+
     with ui.card().classes("w-full p-4 gap-3 bg-card"):
         ui.label(t("admin.add_heading")).classes("text-lg font-medium")
 
         preview = ui.column().classes("w-full gap-1")
-        with preview:
-            ui.label(t("admin.no_file")).classes("text-sm text-muted")
+
+        def show_no_file() -> None:
+            """Put the preview back to its empty state."""
+            preview.clear()
+            with preview:
+                ui.label(t("admin.no_file")).classes("text-sm text-muted")
+
+        def clear_file() -> None:
+            """Drop the staged file, so choosing one is not a one-way door.
+
+            The upload element has to be reset too: it goes on showing the
+            file it sent, and until this existed the only way to be rid of it
+            was reloading the page.
+            """
+            add_state.discard()
+            stop_serving_staged()
+            uploader.reset()
+            results.clear()
+            show_no_file()
+
+        show_no_file()
 
         async def handle_upload(event) -> None:
             # event.file is a NiceGUI FileUpload: .name plus async read()/save().
@@ -205,15 +245,20 @@ def _add_card(t: Translator, on_added) -> None:
             props = upload.properties
             preview.clear()
             with preview:
-                ui.label(
-                    t(
-                        "admin.file_chosen",
-                        name=upload.name,
-                        duration=f"{props.duration_s:.2f}",
-                        rate=props.sample_rate,
-                        channels=props.channels,
-                    )
-                ).classes("text-sm")
+                with ui.row().classes("items-center gap-2"):
+                    ui.label(
+                        t(
+                            "admin.file_chosen",
+                            name=upload.name,
+                            duration=f"{props.duration_s:.2f}",
+                            rate=props.sample_rate,
+                            channels=props.channels,
+                        )
+                    ).classes("text-sm")
+                    ui.button(
+                        t("admin.clear_file"), icon="close", on_click=clear_file
+                    ).props("flat dense no-caps color=negative")
+                ui.audio(serve_staged(upload.path)).classes("w-full shrink-0")
                 try:
                     uri = await state.run(_spectrogram_of, upload.path)
                     ui.image(uri).classes("w-full rounded").props("no-spinner")
@@ -225,7 +270,7 @@ def _add_card(t: Translator, on_added) -> None:
             """Report a file the browser refused, e.g. wrong type or too large."""
             ui.notify(t("error.no_audio"), type="warning", position="top")
 
-        ui.upload(
+        uploader = ui.upload(
             label=t("admin.upload"),
             on_upload=handle_upload,
             on_rejected=handle_rejected,
@@ -288,9 +333,9 @@ def _add_card(t: Translator, on_added) -> None:
             with results:
                 _ingest_report(t, result)
             add_state.discard()
-            preview.clear()
-            with preview:
-                ui.label(t("admin.no_file")).classes("text-sm text-muted")
+            stop_serving_staged()
+            uploader.reset()
+            show_no_file()
             on_added()
 
         with ui.row().classes("items-center gap-3 mt-2"):

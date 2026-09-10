@@ -13,6 +13,7 @@ import pytest
 
 pytest.importorskip("nicegui", reason="needs the 'gui' extra")
 
+from nicegui import app as nicegui_app  # noqa: E402
 from nicegui import ui  # noqa: E402
 from nicegui.testing import User  # noqa: E402
 
@@ -344,6 +345,38 @@ class TestAdminPageRenders:
         assert table.rows[0]["taxa"] == "cicadidae"
         # The table shows a truncated ID; the tooltip carries the full UUID.
         assert table.rows[0]["biotimbre_id"] == result.item.biotimbre_id[:8]
+
+    async def test_a_chosen_file_can_be_taken_back(self, user: User):
+        from nicegui.elements.upload_files import SmallFileUpload
+
+        from biotimbre.ui import app as ui_app  # noqa: F401
+
+        await user.open("/")
+        await user.should_see("No file chosen yet.")
+
+        uploader = next(iter(user.find(ui.upload).elements))
+        await uploader.handle_uploads(
+            [SmallFileUpload("GUYVIR.wav", "audio/wav", GUYVIR.read_bytes())]
+        )
+        await user.should_see("GUYVIR.wav")
+        await user.should_see("Remove file")
+
+        # The staged file is playable before it is added, streamed from a
+        # route of its own rather than inlined into the page.
+        player = next(iter(user.find(ui.audio).elements))
+        staged_url = player._props["src"]
+        assert staged_url.startswith("/media/staged/")
+        assert any(route.path == staged_url for route in nicegui_app.routes)
+
+        # Until this existed the file was stuck until the page was reloaded.
+        user.find("Remove file").click()
+        await user.should_see("No file chosen yet.")
+        assert not any(route.path == staged_url for route in nicegui_app.routes)
+
+        # And it really is gone: adding now asks for a file rather than
+        # storing the one that was taken back.
+        user.find("Add to library").click()
+        await user.should_see("Choose an audio file first.")
 
     async def test_list_columns_identify_rather_than_describe(
         self, user: User, installed_state

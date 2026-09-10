@@ -113,6 +113,7 @@
     "open_full_recording": "Abrir gravação completa",
     "no_file": "Nenhum arquivo escolhido ainda.",
     "file_chosen": "{name} — {duration} s, {rate} Hz, {channels} ch",
+    "clear_file": "Remover arquivo",
     "model_limits": "As linhas tracejadas marcam o limite de frequência de cada modelo; conteúdo acima delas não é visto por esse modelo.",
     "recompute": "Recalcular embeddings",
     "recomputed": "Embeddings recalculados."
