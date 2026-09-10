@@ -177,6 +177,81 @@ class TestApplyFilter:
             audio_io.apply_filter(audio, self.RATE, low_hz=1000.0, high_hz=None, order=8)
 
 
+class TestWriteProcessed:
+    """Cutting and filtering a submission before it is stored."""
+
+    def test_cuts_the_requested_segment(self, tmp_path):
+        out = tmp_path / "cut.wav"
+        props = audio_io.write_processed(GUYVIR, out, start_time=1.0, end_time=3.5)
+        assert props.duration_s == pytest.approx(2.5)
+        assert props.sample_rate == 32_000
+        samples, _ = audio_io.load_mono(out)
+        original, _ = audio_io.load_mono(GUYVIR, start_time=1.0, end_time=3.5)
+        np.testing.assert_allclose(samples, original, atol=1e-6)
+
+    def test_a_plain_copy_keeps_the_whole_file(self, tmp_path):
+        out = tmp_path / "copy.wav"
+        props = audio_io.write_processed(GUYVIR, out)
+        assert props.duration_s == pytest.approx(5.0)
+        assert props.n_frames == 160_000
+
+    def test_filters_what_it_writes(self, tmp_path):
+        # A highpass must actually remove the low tone, not merely be recorded.
+        rate = 32_000
+        t = np.arange(rate) / rate
+        mixed = (0.5 * np.sin(2 * np.pi * 200 * t)
+                 + 0.5 * np.sin(2 * np.pi * 8000 * t)).astype(np.float32)
+        source = tmp_path / "mixed.wav"
+        import soundfile as sf
+
+        sf.write(source, mixed, rate, subtype="FLOAT")
+
+        out = tmp_path / "filtered.wav"
+        audio_io.write_processed(source, out, low_hz=4000.0)
+        written, _ = audio_io.load_mono(out)
+
+        def energy_at(samples, hz):
+            spectrum = np.abs(np.fft.rfft(samples))
+            return spectrum[int(round(hz * samples.size / rate))]
+
+        assert energy_at(written, 200) < 0.01 * energy_at(mixed, 200)
+        assert energy_at(written, 8000) > 0.5 * energy_at(mixed, 8000)
+
+    def test_writes_mono_whatever_came_in(self, tmp_path):
+        import soundfile as sf
+
+        rate = 16_000
+        stereo = np.zeros((rate, 2), dtype=np.float32)
+        stereo[:, 0] = 0.4
+        stereo[:, 1] = -0.4
+        source = tmp_path / "stereo.wav"
+        sf.write(source, stereo, rate, subtype="FLOAT")
+
+        out = tmp_path / "stereo_cut.wav"
+        props = audio_io.write_processed(source, out, end_time=0.5)
+        # The library stores one channel; the two are averaged, as load_mono
+        # does, rather than one being picked.
+        assert props.channels == 1
+        samples, _ = audio_io.load_mono(out)
+        np.testing.assert_allclose(samples, 0.0, atol=1e-7)
+
+    def test_a_mono_source_is_untouched_in_shape(self, tmp_path):
+        out = tmp_path / "copy.wav"
+        assert audio_io.write_processed(GUYVIR, out).channels == 1
+
+    def test_rejects_an_empty_segment(self, tmp_path):
+        with pytest.raises(ValidationError, match="contains no audio"):
+            audio_io.write_processed(
+                GUYVIR, tmp_path / "empty.wav", start_time=4.0, end_time=4.0
+            )
+
+    def test_rejects_a_cutoff_past_nyquist(self, tmp_path):
+        with pytest.raises(ValidationError, match="Nyquist"):
+            audio_io.write_processed(
+                GUYVIR, tmp_path / "bad.wav", high_hz=40_000.0
+            )
+
+
 class TestFrame:
     def test_exact_length_yields_one_window_at_any_overlap(self):
         # 5 s of audio under a 5 s window leaves no room for a second hop.

@@ -285,6 +285,25 @@ spectrogram_colors = ["#0c0826", "#400c60", "#941a60", "#de5234", "#fca83c", "#f
 # serves both.
 ```
 
+### Trimming and filtering on the way in
+
+The Library page's add form works on the recording you upload before it is
+stored: drag over the spectrogram to keep only part of it, and give a highpass
+and/or lowpass cutoff to filter it (Butterworth, zero-phase). A second
+spectrogram shows exactly what will be stored, and the player follows the
+chosen segment.
+
+What the library keeps is the processed audio, so the metadata is filled in to
+match: the segment becomes `sample_window` — where the sample sits in the
+recording it came from — and the cutoffs become `filtered_band` with
+`filter_type` "Butterworth" and the order used. Both stay editable, since only
+you know whether the file you uploaded was itself already an excerpt.
+
+What the library keeps is always mono — that is what every model is fed and
+what a spectrogram shows — so a multi-channel submission is averaged down, by
+the add form and by `biotimbre add` alike, and the player previews that mono
+copy. A mono file you neither trim nor filter is stored exactly as it arrived.
+
 ### Taking an item away
 
 Both the library list and the search results carry an **Export** button on each

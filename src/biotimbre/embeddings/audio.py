@@ -170,6 +170,104 @@ def load_mono(
     return np.ascontiguousarray(mono, dtype=np.float32), int(sample_rate)
 
 
+def write_processed(
+    source: str | Path,
+    destination: str | Path,
+    *,
+    start_time: float | None = None,
+    end_time: float | None = None,
+    low_hz: float | None = None,
+    high_hz: float | None = None,
+    order: int = 4,
+) -> AudioProperties:
+    """Write a mono, optionally cut and filtered, copy of a recording.
+
+    For preparing a submission: unlike :func:`apply_filter` on a search query,
+    what this writes is what gets stored, so the item's ``sample_window`` and
+    ``filtered_band`` should be set to match.
+
+    The result is always mono. The library stores one channel — that is what
+    every model is fed and what a spectrogram shows — so a stereo submission is
+    averaged down here rather than kept in a form nothing downstream reads.
+    Averaging, as in :func:`load_mono`, so no channel's content is discarded.
+
+    Only the requested segment is decoded, so cutting 10 s out of an hour costs
+    the 10 s.
+
+    Args:
+        source: Recording to read.
+        destination: File to write. Its parent is created if needed.
+        start_time: Segment start in seconds. ``None`` starts at the beginning.
+        end_time: Segment end in seconds. ``None`` runs to the end.
+        low_hz: Highpass cutoff in Hz, or ``None`` for none.
+        high_hz: Lowpass cutoff in Hz, or ``None`` for none.
+        order: Butterworth filter order, when a cutoff is given.
+
+    Returns:
+        The written file's :class:`AudioProperties`, always single-channel.
+
+    Raises:
+        ValidationError: If the source cannot be decoded, the segment is empty,
+            or a cutoff is unusable at this sample rate.
+    """
+    import soundfile as sf
+
+    source = Path(source)
+    properties = read_properties(source)
+    rate = properties.sample_rate
+
+    read_kwargs: dict[str, object] = {}
+    if start_time is not None or end_time is not None:
+        start_frame = 0 if start_time is None else int(round(start_time * rate))
+        start_frame = max(0, min(start_frame, properties.n_frames))
+        read_kwargs["start"] = start_frame
+        if end_time is not None:
+            end_frame = min(int(round(end_time * rate)), properties.n_frames)
+            frames = end_frame - start_frame
+            if frames <= 0:
+                raise ValidationError(
+                    f"Segment {start_time}-{end_time} s of {source.name} "
+                    f"contains no audio.",
+                    "sample_window",
+                )
+            read_kwargs["frames"] = frames
+
+    try:
+        data, sample_rate = sf.read(
+            str(source), dtype="float32", always_2d=True, **read_kwargs
+        )
+        subtype = sf.info(str(source)).subtype
+    except ValidationError:
+        raise
+    except Exception as exc:
+        raise ValidationError(
+            f"Could not decode {source.name}: {exc}", "audio"
+        ) from exc
+
+    if data.size == 0:
+        raise ValidationError(f"{source.name} contains no audio.", "audio")
+
+    mono = data.mean(axis=1) if data.shape[1] > 1 else data[:, 0]
+    mono = np.ascontiguousarray(mono, dtype=np.float32)
+
+    if low_hz is not None or high_hz is not None:
+        # Filtered after the downmix, not per channel and then averaged: one
+        # pass over what actually gets stored.
+        mono = apply_filter(
+            mono, int(sample_rate), low_hz=low_hz, high_hz=high_hz, order=order
+        )
+
+    out = Path(destination)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    # The samples have been through float32 arithmetic; writing them back at
+    # the source's own depth would quantise them a second time, so the copy is
+    # kept in float unless the source was already floating point.
+    if subtype not in ("FLOAT", "DOUBLE"):
+        subtype = "FLOAT"
+    sf.write(str(out), mono, int(sample_rate), subtype=subtype)
+    return read_properties(out)
+
+
 def resolve_query_segment(
     duration_s: float,
     start_time: float | None = None,

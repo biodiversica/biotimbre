@@ -79,6 +79,97 @@ class TestAddState:
         assert not path.exists()
         assert add_state.upload is None
 
+    def test_an_untouched_upload_is_stored_as_it_arrived(self):
+        add_state = AddState()
+        upload = add_state.replace("a.wav", GUYVIR.read_bytes())
+        # Nothing asked for, nothing rewritten: the file itself is the source.
+        assert add_state.apply().duration_s == pytest.approx(5.0)
+        assert add_state.processed is None
+        assert add_state.source == upload.path
+        add_state.discard()
+
+    def test_a_stereo_upload_is_prepared_as_mono(self, tmp_path):
+        import numpy as np
+        import soundfile as sf
+
+        from biotimbre.embeddings import audio as audio_io
+
+        rate = 16_000
+        stereo = np.zeros((rate, 2), dtype=np.float32)
+        stereo[:, 0] = 0.4
+        stereo[:, 1] = -0.4
+        path = tmp_path / "stereo.wav"
+        sf.write(path, stereo, rate, subtype="FLOAT")
+
+        add_state = AddState()
+        add_state.replace("stereo.wav", path.read_bytes())
+        # Nothing was asked for, but the library stores mono, so a copy is
+        # still what gets added.
+        properties = add_state.apply()
+        assert properties.channels == 1
+        assert add_state.source == add_state.processed
+        assert audio_io.read_properties(add_state.source).channels == 1
+        add_state.discard()
+
+    def test_a_chosen_segment_is_cut_before_storing(self):
+        add_state = AddState()
+        add_state.replace("a.wav", GUYVIR.read_bytes())
+        add_state.start, add_state.end = 1.0, 3.0
+
+        properties = add_state.apply()
+        assert add_state.is_cut is True
+        assert properties.duration_s == pytest.approx(2.0)
+        assert add_state.processed is not None
+        # The copy is what gets added, not the upload.
+        assert add_state.source == add_state.processed
+        add_state.discard()
+
+    def test_a_filter_is_applied_to_what_is_stored(self):
+        import numpy as np
+
+        from biotimbre.embeddings import audio as audio_io
+
+        add_state = AddState()
+        add_state.replace("a.wav", GUYVIR.read_bytes())
+        add_state.highpass = 4000.0
+
+        add_state.apply()
+        assert add_state.is_filtered is True
+        samples, rate = audio_io.load_mono(add_state.processed)
+        original, _ = audio_io.load_mono(GUYVIR)
+        spectrum = np.abs(np.fft.rfft(samples))
+        reference = np.abs(np.fft.rfft(original))
+        freqs = np.fft.rfftfreq(samples.size, 1 / rate)
+        low = freqs < 1000
+        # Recorded is not enough: the low end must really be gone.
+        assert spectrum[low].mean() < 0.05 * reference[low].mean()
+        add_state.discard()
+
+    def test_changing_the_choice_replaces_the_copy(self):
+        add_state = AddState()
+        add_state.replace("a.wav", GUYVIR.read_bytes())
+        add_state.start, add_state.end = 0.0, 2.0
+        add_state.apply()
+        first = add_state.processed
+
+        add_state.end = 4.0
+        assert add_state.apply().duration_s == pytest.approx(4.0)
+        # One copy at a time; a superseded cut does not linger in the staging
+        # directory.
+        assert not first.exists() or first == add_state.processed
+        add_state.discard()
+
+    def test_discard_takes_the_processed_copy_with_it(self):
+        add_state = AddState()
+        add_state.replace("a.wav", GUYVIR.read_bytes())
+        add_state.start, add_state.end = 1.0, 2.0
+        add_state.apply()
+        processed = add_state.processed
+
+        add_state.discard()
+        assert not processed.exists()
+        assert add_state.processed is None
+
     def test_only_the_basename_is_used(self):
         # An upload name is attacker-controlled in a public deployment; a path
         # must not escape the staging directory.
@@ -377,6 +468,139 @@ class TestAdminPageRenders:
         # storing the one that was taken back.
         user.find("Add to library").click()
         await user.should_see("Choose an audio file first.")
+
+    async def test_a_cut_and_a_filter_describe_themselves_in_the_form(
+        self, user: User
+    ):
+        from nicegui.elements.upload_files import SmallFileUpload
+
+        from biotimbre.ui import app as ui_app  # noqa: F401
+
+        await user.open("/")
+        uploader = next(iter(user.find(ui.upload).elements))
+        await uploader.handle_uploads(
+            [SmallFileUpload("GUYVIR.wav", "audio/wav", GUYVIR.read_bytes())]
+        )
+        await user.should_see("GUYVIR.wav")
+        # The controls arrive with the spectrogram, which takes about a second
+        # to render — well past should_see's default handful of retries.
+        await user.should_see(
+            "Drag to keep only part of the recording.", retries=60
+        )
+
+        picker = next(iter(user.find(ui.range).elements))
+        picker.value = {"min": 1.0, "max": 3.0}
+        user.find(ui.range).trigger("change", args={"min": 1.0, "max": 3.0})
+        await user.should_see("Keeping 1.00–3.00 s of 5.00 s")
+        # The cut is made there and then, so the form can show what it will
+        # store rather than promising it.
+        await user.should_see("What will be stored (2.00 s)", retries=60)
+
+        # A cut is what sample_window means, and a filter applied here is
+        # filtering already applied by the time the sample is stored: the
+        # fields say so without the submitter retyping it.
+        inputs = {
+            element._props.get("label"): element
+            for element in user.find(ui.number).elements
+        }
+        assert inputs["Start in full recording"].value == 1.0
+        assert inputs["End in full recording"].value == 3.0
+
+    async def test_dragging_does_not_republish_the_audio(self, user: User):
+        from nicegui import app as nicegui_app
+        from nicegui.elements.upload_files import SmallFileUpload
+
+        from biotimbre.ui import app as ui_app  # noqa: F401
+
+        await user.open("/")
+        uploader = next(iter(user.find(ui.upload).elements))
+        await uploader.handle_uploads(
+            [SmallFileUpload("GUYVIR.wav", "audio/wav", GUYVIR.read_bytes())]
+        )
+        await user.should_see(
+            "Drag to keep only part of the recording.", retries=60
+        )
+
+        def staged_routes() -> list[str]:
+            return [
+                route.path
+                for route in nicegui_app.routes
+                if getattr(route, "path", "").startswith("/media/staged/")
+            ]
+
+        published = staged_routes()
+        assert len(published) == 1
+
+        picker = next(iter(user.find(ui.range).elements))
+        for end in (4.5, 4.0, 3.5, 3.0):
+            picker.value = {"min": 0.0, "max": end}
+
+        # Publishing per step retired the URL the browser was still fetching,
+        # which filled the log with "not found" and left the player broken.
+        assert staged_routes() == published
+        await user.should_see("Keeping 0.00–3.00 s of 5.00 s")
+
+    async def test_a_stereo_upload_is_played_as_it_will_be_stored(
+        self, user: User, tmp_path
+    ):
+        import numpy as np
+        import soundfile as sf
+        from nicegui.elements.upload_files import SmallFileUpload
+
+        from biotimbre.ui import app as ui_app  # noqa: F401
+
+        rate = 16_000
+        stereo = np.zeros((rate, 2), dtype=np.float32)
+        stereo[:, 0] = 0.4
+        stereo[:, 1] = -0.2
+        path = tmp_path / "stereo.wav"
+        sf.write(path, stereo, rate, subtype="FLOAT")
+
+        await user.open("/")
+        uploader = next(iter(user.find(ui.upload).elements))
+        await uploader.handle_uploads(
+            [SmallFileUpload("stereo.wav", "audio/wav", path.read_bytes())]
+        )
+        # The mono copy is made on arrival, not only once something is asked
+        # for: the preview is of what the library will keep.
+        await user.should_see("What will be stored (1.00 s)", retries=60)
+
+    async def test_the_player_follows_the_processed_copy(self, user: User):
+        from nicegui.elements.upload_files import SmallFileUpload
+
+        from biotimbre.ui import app as ui_app  # noqa: F401
+        from biotimbre.ui.admin import AddState  # noqa: F401
+
+        await user.open("/")
+        uploader = next(iter(user.find(ui.upload).elements))
+        await uploader.handle_uploads(
+            [SmallFileUpload("GUYVIR.wav", "audio/wav", GUYVIR.read_bytes())]
+        )
+        await user.should_see(
+            "Drag to keep only part of the recording.", retries=60
+        )
+        player = next(iter(user.find(ui.audio).elements))
+        raw = player._props["src"]
+
+        picker = next(iter(user.find(ui.range).elements))
+        picker.value = {"min": 1.0, "max": 3.0}
+        user.find(ui.range).trigger("change", args={"min": 1.0, "max": 3.0})
+        await user.should_see("What will be stored (2.00 s)", retries=60)
+
+        # The copy itself, not the upload with a time fragment: a fragment can
+        # convey a cut but never a filter.
+        first = player._props["src"]
+        assert first != raw
+        assert "#t=" not in first
+
+        picker.value = {"min": 1.0, "max": 2.0}
+        user.find(ui.range).trigger("change", args={"min": 1.0, "max": 2.0})
+        await user.should_see("What will be stored (1.00 s)", retries=60)
+
+        # The copy is rewritten in place, so its path says nothing about
+        # whether the audio changed: without a fresh URL the browser kept
+        # playing the previous window.
+        assert player._props["src"] != first
 
     async def test_list_columns_identify_rather_than_describe(
         self, user: User, installed_state

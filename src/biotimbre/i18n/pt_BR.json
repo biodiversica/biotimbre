@@ -119,6 +119,10 @@
     "open_full_recording": "Abrir gravação completa",
     "no_file": "Nenhum arquivo escolhido ainda.",
     "file_chosen": "{name} — {duration} s, {rate} Hz, {channels} ch",
+    "trim_hint": "Arraste para manter apenas parte da gravação.",
+    "filter_hint": "Filtra o áudio antes de armazená-lo (Butterworth). Deixe ambos em branco para armazenar sem filtro.",
+    "segment_of": "Mantendo {start}–{end} s de {duration} s",
+    "will_store": "O que será armazenado ({duration} s)",
     "model_limits": "As linhas tracejadas marcam o limite de frequência de cada modelo; conteúdo acima delas não é visto por esse modelo.",
     "recompute": "Recalcular embeddings",
     "recomputed": "Embeddings recalculados."

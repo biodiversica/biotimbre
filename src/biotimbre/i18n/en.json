@@ -119,6 +119,10 @@
     "open_full_recording": "Open full recording",
     "no_file": "No file chosen yet.",
     "file_chosen": "{name} — {duration} s, {rate} Hz, {channels} ch",
+    "trim_hint": "Drag to keep only part of the recording.",
+    "filter_hint": "Filters the audio before it is stored (Butterworth). Leave both blank to store it unfiltered.",
+    "segment_of": "Keeping {start}–{end} s of {duration} s",
+    "will_store": "What will be stored ({duration} s)",
     "model_limits": "Dashed lines mark each model's frequency limit; content above them is not seen by that model.",
     "recompute": "Recompute embeddings",
     "recomputed": "Embeddings recomputed."

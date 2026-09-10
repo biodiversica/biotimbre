@@ -25,6 +25,7 @@ from biotimbre.service import SearchHit
 from biotimbre.ui.admin import ACCEPTED
 from biotimbre.ui.exports import export_button
 from biotimbre.ui.layout import notify_error
+from biotimbre.ui.spectrograms import marked_spectrogram, place_span_marker
 from biotimbre.ui.state import get_state
 
 #: Spectrogram size for the query, where the segment is chosen.
@@ -80,65 +81,6 @@ def _embedding_counts(item_ids: list[int]) -> dict[int, dict[str, int]]:
     """Embedding counts per item, for the export menus."""
     repo = get_state().service.repo
     return {item_id: repo.embedding_counts(item_id) for item_id in item_ids}
-
-
-def _place_span_marker(
-    marker: ui.element,
-    span: tuple[float, float] | None,
-    start: float,
-    end: float,
-) -> None:
-    """Move a span marker over its spectrogram, or hide it.
-
-    Args:
-        marker: The overlay from :func:`_marked_spectrogram`.
-        span: ``(from, to)`` in seconds to highlight, or ``None`` to hide.
-        start: Time at the image's left edge.
-        end: Time at its right edge.
-    """
-    if span is None or end <= start:
-        marker.set_visibility(False)
-        return
-    left = max(0.0, min(1.0, (span[0] - start) / (end - start)))
-    right = max(0.0, min(1.0, (span[1] - start) / (end - start)))
-    if right <= left:
-        marker.set_visibility(False)
-        return
-    marker.style(f"left:{left * 100:.2f}%; width:{(right - left) * 100:.2f}%")
-    marker.set_visibility(True)
-
-
-def _marked_spectrogram(
-    url: str, span: tuple[float, float] | None, start: float, end: float
-) -> ui.element:
-    """Show a spectrogram with an optional highlighted time span.
-
-    The marker is a positioned overlay rather than something drawn into the PNG,
-    so the same cached image serves every span — a result list re-rendered on a
-    filter change reuses the images it already has.
-
-    Args:
-        url: Image source.
-        span: ``(from, to)`` in seconds to highlight, or ``None``.
-        start: Time at the image's left edge.
-        end: Time at its right edge.
-
-    Returns:
-        The marker overlay. A caller that changes the span moves it with
-        :func:`_place_span_marker` instead of re-rendering: rebuilding the
-        block makes the browser drop and re-request the PNG, which flashes the
-        whole page on every step of a drag.
-    """
-    with ui.element("div").classes("relative w-full"):
-        ui.image(url).classes("w-full rounded").props("no-spinner")
-        marker = ui.element("div").classes(
-            "absolute top-0 bottom-0 border-x-2 pointer-events-none rounded"
-        ).style(
-            "border-color: var(--bt-marker-border); "
-            "background: var(--bt-marker-fill)"
-        )
-    _place_span_marker(marker, span, start, end)
-    return marker
 
 
 def _result_card(
@@ -201,7 +143,7 @@ def _result_card(
             ).classes("text-xs text-muted")
 
         with ui.row().classes("items-center gap-3 w-full"):
-            _marked_spectrogram(
+            marked_spectrogram(
                 state.spectrogram_url(
                     item.item_id, width=RESULT_WIDTH, height=RESULT_HEIGHT
                 ),
@@ -452,7 +394,7 @@ async def render(t: Translator) -> None:
                     player.set_source(source)
 
                 # Built once. Only the marker moves as the segment changes.
-                marker = _marked_spectrogram(
+                marker = marked_spectrogram(
                     f"/media/query/{query.token}/spectrogram"
                     f"?w={QUERY_WIDTH}&h={QUERY_HEIGHT}",
                     (query.start, query.end) if query.needs_segment else None,
@@ -495,14 +437,24 @@ async def render(t: Translator) -> None:
                                 duration=f"{query.duration:.2f}",
                             )
                         )
-                        _place_span_marker(
+                        place_span_marker(
                             marker, (low, high), 0.0, query.duration
                         )
+
+                    def on_span_settled(event) -> None:
+                        # The settled value comes with the event: it and the
+                        # drag's own updates arrive separately, so reading the
+                        # last one to have landed can lag a step behind.
+                        span = event.args
+                        if isinstance(span, dict) and "min" in span:
+                            query.start = float(span["min"])
+                            query.end = float(span["max"])
+                        play_segment()
 
                     picker.on_value_change(on_span)
                     # Only once the drag settles: changing the source reloads
                     # the media, which would stutter on every step.
-                    picker.on("change", lambda _: play_segment())
+                    picker.on("change", on_span_settled)
                     span_label.set_text(
                         t(
                             "search.segment_of",

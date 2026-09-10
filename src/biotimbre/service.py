@@ -19,6 +19,7 @@ from __future__ import annotations
 import io
 import math
 import shutil
+import tempfile
 import zipfile
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -382,8 +383,14 @@ class LibraryService:
         row is inserted and embeddings are computed — all inside one transaction,
         so a failure part-way leaves neither a stray row nor a stray file.
 
+        What is stored is always mono. A multi-channel file is averaged down
+        first (:func:`~biotimbre.embeddings.audio.write_processed`), so every
+        item's audio is the single channel the models and the spectrograms
+        actually use.
+
         Args:
-            audio_path: Path to the source audio file. It is copied, not moved.
+            audio_path: Path to the source audio file. It is copied, not moved;
+                a multi-channel one is converted rather than copied.
             draft: The item's metadata. Validated if it has not been already.
             compute_embeddings: Set false to defer embedding to a later backfill.
 
@@ -400,6 +407,45 @@ class LibraryService:
 
         validated = draft.validated()
         properties = audio_io.read_properties(source)
+
+        # The library stores mono: it is what every model is fed and what a
+        # spectrogram shows, so a multi-channel submission is folded down here
+        # rather than kept in a form nothing downstream reads. The digest then
+        # describes the stored file, which is what audio_sha256 means — and two
+        # copies of the same stereo recording still recognise each other.
+        staging: tempfile.TemporaryDirectory | None = None
+        if properties.channels > 1:
+            staging = tempfile.TemporaryDirectory(prefix="biotimbre-mono-")
+            source = Path(staging.name) / f"{source.stem}.wav"
+            properties = audio_io.write_processed(audio_path, source)
+
+        try:
+            return self._ingest(
+                source, validated, properties, compute_embeddings=compute_embeddings
+            )
+        finally:
+            if staging is not None:
+                staging.cleanup()
+
+    def _ingest(
+        self,
+        source: Path,
+        validated: ItemDraft,
+        properties: audio_io.AudioProperties,
+        *,
+        compute_embeddings: bool,
+    ) -> IngestResult:
+        """Store one prepared file and its row. See :meth:`add_item`.
+
+        Args:
+            source: The exact audio to store, already mono.
+            validated: Validated metadata.
+            properties: The source's properties.
+            compute_embeddings: Whether to embed now.
+
+        Returns:
+            The :class:`IngestResult`.
+        """
         digest = audio_io.file_sha256(source)
         duplicates = tuple(item.item_id for item in self.repo.find_by_sha256(digest))
         warnings = self._nyquist_warnings(validated)

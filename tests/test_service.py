@@ -287,6 +287,26 @@ class TestEndToEnd:
         assert len(hits) == 1
         assert hits[0].item.taxa == ("cicadidae",)
 
+    def test_a_stereo_submission_is_stored_as_mono(self, service, draft_for_guyvir,
+                                                   tmp_path):
+        import numpy as np
+        import soundfile as sf
+
+        samples, rate = sf.read(GUYVIR_WAV, dtype="float32")
+        stereo = tmp_path / "stereo.wav"
+        sf.write(stereo, np.stack([samples, samples], axis=1), rate, subtype="FLOAT")
+
+        item = service.add_item(stereo, draft_for_guyvir).item
+        # One channel is what every model is fed and what a spectrogram shows.
+        assert item.channels == 1
+        stored = service.settings.absolute_audio_path(item.audio_path)
+        assert sf.info(str(stored)).channels == 1
+        # The digest describes the stored file, not the submission.
+        assert item.audio_sha256 == service.repo.get_item(item.item_id).audio_sha256
+        import hashlib
+
+        assert item.audio_sha256 == hashlib.sha256(stored.read_bytes()).hexdigest()
+
     def test_a_single_window_exports_as_one_npy(self, service, tmp_path):
         import io
 
