@@ -329,7 +329,9 @@ class TestQueryRemoval:
         user.find("Remove file").click()
 
         # Gone from the page and from the staging directory, not merely hidden.
-        await user.should_see("Choose a recording to search with")
+        # The filename is the thing that disappears; the uploader's own label
+        # says "Choose a recording" whether or not one is staged.
+        await user.should_not_see("GUYVIR.wav", retries=60)
         assert installed_state.queries.path(token) is None
         # find() insists on a match, so absence is read off the live registry.
         assert not [

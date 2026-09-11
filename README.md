@@ -331,6 +331,25 @@ inside per window, each named with its index and span
 exactly the same files, so a download and a command-line export of the same
 rows are interchangeable.
 
+### Spectrogram or waveform
+
+Every picture of a sample — in the item detail, the add form, the search query
+and each result — can be shown either way. The small toggle beside it switches
+both at once and the choice is remembered per browser, alongside the language
+and the theme.
+
+The waveform reports two readings per pixel column: the **peak** pair (how far
+the signal swung, so a click or a wingbeat survives) as a light band, and the
+**RMS** (how loud that column was, which is what the ear reports) drawn inside
+it. Amplitudes are scaled to the loudest column, as the spectrogram's dB range
+is scaled to its loudest bin, so a quiet recording is a picture of its own
+signal rather than a flat line.
+
+It is drawn as inline SVG rather than a rendered image, which is what lets it
+take its colours from the theme — a PNG is drawn server-side, where the
+reader's light or dark choice is not known — and stretch to any width without
+another round trip.
+
 ### Light, dark, or whatever the system says
 
 The header carries a three-state control: **follow the system** (the default),

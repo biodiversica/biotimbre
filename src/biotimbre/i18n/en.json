@@ -135,6 +135,10 @@
     "embeddings_many": "{model} embeddings ({count} windows, .zip)",
     "no_embeddings": "No embeddings yet"
   },
+  "view": {
+    "spectrogram": "Show the spectrogram",
+    "waveform": "Show the waveform"
+  },
   "search": {
     "heading": "Find similar samples",
     "query": "Query recording",

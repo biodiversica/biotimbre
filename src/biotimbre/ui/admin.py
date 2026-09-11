@@ -25,7 +25,8 @@ from biotimbre.models_registry import get_spec
 from biotimbre.ui.exports import export_button
 from biotimbre.ui.forms import _blank_to_none, metadata_form
 from biotimbre.ui.layout import notify_error
-from biotimbre.ui.spectrograms import marked_spectrogram, place_span_marker
+from biotimbre.ui.spectrograms import place_span_marker
+from biotimbre.ui.visuals import audio_view, view_toggle
 from biotimbre.ui.state import get_state
 from biotimbre.viz import render_spectrogram
 
@@ -46,6 +47,14 @@ _SEGMENT_EPSILON = 0.01
 #: tall it ends up on screen.
 DETAIL_WIDTH = 900
 DETAIL_HEIGHT = 360
+
+#: On-screen height of the detail view, so a waveform and a spectrogram of the
+#: same item occupy the same place in the dialog.
+DETAIL_VIEW_HEIGHT = 290
+
+#: On-screen height of the add form's pictures, matching what a spectrogram
+#: rendered at 860x170 comes out as across the card.
+PREVIEW_VIEW_HEIGHT = 170
 
 
 @dataclass
@@ -409,8 +418,35 @@ def _add_card(t: Translator, on_added) -> None:
                     notify_error(t, exc)
                     return
 
-                span_label = ui.label().classes("text-xs text-muted")
-                marker = marked_spectrogram(uri, None, 0.0, props.duration_s)
+                with ui.row().classes("items-center justify-between w-full"):
+                    span_label = ui.label().classes("text-xs text-muted")
+                    view_toggle(t, lambda: redraw_views())
+                source_view = ui.column().classes("w-full gap-0")
+                marker: ui.element | None = None
+
+                async def draw_source_view() -> None:
+                    """Picture the upload, in whichever view is preferred."""
+                    nonlocal marker
+                    source_view.clear()
+                    with source_view:
+                        marker = await audio_view(
+                            spectrogram_url=uri,
+                            audio_path=upload.path,
+                            start=0.0,
+                            end=props.duration_s,
+                            span=(add_state.start, add_state.end)
+                            if add_state.is_cut
+                            else None,
+                            height=PREVIEW_VIEW_HEIGHT,
+                        )
+
+                async def redraw_views() -> None:
+                    """Both pictures follow the chosen view, not just one."""
+                    await draw_source_view()
+                    describe_span()
+                    await restage()
+
+                await draw_source_view()
                 ui.label(_nyquist_lines(t)).classes("text-xs text-muted")
 
                 ui.label(t("admin.trim_hint")).classes("text-xs text-muted")
@@ -454,14 +490,16 @@ def _add_card(t: Translator, on_added) -> None:
                             duration=f"{add_state.duration:.2f}",
                         )
                     )
-                    place_span_marker(
-                        marker,
-                        (add_state.start, add_state.end)
-                        if add_state.is_cut
-                        else None,
-                        0.0,
-                        add_state.duration,
-                    )
+                    # Rebuilt whenever the view changes, so never assume one.
+                    if marker is not None:
+                        place_span_marker(
+                            marker,
+                            (add_state.start, add_state.end)
+                            if add_state.is_cut
+                            else None,
+                            0.0,
+                            add_state.duration,
+                        )
 
                 async def restage() -> None:
                     """Re-apply the choice and show what would be stored."""
@@ -499,13 +537,20 @@ def _add_card(t: Translator, on_added) -> None:
                             )
                         ).classes("text-xs text-muted")
                         try:
-                            uri = await state.run(
+                            stored_uri = await state.run(
                                 _spectrogram_of, add_state.processed
                             )
                         except BiotimbreError as exc:
                             notify_error(t, exc)
                             return
-                        ui.image(uri).classes("w-full rounded").props("no-spinner")
+                        await audio_view(
+                            spectrogram_url=stored_uri,
+                            audio_path=add_state.processed,
+                            start=0.0,
+                            end=result.duration_s,
+                            span=None,
+                            height=PREVIEW_VIEW_HEIGHT,
+                        )
 
                 def on_span(event) -> None:
                     add_state.start = float(event.value["min"])
@@ -735,24 +780,39 @@ async def _open_detail(t: Translator, item_id: int, on_changed) -> None:
         item = await state.run(state.service.get_item, item_id)
         counts = await state.run(state.service.repo.embedding_counts, item_id)
         label = await state.run(state.service.get_biotimbre_label, item.biotimbre_id)
+        # The waveform is drawn from the audio itself, not from a rendered image.
+        audio_path, _ = await state.run(state.service.get_audio, item_id)
     except BiotimbreError:
         ui.notify(t("error.not_found"), type="warning", position="top")
         on_changed()
         return
 
     with ui.dialog() as dialog, ui.card().classes("w-full max-w-3xl p-4 gap-3 bg-card"):
-        ui.label(t("admin.detail", item_id=item.item_id)).classes(
-            "text-lg font-medium"
-        )
+        with ui.row().classes("items-center justify-between w-full"):
+            ui.label(t("admin.detail", item_id=item.item_id)).classes(
+                "text-lg font-medium"
+            )
+            view_toggle(t, lambda: draw_view())
         # The card is a flex column that scrolls, so anything without an
         # intrinsic height is free to shrink away: the player collapsed to
-        # nothing and the spectrogram lost most of its height. Neither may
-        # shrink.
-        ui.image(
-            state.spectrogram_url(
-                item.item_id, width=DETAIL_WIDTH, height=DETAIL_HEIGHT
-            )
-        ).classes("w-full rounded shrink-0").props("no-spinner")
+        # nothing and the picture lost most of its height. Neither may shrink.
+        visual = ui.column().classes("w-full gap-0 shrink-0")
+
+        async def draw_view() -> None:
+            visual.clear()
+            with visual:
+                await audio_view(
+                    spectrogram_url=state.spectrogram_url(
+                        item.item_id, width=DETAIL_WIDTH, height=DETAIL_HEIGHT
+                    ),
+                    audio_path=audio_path,
+                    start=0.0,
+                    end=item.duration_s,
+                    span=None,
+                    height=DETAIL_VIEW_HEIGHT,
+                )
+
+        await draw_view()
         ui.audio(state.audio_url(item.item_id)).classes("w-full shrink-0")
         _metadata_rows(t, item, counts, label)
 

@@ -91,6 +91,120 @@ MAX_RENDER_SECONDS = 600.0
 
 
 @dataclass(frozen=True)
+class Waveform:
+    """A signal reduced to one column of amplitudes per pixel.
+
+    Two readings per column, because they answer different questions. The
+    peak pair says how far the signal swung — a click or a wingbeat is one
+    sample wide and disappears from anything averaged — while the RMS says how
+    loud it was over that column, which is what the ear reports on a noisy
+    field recording.
+
+    Attributes:
+        minima: Most negative sample per column, in -1..1.
+        maxima: Most positive sample per column.
+        rms: Root-mean-square amplitude per column, 0..1.
+        start_time: Seconds into the file at the left edge.
+        end_time: Seconds into the file at the right edge.
+        sample_rate: Native sample rate of the source audio.
+    """
+
+    minima: np.ndarray
+    maxima: np.ndarray
+    rms: np.ndarray
+    start_time: float
+    end_time: float
+    sample_rate: int
+
+    @property
+    def columns(self) -> int:
+        """Number of columns the span was reduced to."""
+        return int(self.maxima.size)
+
+    @property
+    def duration(self) -> float:
+        """Seconds spanned by the reading."""
+        return self.end_time - self.start_time
+
+    @property
+    def peak(self) -> float:
+        """Largest absolute amplitude in the span, or 0 for silence."""
+        if self.maxima.size == 0:
+            return 0.0
+        return float(max(abs(self.minima.min()), abs(self.maxima.max())))
+
+
+def waveform_envelope(
+    path: str | Path,
+    *,
+    start_time: float | None = None,
+    end_time: float | None = None,
+    columns: int = DEFAULT_WIDTH,
+) -> Waveform:
+    """Reduce an audio file, or part of it, to a drawable envelope.
+
+    Each column reports the extremes and the RMS of the samples that fall in
+    it, rather than one sample picked out of them: decimation drops transients,
+    and the attack of a call is exactly what a waveform is looked at for.
+
+    Args:
+        path: Audio file to read.
+        start_time: Start of the span. ``None`` starts at the beginning.
+        end_time: End of the span. ``None`` runs to the end, capped at
+            :data:`MAX_RENDER_SECONDS`.
+        columns: Columns to reduce to. Clamped to the number of samples, so a
+            very short span is not padded with empty columns.
+
+    Returns:
+        The :class:`Waveform`.
+
+    Raises:
+        ValidationError: If the audio cannot be read or the span is empty.
+    """
+    from biotimbre.embeddings.audio import load_mono, read_properties
+
+    if columns < 2:
+        raise ValidationError(
+            f"A waveform needs at least 2 columns, got {columns}.", "waveform"
+        )
+
+    properties = read_properties(path)
+    span_start = 0.0 if start_time is None else max(0.0, float(start_time))
+    span_end = (
+        min(properties.duration_s, span_start + MAX_RENDER_SECONDS)
+        if end_time is None
+        else min(float(end_time), properties.duration_s)
+    )
+    if span_end <= span_start:
+        raise ValidationError(
+            f"Nothing to render between {span_start} s and {span_end} s.",
+            "waveform",
+        )
+
+    samples, sample_rate = load_mono(path, start_time=span_start, end_time=span_end)
+    columns = max(2, min(columns, samples.size))
+
+    # Bucket edges rather than a reshape: the sample count rarely divides by the
+    # column count, and reduceat takes uneven buckets in one pass.
+    edges = np.linspace(0, samples.size, columns + 1).astype(np.int64)
+    starts = edges[:-1]
+    counts = np.maximum(np.diff(edges), 1)
+
+    minima = np.minimum.reduceat(samples, starts)
+    maxima = np.maximum.reduceat(samples, starts)
+    energy = np.add.reduceat(samples.astype(np.float64) ** 2, starts)
+
+    return Waveform(
+        minima=minima.astype(np.float32),
+        maxima=maxima.astype(np.float32),
+        rms=np.sqrt(energy / counts).astype(np.float32),
+        start_time=span_start,
+        end_time=span_end,
+        sample_rate=int(sample_rate),
+    )
+
+
+@dataclass(frozen=True)
 class Spectrogram:
     """A rendered spectrogram and the axes needed to interpret it.
 

@@ -25,7 +25,8 @@ from biotimbre.service import SearchHit
 from biotimbre.ui.admin import ACCEPTED
 from biotimbre.ui.exports import export_button
 from biotimbre.ui.layout import notify_error
-from biotimbre.ui.spectrograms import marked_spectrogram, place_span_marker
+from biotimbre.ui.spectrograms import place_span_marker
+from biotimbre.ui.visuals import audio_view, view_toggle
 from biotimbre.ui.state import get_state
 
 #: Spectrogram size for the query, where the segment is chosen.
@@ -83,7 +84,7 @@ def _embedding_counts(item_ids: list[int]) -> dict[int, dict[str, int]]:
     return {item_id: repo.embedding_counts(item_id) for item_id in item_ids}
 
 
-def _result_card(
+async def _result_card(
     t: Translator, hit: SearchHit, rank: int, counts: dict[str, int]
 ) -> None:
     """One search result: score, metadata, marked spectrogram and a player.
@@ -143,14 +144,21 @@ def _result_card(
             ).classes("text-xs text-muted")
 
         with ui.row().classes("items-center gap-3 w-full"):
-            marked_spectrogram(
-                state.spectrogram_url(
-                    item.item_id, width=RESULT_WIDTH, height=RESULT_HEIGHT
-                ),
-                span,
-                0.0,
-                item.duration_s,
-            )
+            with ui.column().classes("gap-0").style(f"width: {RESULT_WIDTH}px"):
+                await audio_view(
+                    spectrogram_url=state.spectrogram_url(
+                        item.item_id, width=RESULT_WIDTH, height=RESULT_HEIGHT
+                    ),
+                    audio_path=state.settings.absolute_audio_path(item.audio_path),
+                    start=0.0,
+                    end=item.duration_s,
+                    span=span,
+                    height=RESULT_HEIGHT,
+                    # One column per pixel of the row's own width: a finer
+                    # envelope would be drawn onto the same pixels, and this
+                    # markup is sent once per result.
+                    columns=RESULT_WIDTH,
+                )
             with ui.column().classes("grow gap-1"):
                 ui.audio(state.audio_url(item.item_id)).classes("w-full")
                 with ui.row().classes("items-center gap-3"):
@@ -342,7 +350,7 @@ async def render(t: Translator) -> None:
 
         query_area = ui.column().classes("w-full gap-2")
 
-        def clear_query() -> None:
+        async def clear_query() -> None:
             """Drop the staged recording, the same way the library page does.
 
             Results are cleared with it: they answer a query that is gone.
@@ -356,9 +364,9 @@ async def render(t: Translator) -> None:
             query.end = 0.0
             uploader.reset()
             results_area.clear()
-            draw_query()
+            await draw_query()
 
-        def draw_query() -> None:
+        async def draw_query() -> None:
             """Redraw the query preview, player and segment picker."""
             query_area.clear()
             if query.token is None or query.properties is None:
@@ -378,7 +386,9 @@ async def render(t: Translator) -> None:
                         t("common.clear_file"), icon="close", on_click=clear_query
                     ).props("flat dense no-caps color=negative")
 
-                span_label = ui.label().classes("text-xs text-muted")
+                with ui.row().classes("items-center justify-between w-full"):
+                    span_label = ui.label().classes("text-xs text-muted")
+                    view_toggle(t, lambda: redraw_views())
 
                 def play_segment() -> None:
                     """Point the player at the chosen segment.
@@ -393,14 +403,31 @@ async def render(t: Translator) -> None:
                         source += f"#t={query.start:.2f},{query.end:.2f}"
                     player.set_source(source)
 
-                # Built once. Only the marker moves as the segment changes.
-                marker = marked_spectrogram(
-                    f"/media/query/{query.token}/spectrogram"
-                    f"?w={QUERY_WIDTH}&h={QUERY_HEIGHT}",
-                    (query.start, query.end) if query.needs_segment else None,
-                    0.0,
-                    query.duration,
-                )
+                # Rebuilt only when the view changes. Within a view, the
+                # marker moves rather than the picture being redrawn.
+                query_view = ui.column().classes("w-full gap-0")
+                marker: ui.element | None = None
+
+                async def draw_query_view() -> None:
+                    nonlocal marker
+                    staged = state.queries.path(query.token)
+                    query_view.clear()
+                    with query_view:
+                        marker = await audio_view(
+                            spectrogram_url=(
+                                f"/media/query/{query.token}/spectrogram"
+                                f"?w={QUERY_WIDTH}&h={QUERY_HEIGHT}"
+                            ),
+                            audio_path=staged,
+                            start=0.0,
+                            end=query.duration,
+                            span=(query.start, query.end)
+                            if query.needs_segment
+                            else None,
+                            height=QUERY_HEIGHT,
+                        )
+
+                await draw_query_view()
 
                 if query.needs_segment:
                     ui.label(
@@ -437,9 +464,10 @@ async def render(t: Translator) -> None:
                                 duration=f"{query.duration:.2f}",
                             )
                         )
-                        place_span_marker(
-                            marker, (low, high), 0.0, query.duration
-                        )
+                        if marker is not None:
+                            place_span_marker(
+                                marker, (low, high), 0.0, query.duration
+                            )
 
                     def on_span_settled(event) -> None:
                         # The settled value comes with the event: it and the
@@ -499,7 +527,7 @@ async def render(t: Translator) -> None:
             query.properties = properties
             query.start = 0.0
             query.end = min(properties.duration_s, cap)
-            draw_query()
+            await draw_query()
 
         def handle_rejected(_event) -> None:
             """Report a file the browser refused, e.g. wrong type or too large."""
@@ -530,6 +558,23 @@ async def render(t: Translator) -> None:
         ui.label(t("app.loading_models_hint")).classes("text-notice text-sm")
 
     results_area = ui.column().classes("w-full gap-2")
+
+    #: What the results area is currently showing, so a view change can redraw
+    #: it without running the search again.
+    shown: dict = {"hits": None, "counts": {}, "scored": True}
+
+    async def redraw_views() -> None:
+        """Redraw every picture on the page in the chosen view.
+
+        Both toggles do the same thing: one preference, so leaving the other
+        half of the page in the old view would just look broken.
+        """
+        if query.token is not None:
+            await draw_query()
+        if shown["hits"] is not None:
+            await draw_results(
+                shown["hits"], shown["counts"], scored=shown["scored"]
+            )
 
     async def run_search() -> None:
         path = (
@@ -590,7 +635,18 @@ async def render(t: Translator) -> None:
         # In one trip, so the cards can offer an export without each of them
         # reaching into the database from the render pass.
         counts = await state.run(_embedding_counts, [h.item.item_id for h in hits])
+        await draw_results(hits, counts, scored=path is not None)
 
+    async def draw_results(hits, counts, *, scored: bool) -> None:
+        """Render the result list. Redrawn whole when the view changes.
+
+        Args:
+            hits: What the search returned.
+            counts: Embedding counts per item, for the export menus.
+            scored: Whether the hits came from a query rather than filters.
+        """
+        shown.update(hits=hits, counts=counts, scored=scored)
+        results_area.clear()
         with results_area:
             if not hits:
                 ui.label(t("search.no_matches")).classes("text-muted")
@@ -600,13 +656,16 @@ async def render(t: Translator) -> None:
                 ui.label(t("search.result_count", count=len(hits))).classes(
                     "text-xs text-muted"
                 )
-            if path is None:
+                # One control for the whole list: the results are redrawn
+                # together, so a toggle per card would leave the others stale.
+                view_toggle(t, lambda: redraw_views())
+            if not scored:
                 ui.label(t("search.metadata_only")).classes("text-xs text-muted")
             else:
                 ui.label(t("search.compare_hint")).classes("text-xs text-muted")
                 ui.label(t("search.marker_hint")).classes("text-xs text-muted")
             for rank, hit in enumerate(hits, start=1):
-                _result_card(t, hit, rank, counts.get(hit.item.item_id, {}))
+                await _result_card(t, hit, rank, counts.get(hit.item.item_id, {}))
             if any(h.query_speed != 1.0 for h in hits):
                 speeds = sorted({h.query_speed for h in hits if h.query_speed != 1.0})
                 ui.label(

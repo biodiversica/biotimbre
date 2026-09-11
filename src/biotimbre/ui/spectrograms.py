@@ -59,8 +59,10 @@ def marked_spectrogram(
         block makes the browser drop and re-request the PNG, which flashes the
         whole page on every step of a drag.
     """
-    with ui.element("div").classes("relative w-full"):
-        ui.image(url).classes("w-full rounded").props("no-spinner")
+    # shrink-0: a scrolling flex column (the item dialog) would otherwise
+    # squeeze an image that has no intrinsic height down to nothing.
+    with ui.element("div").classes("relative w-full shrink-0"):
+        ui.image(url).classes("w-full rounded shrink-0").props("no-spinner")
         marker = ui.element("div").classes(
             "absolute top-0 bottom-0 border-x-2 pointer-events-none rounded"
         ).style(

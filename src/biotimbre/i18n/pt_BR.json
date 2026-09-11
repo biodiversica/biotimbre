@@ -135,6 +135,10 @@
     "embeddings_many": "Embeddings {model} ({count} janelas, .zip)",
     "no_embeddings": "Ainda sem embeddings"
   },
+  "view": {
+    "spectrogram": "Mostrar o espectrograma",
+    "waveform": "Mostrar a forma de onda"
+  },
   "search": {
     "heading": "Encontrar amostras semelhantes",
     "query": "Gravação utilizada na ferramenta de busca",

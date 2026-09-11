@@ -757,6 +757,83 @@ class TestSpeciesJoinsItsBiotimbre:
 
 
 @pytest.mark.usefixtures("installed_state")
+class TestAudioView:
+    """Choosing between the spectrogram and the waveform."""
+
+    @staticmethod
+    def _toggle(user: User):
+        from biotimbre.ui.visuals import VIEWS
+
+        return next(
+            element
+            for element in user.find(ui.button).elements
+            if element._props.get("icon") in VIEWS.values()
+        )
+
+    async def test_the_detail_view_starts_as_a_spectrogram(
+        self, user: User, installed_state
+    ):
+        from biotimbre.io.sidecar import draft_from_sidecar
+        from biotimbre.ui import app as ui_app  # noqa: F401
+
+        item = installed_state.call(
+            installed_state.service.add_item,
+            GUYVIR,
+            draft_from_sidecar(EXAMPLES_DIR / "ZAMTYM.txt"),
+            compute_embeddings=False,
+        ).item
+        await user.open("/")
+        await user.should_see("1 item(s)")
+        user.find(ui.table).trigger("rowClick", args=[None, {"item_id": item.item_id}])
+        await user.should_see("Sample rate")
+
+        images = [
+            element
+            for element in user.client.elements.values()
+            if isinstance(element, ui.image)
+        ]
+        assert any("/media/spectrogram/" in e._props["src"] for e in images)
+        # The button offers the other view, not the one on screen.
+        assert self._toggle(user)._props["icon"] == "graphic_eq"
+
+    async def test_switching_draws_the_waveform_instead(
+        self, user: User, installed_state
+    ):
+        from biotimbre.io.sidecar import draft_from_sidecar
+        from biotimbre.ui import app as ui_app  # noqa: F401
+        from biotimbre.ui.visuals import preferred_view
+
+        item = installed_state.call(
+            installed_state.service.add_item,
+            GUYVIR,
+            draft_from_sidecar(EXAMPLES_DIR / "ZAMTYM.txt"),
+            compute_embeddings=False,
+        ).item
+        await user.open("/")
+        await user.should_see("1 item(s)")
+        user.find(ui.table).trigger("rowClick", args=[None, {"item_id": item.item_id}])
+        await user.should_see("Sample rate")
+
+        from nicegui.testing.user_interaction import UserInteraction
+
+        UserInteraction(user, {self._toggle(user)}, None).click()
+        await user.should_see(ui.html, retries=60)
+
+        assert preferred_view() == "waveform"
+        drawings = [
+            element.content
+            for element in user.client.elements.values()
+            if isinstance(element, ui.html) and "<svg" in element.content
+        ]
+        assert drawings, "the waveform is inline SVG, not an image"
+        # Peak band and RMS band, coloured from the theme's variables.
+        assert drawings[0].count("<polygon") == 2
+        assert "var(--bt-primary)" in drawings[0]
+        # The choice is remembered, like the language and the theme.
+        assert self._toggle(user)._props["icon"] == "gradient"
+
+
+@pytest.mark.usefixtures("installed_state")
 class TestThemeControl:
     """The header control that chooses light, dark, or the system's own."""
 
