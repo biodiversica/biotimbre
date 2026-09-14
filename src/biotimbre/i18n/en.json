@@ -216,6 +216,19 @@
     "compare_hint": "Play the query, then each result, to judge the match by ear.",
     "marker_hint": "The lighter band marks the window that produced the score."
   },
+  "inat": {
+    "observation": "iNaturalist observation ID or link",
+    "fetch": "Fetch",
+    "fetching": "Fetching…",
+    "fetched": "Observation {id} — {taxon}",
+    "unidentified": "no identification",
+    "sound": "Recording",
+    "no_sounds": "Observation {id} has no recordings.",
+    "obscured": "iNaturalist hides this observation's location, so no coordinates were filled.",
+    "reserved": "All rights reserved by the recordist — check before storing or exporting it.",
+    "needs_id": "Not research grade: the identification may still change.",
+    "ceiling": "Compressed to about {khz} kHz, below {model}'s {limit} kHz — the upper band is gone, whatever the sample rate says."
+  },
   "error": {
     "generic": "Something went wrong: {message}",
     "no_audio": "Choose an audio file first.",

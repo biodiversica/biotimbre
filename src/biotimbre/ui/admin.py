@@ -22,6 +22,8 @@ from biotimbre.domain.item import LibraryItem
 from biotimbre.embeddings import audio as audio_io
 from biotimbre.i18n import Translator
 from biotimbre.models_registry import get_spec
+from biotimbre.sources import inaturalist
+from biotimbre.ui import inat
 from biotimbre.ui.exports import export_button
 from biotimbre.ui.forms import _blank_to_none, metadata_form
 from biotimbre.ui.layout import notify_error
@@ -249,6 +251,48 @@ class AddState:
         self.end = 0.0
 
 
+def _fill_metadata_from(t: Translator, form, observation) -> None:
+    """Write what an observation knows into the metadata form.
+
+    Filled, not imposed: every field stays editable, because only the person
+    adding the sample knows whether iNaturalist has it right. What is left
+    alone is as deliberate as what is written — an obscured location would be
+    a randomised point, and a note already typed is not overwritten.
+
+    Args:
+        t: Active translator.
+        form: The metadata form.
+        observation: The fetched observation.
+    """
+    if observation.date:
+        form.inputs["date"].value = observation.date
+    if observation.time:
+        form.inputs["time"].value = observation.time
+    if observation.latitude is not None and observation.longitude is not None:
+        form.inputs["latitude"].value = observation.latitude
+        form.inputs["longitude"].value = observation.longitude
+    if observation.taxon:
+        # The select starts with no options and grows as tags are typed, so a
+        # value it has never heard of renders as nothing.
+        taxa = form.inputs["taxa"]
+        taxa.set_options(
+            sorted({*(taxa.options or []), observation.taxon}),
+            value=[observation.taxon],
+        )
+    if observation.observer:
+        form.inputs["recorded_by"].value = observation.observer
+
+    # The observation page is the full recording this sample came out of, which
+    # is what the field means — and what a trimmed segment's sample_window then
+    # refers to.
+    form.inputs["link"].value = observation.url
+
+    credit = observation.credit
+    notes = (form.inputs["notes"].value or "").strip()
+    if credit not in notes:
+        form.inputs["notes"].value = f"{notes}\n{credit}".strip()
+
+
 def _fill_processing_fields(form, add_state: "AddState") -> None:
     """Describe the processing in the metadata fields it belongs in.
 
@@ -390,6 +434,15 @@ def _add_card(t: Translator, on_added) -> None:
                 notify_error(t, exc)
                 raise
 
+            await show_staged(upload)
+
+        async def show_staged(upload: Upload) -> None:
+            """Draw the preview and the controls for a staged file.
+
+            Split from the upload handler so a recording fetched from
+            elsewhere arrives at exactly the same form: whatever staged it,
+            what follows is one path.
+            """
             props = upload.properties
             preview.clear()
             with preview:
@@ -594,6 +647,24 @@ def _add_card(t: Translator, on_added) -> None:
             auto_upload=True,
             max_files=1,
         ).props(f'accept="{ACCEPTED}" flat bordered').classes("w-full")
+
+        async def stage_observation_sound(observation, sound, on_progress) -> None:
+            """Stage one of an observation's recordings for adding."""
+            target = add_state.begin(f"inat-{observation.id}.wav")
+            path = await state.run(
+                inaturalist.download_sound, sound, target, on_progress=on_progress
+            )
+            upload = await state.run(
+                add_state.finish, path, f"inat-{observation.id}{path.suffix}"
+            )
+            await show_staged(upload)
+
+        if state.settings.inaturalist_enabled:
+            inat.fetch_panel(
+                t,
+                stage=stage_observation_sound,
+                after=lambda observation: _fill_metadata_from(t, form, observation),
+            )
 
         form = metadata_form(t)
         results = ui.column().classes("w-full gap-1")

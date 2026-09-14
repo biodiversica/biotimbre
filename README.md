@@ -343,6 +343,44 @@ inside per window, each named with its index and span
 exactly the same files, so a download and a command-line export of the same
 rows are interchangeable.
 
+### Fetching from iNaturalist
+
+Both pages take an iNaturalist observation ID or link, in a field under the
+file uploader, and stage the recording exactly as an upload — same preview,
+same controls.
+
+On the **Library** page it also fills the metadata from the observation: date
+and time in the observation's own timezone, coordinates, taxon, the observer as
+`recorded_by`, the observation page as `link_to_full_recording` — which is what
+a trimmed sample's `sample_window` then refers to — and the licence and credit
+appended to `notes`. Every field stays editable, and notes you have already
+typed are added to rather than replaced.
+
+On the **Search** page it becomes the query recording, and what the observation
+knows — its coordinates with a 25 km radius, and the taxon — goes into the
+filter panel, which it opens so the narrowing is visible and can be cleared.
+Not the date: an observation's day says when that one recording was made, not
+when the animal sings.
+
+Either way it says what you should know before trusting it: an obscured
+location is left blank rather than filled with iNaturalist's randomised point,
+an all-rights-reserved recording is flagged, and anything short of research
+grade is noted, since the identification may still change. A progress bar runs
+while the recording arrives.
+
+Most iNaturalist audio is AAC in an `.m4a`, which libsndfile cannot read, so
+decoding it needs **ffmpeg**. Without ffmpeg the fetch fails with a message
+saying so, and everything else still works. Note that a typical 128 kbps upload
+carries nothing above about 16 kHz whatever its sample rate claims — fine for
+Perch, below BirdNET's 24 kHz, and useless for ultrasonic work.
+
+Turn the whole thing off for an offline library:
+
+```toml
+[sources.inaturalist]
+enabled = false
+```
+
 ### Spectrogram or waveform
 
 Every picture of a sample — in the item detail, the add form, the search query

@@ -521,15 +521,12 @@ class TestAdminPageRenders:
             "Drag to keep only part of the recording.", retries=60
         )
 
-        def staged_routes() -> list[str]:
-            return [
-                route.path
-                for route in nicegui_app.routes
-                if getattr(route, "path", "").startswith("/media/staged/")
-            ]
-
-        published = staged_routes()
-        assert len(published) == 1
+        player = next(iter(user.find(ui.audio).elements))
+        published = player._props["src"]
+        assert published.startswith("/media/staged/")
+        assert any(
+            getattr(route, "path", "") == published for route in nicegui_app.routes
+        )
 
         picker = next(iter(user.find(ui.range).elements))
         for end in (4.5, 4.0, 3.5, 3.0):
@@ -537,7 +534,9 @@ class TestAdminPageRenders:
 
         # Publishing per step retired the URL the browser was still fetching,
         # which filled the log with "not found" and left the player broken.
-        assert staged_routes() == published
+        # Asserted on this page's own URL rather than on every staged route in
+        # the process: another page's staging says nothing about this one.
+        assert player._props["src"] == published
         await user.should_see("Keeping 0.00–3.00 s of 5.00 s")
 
     async def test_a_stereo_upload_is_played_as_it_will_be_stored(
@@ -754,6 +753,177 @@ class TestSpeciesJoinsItsBiotimbre:
         items = installed_state.call(installed_state.service.list_items)
         # A family names no being, so each sample keeps its own identity.
         assert items[0].biotimbre_id != items[1].biotimbre_id
+
+
+@pytest.mark.usefixtures("installed_state")
+class TestObservationFetch:
+    """Adding a sample straight from an iNaturalist observation."""
+
+    @staticmethod
+    def _observation(**overrides):
+        from biotimbre.sources.inaturalist import Observation, Sound
+
+        base = dict(
+            id=400139850,
+            url="https://www.inaturalist.org/observations/400139850",
+            date="2026-09-14",
+            time="17:59:27",
+            latitude=-28.82,
+            longitude=153.28,
+            taxon="Guyalna bonaerensis",
+            taxon_rank="species",
+            quality_grade="research",
+            observer="Paul Montgomery",
+            sounds=(
+                Sound(
+                    id=2158429,
+                    url="https://static.inaturalist.org/sounds/2158429.m4a",
+                    content_type="audio/mp4",
+                    license_code="cc-by-nc",
+                    attribution="(c) Paul Montgomery, some rights reserved (CC BY-NC)",
+                ),
+            ),
+        )
+        base.update(overrides)
+        return Observation(**base)
+
+    async def _fetch(self, user: User, monkeypatch, observation=None):
+        from nicegui.testing.user_interaction import UserInteraction
+
+        from biotimbre.sources import inaturalist
+        from biotimbre.ui import app as ui_app  # noqa: F401
+
+        observation = observation or self._observation()
+
+        def fake_download(sound, destination, **kwargs):
+            from pathlib import Path
+
+            target = Path(destination).with_suffix(".wav")
+            target.write_bytes(GUYVIR.read_bytes())
+            return target
+
+        monkeypatch.setattr(
+            inaturalist, "fetch_observation", lambda _id, **kw: observation
+        )
+        monkeypatch.setattr(inaturalist, "download_sound", fake_download)
+
+        await user.open("/")
+        field = next(
+            element
+            for element in user.find(ui.input).elements
+            if element._props.get("label", "").startswith("iNaturalist")
+        )
+        field.value = str(observation.id)
+        button = next(
+            element
+            for element in user.find(ui.button).elements
+            if element._props.get("label") == "Fetch"
+        )
+        UserInteraction(user, {button}, None).click()
+        return observation
+
+    async def test_the_recording_is_staged_like_an_upload(
+        self, user: User, monkeypatch
+    ):
+        observation = await self._fetch(user, monkeypatch)
+        # The same preview and the same controls, whatever staged it.
+        await user.should_see(f"inat-{observation.id}.wav", retries=200)
+        await user.should_see("Drag to keep only part of the recording.", retries=60)
+
+    async def test_the_observation_fills_the_metadata(self, user: User, monkeypatch):
+        await self._fetch(user, monkeypatch)
+        await user.should_see("Observation 400139850", retries=200)
+
+        inputs = {
+            element._props.get("label"): element
+            for element in [
+                *user.find(ui.input).elements,
+                *user.find(ui.number).elements,
+                *user.find(ui.select).elements,
+                *user.find(ui.textarea).elements,
+            ]
+        }
+        assert inputs["Date"].value == "2026-09-14"
+        assert inputs["Time"].value == "17:59:27"
+        assert inputs["Latitude"].value == pytest.approx(-28.82)
+        assert inputs["Taxa"].value == ["Guyalna bonaerensis"]
+        assert inputs["Recorded by"].value == "Paul Montgomery"
+        # The observation page is the full recording this sample came from.
+        assert inputs["Link to full recording"].value.endswith("/400139850")
+        # Licence and credit, since the library has nowhere else to put them.
+        assert "400139850" in inputs["Notes"].value
+        assert "CC BY-NC" in inputs["Notes"].value
+
+    async def test_a_hidden_location_is_left_blank(self, user: User, monkeypatch):
+        hidden = self._observation(latitude=None, longitude=None, obscured=True)
+        await self._fetch(user, monkeypatch, hidden)
+        await user.should_see("hides this observation's location", retries=200)
+
+        inputs = {
+            element._props.get("label"): element
+            for element in user.find(ui.number).elements
+        }
+        # iNaturalist's coordinates for a hidden observation name a random
+        # point; recording them as fact would be a lie.
+        assert inputs["Latitude"].value is None
+
+    async def test_notes_already_written_are_kept(self, user: User, monkeypatch):
+        from nicegui.testing.user_interaction import UserInteraction
+
+        from biotimbre.sources import inaturalist
+        from biotimbre.ui import app as ui_app  # noqa: F401
+
+        observation = self._observation()
+
+        def fake_download(sound, destination, **kwargs):
+            from pathlib import Path
+
+            target = Path(destination).with_suffix(".wav")
+            target.write_bytes(GUYVIR.read_bytes())
+            return target
+
+        monkeypatch.setattr(
+            inaturalist, "fetch_observation", lambda _id, **kw: observation
+        )
+        monkeypatch.setattr(inaturalist, "download_sound", fake_download)
+
+        await user.open("/")
+        notes = next(iter(user.find(ui.textarea).elements))
+        notes.value = "Heard from the road."
+
+        field = next(
+            element
+            for element in user.find(ui.input).elements
+            if element._props.get("label", "").startswith("iNaturalist")
+        )
+        field.value = str(observation.id)
+        button = next(
+            element
+            for element in user.find(ui.button).elements
+            if element._props.get("label") == "Fetch"
+        )
+        UserInteraction(user, {button}, None).click()
+        await user.should_see("Observation 400139850", retries=200)
+
+        # The credit is added to what was typed, not written over it.
+        assert "Heard from the road." in notes.value
+        assert "400139850" in notes.value
+
+    async def test_the_switch_hides_it(self, user: User, installed_state):
+        import dataclasses
+
+        from biotimbre.ui import app as ui_app  # noqa: F401
+
+        installed_state.settings = dataclasses.replace(
+            installed_state.settings, inaturalist_enabled=False
+        )
+        await user.open("/")
+        await user.should_see("Add a sample")
+        assert not [
+            element
+            for element in user.find(ui.input).elements
+            if element._props.get("label", "").startswith("iNaturalist")
+        ]
 
 
 @pytest.mark.usefixtures("installed_state")

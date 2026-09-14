@@ -203,6 +203,33 @@ class TestFilterPanel:
         inputs = await self._panel(user)
         assert _build_filters(inputs, query_speed=0.25).speeds == (0.25,)
 
+    async def test_clearing_empties_every_filter(self, user: User):
+        from biotimbre.ui.search import clear_filters
+
+        inputs = await self._panel(user)
+        inputs["taxa"].set_options(["cicadidae"], value=["cicadidae"])
+        inputs["taxa_all"].value = True
+        inputs["date_from"].value = "2020-01-01"
+        inputs["date_to"].value = "2020-12-31"
+        inputs["latitude"].value = -26.0
+        inputs["longitude"].value = -48.0
+        inputs["radius_km"].value = 50.0
+        inputs["biotimbre_id"].set_options(["x"], value=["x"])
+
+        clear_filters(inputs)
+
+        # Nothing left to narrow the search with.
+        assert _build_filters(inputs, query_speed=None).is_empty is True
+        # The tags typed in are still offered, only unchosen.
+        assert inputs["taxa"].options == ["cicadidae"]
+
+    async def test_clearing_an_empty_panel_changes_nothing(self, user: User):
+        from biotimbre.ui.search import clear_filters
+
+        inputs = await self._panel(user)
+        clear_filters(inputs)
+        assert _build_filters(inputs, query_speed=None).is_empty is True
+
     async def test_without_a_query_no_speed_is_imposed(self, user: User):
         # A metadata-only search has no query to embed, so the speed it would
         # have been embedded at must not narrow the library.
@@ -527,6 +554,173 @@ class TestResultExport:
         await user.should_see("Export")
         await user.should_see("Audio file")
         await user.should_see("fake_model embeddings (.npy)")
+
+
+class TestObservationFetch:
+    """Taking the query, and the filters, from an iNaturalist observation."""
+
+    @staticmethod
+    def _observation():
+        from biotimbre.sources.inaturalist import Observation, Sound
+
+        return Observation(
+            id=400139850,
+            url="https://www.inaturalist.org/observations/400139850",
+            date="2026-09-14",
+            time="17:59:27",
+            latitude=-28.82,
+            longitude=153.28,
+            taxon="Guyalna bonaerensis",
+            taxon_rank="species",
+            quality_grade="needs_id",
+            observer="Paul Montgomery",
+            sounds=(
+                Sound(
+                    id=2158429,
+                    url="https://static.inaturalist.org/sounds/2158429.m4a",
+                    content_type="audio/mp4",
+                    license_code="cc-by-nc",
+                    attribution="(c) Paul Montgomery, some rights reserved (CC BY-NC)",
+                ),
+            ),
+        )
+
+    @staticmethod
+    def _stub(monkeypatch, observation):
+        """Answer the fetch without a network, with GUYVIR as the recording."""
+        from biotimbre.sources import inaturalist
+
+        def fake_fetch(observation_id, **kwargs):
+            return observation
+
+        def fake_download(sound, destination, **kwargs):
+            from pathlib import Path
+
+            target = Path(destination).with_suffix(".wav")
+            target.write_bytes(GUYVIR.read_bytes())
+            return target
+
+        monkeypatch.setattr(inaturalist, "fetch_observation", fake_fetch)
+        monkeypatch.setattr(inaturalist, "download_sound", fake_download)
+
+    async def _fetch(self, user: User, monkeypatch, observation=None):
+        from nicegui.testing.user_interaction import UserInteraction
+
+        from biotimbre.ui import app as ui_app  # noqa: F401
+
+        observation = observation or self._observation()
+        self._stub(monkeypatch, observation)
+
+        await user.open("/search")
+        await user.should_see("Query recording")
+
+        field = next(
+            element
+            for element in user.find(ui.input).elements
+            if element._props.get("label", "").startswith("iNaturalist")
+        )
+        field.value = str(observation.id)
+        button = next(
+            element
+            for element in user.find(ui.button).elements
+            if element._props.get("label") == "Fetch"
+        )
+        UserInteraction(user, {button}, None).click()
+        return observation
+
+    async def test_the_recording_becomes_the_query(
+        self, user: User, installed_state, monkeypatch
+    ):
+        observation = await self._fetch(user, monkeypatch)
+        await user.should_see(f"inat-{observation.id}.wav", retries=200)
+
+        # Staged like any other query, so the rest of the page is unchanged.
+        player = next(iter(user.find(ui.audio).elements))
+        assert "/media/query/" in player._props["src"]
+
+    async def test_what_the_observation_knows_fills_the_filters(
+        self, user: User, installed_state, monkeypatch
+    ):
+        await self._fetch(user, monkeypatch)
+        await user.should_see("Observation 400139850", retries=200)
+
+        inputs = {
+            element._props.get("label"): element
+            for element in [
+                *user.find(ui.input).elements,
+                *user.find(ui.number).elements,
+                *user.find(ui.select).elements,
+            ]
+        }
+        # Offered as well as chosen: a value the select has never heard of
+        # renders as an empty field.
+        assert inputs["Taxa"].value == ["Guyalna bonaerensis"]
+        assert "Guyalna bonaerensis" in inputs["Taxa"].options
+        # Not the date: an observation's day says when that one recording was
+        # made, not when the animal sings.
+        assert not inputs["From date"].value
+        assert not inputs["To date"].value
+        assert inputs["Centre latitude"].value == pytest.approx(-28.82)
+        assert inputs["Radius"].value == 25.0
+        # Filled, not applied behind the reader's back: the panel is opened so
+        # the narrowing is visible and can be cleared.
+        panel = next(
+            element
+            for element in user.find(ui.expansion).elements
+            if element.text == "Filters"
+        )
+        assert panel.value is True
+
+    async def test_it_says_what_to_know_before_trusting_it(
+        self, user: User, installed_state, monkeypatch
+    ):
+        await self._fetch(user, monkeypatch)
+        await user.should_see("Not research grade", retries=200)
+        await user.should_see("Paul Montgomery")
+
+    async def test_a_hidden_location_is_withheld_and_said(
+        self, user: User, installed_state, monkeypatch
+    ):
+        import dataclasses
+
+        hidden = dataclasses.replace(
+            self._observation(), latitude=None, longitude=None, obscured=True
+        )
+        await self._fetch(user, monkeypatch, hidden)
+        await user.should_see("hides this observation's location", retries=200)
+
+        inputs = {
+            element._props.get("label"): element
+            for element in user.find(ui.number).elements
+        }
+        assert inputs["Centre latitude"].value is None
+
+    async def test_an_observation_without_sound_is_reported(
+        self, user: User, installed_state, monkeypatch
+    ):
+        import dataclasses
+
+        silent = dataclasses.replace(self._observation(), sounds=())
+        await self._fetch(user, monkeypatch, silent)
+        await user.should_see("has no recordings", retries=200)
+
+    async def test_the_switch_hides_it(
+        self, user: User, installed_state, monkeypatch
+    ):
+        import dataclasses
+
+        from biotimbre.ui import app as ui_app  # noqa: F401
+
+        installed_state.settings = dataclasses.replace(
+            installed_state.settings, inaturalist_enabled=False
+        )
+        await user.open("/search")
+        await user.should_see("Query recording")
+        assert not [
+            element
+            for element in user.find(ui.input).elements
+            if element._props.get("label", "").startswith("iNaturalist")
+        ]
 
 
 class TestSearchEndToEnd:

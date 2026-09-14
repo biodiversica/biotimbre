@@ -4,6 +4,12 @@ data_dir = "data"
 [ui]
 language = "en"            # en | pt_BR
 
+[sources.inaturalist]
+# Offer to fetch a recording from iNaturalist by observation ID, in the search
+# page's query card and the library page's add form. Set false for a library
+# kept offline; nothing else changes.
+enabled = true
+
 [ui.theme]
 # Every key optional; omitted ones fall back to the built-in defaults.
 primary = "#20460a"

@@ -216,6 +216,19 @@
     "compare_hint": "Reproduza a busca e depois cada resultado para julgar a correspondência de ouvido.",
     "marker_hint": "A faixa mais clara marca a janela que gerou a pontuação."
   },
+  "inat": {
+    "observation": "ID ou link de observação no iNaturalist",
+    "fetch": "Buscar",
+    "fetching": "Buscando…",
+    "fetched": "Observação {id} — {taxon}",
+    "unidentified": "sem identificação",
+    "sound": "Gravação",
+    "no_sounds": "A observação {id} não tem gravações.",
+    "obscured": "O iNaturalist oculta a localização desta observação, então nenhuma coordenada foi preenchida.",
+    "reserved": "Todos os direitos reservados pelo autor — verifique antes de armazenar ou exportar.",
+    "needs_id": "Não é grau de pesquisa: a identificação ainda pode mudar.",
+    "ceiling": "Comprimido a cerca de {khz} kHz, abaixo dos {limit} kHz do {model} — a banda superior se perdeu, apesar da taxa de amostragem."
+  },
   "error": {
     "generic": "Algo deu errado: {message}",
     "no_audio": "Escolha primeiro um arquivo de áudio.",

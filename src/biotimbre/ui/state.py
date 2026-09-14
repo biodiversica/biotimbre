@@ -92,6 +92,22 @@ class QueryStore:
         target.write_bytes(data)
         return token
 
+    def replace_path(self, token: str, path: Path) -> None:
+        """Point a token at a different file, deleting the one it named.
+
+        A fetched recording may have to be decoded on the way in, and what
+        lands is then a WAV beside the name that was reserved. The token is
+        the query's identity, so it follows the file rather than the reverse.
+
+        Args:
+            token: Token from :meth:`reserve`.
+            path: The file it should name from now on.
+        """
+        previous = self._paths.get(token)
+        if previous is not None and previous != path:
+            previous.unlink(missing_ok=True)
+        self._paths[token] = path
+
     def path(self, token: str) -> Path | None:
         """Resolve a token to its staged file, or ``None`` if unknown."""
         path = self._paths.get(token)

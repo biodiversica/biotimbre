@@ -158,6 +158,9 @@ class Settings:
             given on the command line or written in a config file — rather than
             defaulted to ``./data``. The interface asks for one on first run
             instead of quietly making a library wherever it was started.
+        inaturalist_enabled: Whether the interface offers to fetch recordings
+            from iNaturalist by observation ID. Switched off for a library
+            that is kept offline.
         language: Default UI language, one of :data:`SUPPORTED_LANGUAGES`.
         theme: UI colour palette for the light theme.
         dark_theme: UI colour palette for the dark theme. Which of the two a
@@ -183,6 +186,7 @@ class Settings:
     model_cache_dir: Path | None = None
     active_models: tuple[str, ...] = ("perch_v2", "birdnet_v2.4")
     data_dir_chosen: bool = True
+    inaturalist_enabled: bool = True
     language: str = "en"
     theme: Theme = field(default_factory=Theme)
     dark_theme: Theme = DEFAULT_DARK_THEME
@@ -383,6 +387,12 @@ def load_settings(
     # of one dark colour must not drag the rest of the light palette with it.
     dark_theme = replace(DEFAULT_DARK_THEME, **_theme_section("dark_theme"))
 
+    sources = raw.get("sources", {})
+    inaturalist = sources.get("inaturalist", {})
+    if not isinstance(inaturalist, dict):
+        raise ValueError("sources.inaturalist must be a table, e.g. enabled = true.")
+    inaturalist_enabled = bool(inaturalist.get("enabled", True))
+
     search = raw.get("search", {})
     batch_size = int(search.get("batch_size", defaults.search_batch_size))
     if batch_size < 1:
@@ -418,6 +428,7 @@ def load_settings(
         active_models=tuple(active),
         language=language,
         data_dir_chosen=chosen is not None,
+        inaturalist_enabled=inaturalist_enabled,
         theme=theme,
         dark_theme=dark_theme,
         search_batch_size=batch_size,

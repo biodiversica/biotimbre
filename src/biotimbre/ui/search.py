@@ -22,7 +22,9 @@ from biotimbre.i18n import Translator
 from biotimbre.search.filters import SearchFilters
 from biotimbre.search.vector_search import FUSIONS, METRICS
 from biotimbre.service import SearchHit
+from biotimbre.sources import inaturalist
 from biotimbre.ui.admin import ACCEPTED
+from biotimbre.ui import inat
 from biotimbre.ui.exports import export_button
 from biotimbre.ui.layout import notify_error
 from biotimbre.ui.spectrograms import place_span_marker
@@ -35,6 +37,11 @@ QUERY_HEIGHT = 180
 
 #: Spectrogram size in a result row.
 RESULT_WIDTH = 560
+
+#: Radius assumed when an observation's coordinates fill the location filter.
+#: Wide enough that a nearby recording still matches, and visible in the panel
+#: for anyone who wants it tighter.
+OBSERVATION_RADIUS_KM = 25.0
 RESULT_HEIGHT = 110
 
 
@@ -76,6 +83,39 @@ class QueryState:
         if not self.needs_segment:
             return None, None
         return round(self.start, 3), round(self.end, 3)
+
+
+def _fill_filters_from(t: Translator, inputs: dict, observation) -> None:
+    """Put what an observation knows into the search filters.
+
+    Filled rather than applied silently: the panel is opened so the narrowing
+    is visible and can be cleared.
+
+    The date is deliberately not among them. An observation's day says when
+    that one recording was made, not when the animal sings; narrowing the
+    library to it would hide every other recording of the same thing.
+
+    Args:
+        t: Active translator.
+        inputs: The filter panel's inputs.
+        observation: The fetched observation.
+    """
+    if observation.taxon:
+        # The select starts with no options and grows as tags are typed, so a
+        # value it has never heard of renders as nothing: it has to be offered
+        # before it can be chosen.
+        taxa = inputs["taxa"]
+        taxa.set_options(
+            sorted({*(taxa.options or []), observation.taxon}),
+            value=[observation.taxon],
+        )
+    if observation.latitude is not None and observation.longitude is not None:
+        inputs["latitude"].value = observation.latitude
+        inputs["longitude"].value = observation.longitude
+        # A radius is required with a centre, and one has to be assumed; the
+        # filter is visible and editable, which is the point of filling it in.
+        inputs["radius_km"].value = inputs["radius_km"].value or OBSERVATION_RADIUS_KM
+    inputs["panel"].value = True
 
 
 def _embedding_counts(item_ids: list[int]) -> dict[int, dict[str, int]]:
@@ -178,9 +218,13 @@ def _filters_panel(t: Translator) -> dict[str, ui.element]:
     def dense(element):
         return element.props("dense outlined").classes("w-full")
 
-    with ui.expansion(t("search.filters"), icon="filter_alt").classes(
+    # The panel itself travels with the inputs, so a caller that fills filters
+    # in — a fetched observation does — can open it and show its work.
+    panel = ui.expansion(t("search.filters"), icon="filter_alt").classes(
         "w-full"
-    ).props("dense"):
+    ).props("dense")
+    inputs["panel"] = panel
+    with panel:
         ui.label(t("search.filters_hint")).classes("text-xs text-muted mb-2")
         with ui.grid(columns=2).classes("w-full gap-3"):
             inputs["taxa"] = dense(
@@ -220,7 +264,35 @@ def _filters_panel(t: Translator) -> dict[str, ui.element]:
                     new_value_mode="add-unique",
                 ).props("use-chips").tooltip(t("search.filter.biotimbre_id_help"))
             )
+
+        with ui.row().classes("justify-end w-full"):
+            ui.button(
+                t("search.filter.clear"),
+                icon="filter_alt_off",
+                on_click=lambda: clear_filters(inputs),
+            ).props("flat dense no-caps")
     return inputs
+
+
+def clear_filters(inputs: dict[str, ui.element]) -> None:
+    """Empty every filter, leaving the panel as it was first drawn.
+
+    Filters accumulate — some typed, some filled in by a fetched observation —
+    and a search that finds nothing is more often over-filtered than genuinely
+    empty. Undoing that one field at a time is the tedious way to find out.
+
+    Args:
+        inputs: The filter panel's inputs.
+    """
+    for name in ("taxa", "biotimbre_id"):
+        # Multi-selects keep what has been typed into them as options; only
+        # the choice is cleared, so the tags stay available.
+        inputs[name].value = []
+    inputs["taxa_all"].value = False
+    for name in ("date_from", "date_to"):
+        inputs[name].value = ""
+    for name in ("latitude", "longitude", "radius_km"):
+        inputs[name].value = None
 
 
 def _options_panel(t: Translator) -> dict[str, ui.element]:
@@ -533,6 +605,26 @@ async def render(t: Translator) -> None:
             """Report a file the browser refused, e.g. wrong type or too large."""
             ui.notify(t("search.no_query"), type="warning", position="top")
 
+        async def stage_observation_sound(observation, sound, on_progress) -> None:
+            """Make one of an observation's recordings the query."""
+            token, target = state.queries.reserve(f"inat-{observation.id}.wav")
+            path = await state.run(
+                inaturalist.download_sound, sound, target, on_progress=on_progress
+            )
+            properties = await state.run(audio_io.read_properties, path)
+            # download_sound may have written a .wav beside the name it was
+            # given, so the store is told where the file actually is.
+            state.queries.replace_path(token, path)
+
+            query.token = token
+            # The observation names it, not the staging directory: the token
+            # prefix is an implementation detail of where the file sits.
+            query.name = f"inat-{observation.id}{path.suffix}"
+            query.properties = properties
+            query.start = 0.0
+            query.end = min(properties.duration_s, cap)
+            await draw_query()
+
         uploader = ui.upload(
             label=t("search.upload"),
             on_upload=handle_upload,
@@ -540,6 +632,13 @@ async def render(t: Translator) -> None:
             auto_upload=True,
             max_files=1,
         ).props(f'accept="{ACCEPTED}" flat bordered').classes("w-full")
+
+        if state.settings.inaturalist_enabled:
+            inat.fetch_panel(
+                t,
+                stage=stage_observation_sound,
+                after=lambda observation: _fill_filters_from(t, filters, observation),
+            )
 
     filters = _filters_panel(t)
     options = _options_panel(t)
