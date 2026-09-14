@@ -16,6 +16,23 @@
     "loading_models_hint": "First run downloads about 70 MB. Afterwards this is instant and works offline.",
     "models_ready": "Models ready"
   },
+  "setup": {
+    "heading": "Choose a library",
+    "explain": "No library was given, so nothing has been created yet. Pick the directory this library should live in — an existing one to open it, an empty one to start it.",
+    "path": "Library directory",
+    "name": "Library name",
+    "name_hint": "Only used when the library does not have a name yet.",
+    "parent": "Up",
+    "home": "Home",
+    "empty": "No subdirectories here.",
+    "is_library": "library",
+    "new_folder": "New folder name",
+    "create": "Create",
+    "open": "Open library",
+    "no_path": "Give a directory for the library.",
+    "recent": "Opened before",
+    "no_library": "no library open"
+  },
   "common": {
     "save": "Save",
     "cancel": "Cancel",

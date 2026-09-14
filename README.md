@@ -87,6 +87,18 @@ biotimbre gui [--host H] [--port P] [--no-browser]
 
 Global options: `--data-dir`, `--config`, `--models`.
 
+Started with no `--data-dir` and no configured one, `biotimbre gui` does not
+quietly make a library in whatever directory you launched it from: it asks.
+The first page is a chooser — type a path or browse to one, make a folder if
+you need it, name the library, open it. An existing library opens as it is;
+directories that already hold one are marked. Libraries opened from that
+browser are offered again next time.
+
+Browsing is not confined to `$HOME` — libraries live on external drives and
+mounted archives. That listing is the one place in the interface where a
+request names a filesystem path, so it exists only while no library is open
+and is withdrawn the moment one is.
+
 ```bash
 # add with explicit metadata (scalar coordinates: argparse cannot take
 # "--location -26,-48", since the value starts with a minus)

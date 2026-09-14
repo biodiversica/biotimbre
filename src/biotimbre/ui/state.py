@@ -142,24 +142,92 @@ class AppState:
 
     def __init__(self, settings: Settings | None = None):
         self.settings = settings if settings is not None else load_settings()
-        self.settings.ensure_dirs()
-
-        # allow_threads because request handlers and the inference worker do not
-        # share a thread; the lock below is what makes that safe.
-        self._connection = initialize(self.settings.db_path, allow_threads=True)
         self._lock = threading.RLock()
 
+        # The models do not depend on which library is open — only on the model
+        # cache — so warm-up can start while the reader is still choosing one,
+        # and choosing one does not pay for it again.
         self.pool = ExtractorPool(
             self.settings.active_models,
             cache_dir=self.settings.model_cache_dir,
             max_batch=self.settings.inference_batch_size,
             threads=self.settings.inference_threads,
         )
-        self.service = LibraryService(
-            self.settings, connection=self._connection, pool=self.pool
-        )
         self.models = ModelStatus()
         self.queries = QueryStore()
+
+        self._connection = None
+        self._service: LibraryService | None = None
+        if self.settings.data_dir_chosen:
+            self.open_library(self.settings.data_dir)
+
+    # ── the open library ──────────────────────────────────────────────────────
+
+    @property
+    def is_open(self) -> bool:
+        """Whether a library has been opened yet."""
+        return self._service is not None
+
+    @property
+    def service(self) -> LibraryService:
+        """The open library.
+
+        Raises:
+            RuntimeError: If no library has been opened. Pages guard on
+                :attr:`is_open` and offer the chooser instead; reaching here
+                without one is a bug, not a user error.
+        """
+        if self._service is None:
+            raise RuntimeError("No library is open.")
+        return self._service
+
+    def open_library(
+        self, data_dir: str | Path, *, name: str | None = None
+    ) -> Settings:
+        """Open a library directory, replacing whatever was open before.
+
+        The directory is created if it does not exist, and initialised if it
+        holds no database yet — opening a new library and opening an old one
+        are the same act from the reader's side.
+
+        Args:
+            data_dir: Directory the library lives in.
+            name: Name to give a library that does not have one yet. An
+                existing name is never overwritten here.
+
+        Returns:
+            The settings now in force.
+
+        Raises:
+            BiotimbreError: If the directory cannot be used as a library.
+        """
+        with self._lock:
+            settings = load_settings(data_dir=data_dir)
+            settings.ensure_dirs()
+            # allow_threads because request handlers and the inference worker
+            # do not share a thread; the lock is what makes that safe.
+            connection = initialize(settings.db_path, allow_threads=True)
+            service = LibraryService(settings, connection=connection, pool=self.pool)
+            if name and not service.identity().name:
+                service.rename(name)
+
+            self.close_library()
+            self.settings = settings
+            self._connection = connection
+            self._service = service
+            if self.models.ready:
+                # The sessions are already built; the new library still has to
+                # learn their dimensions before anything can be embedded.
+                service.ensure_models_registered()
+            return settings
+
+    def close_library(self) -> None:
+        """Close the open library, if any, leaving the models loaded."""
+        with self._lock:
+            if self._connection is not None:
+                self._connection.close()
+            self._connection = None
+            self._service = None
 
     # ── concurrency ───────────────────────────────────────────────────────────
 
@@ -201,16 +269,29 @@ class AppState:
     def warm_models(self) -> None:
         """Create the ONNX sessions and register the models. Blocking.
 
-        Safe to call more than once; the second call is a no-op.
+        Safe to call more than once; the second call is a no-op. With no
+        library open the sessions are still built — that is the slow part, and
+        it does not depend on which library it is — and the models are
+        registered when one is opened.
         """
         if self.models.ready:
             return
         try:
-            dimensions = self.call(self.service.ensure_models_registered)
+            if self.is_open:
+                dimensions = self.call(self.service.ensure_models_registered)
+            else:
+                dimensions = self.call(self._session_dimensions)
         except Exception as exc:  # download failure, missing file, bad graph
             self.models = ModelStatus(ready=False, failed=str(exc))
             return
         self.models = ModelStatus(ready=True, dimensions=dimensions)
+
+    def _session_dimensions(self) -> dict[str, int]:
+        """Build every active model's session, without a library to record it in."""
+        return {
+            model_id: self.pool.get(model_id).embedding_dim()
+            for model_id in self.settings.active_models
+        }
 
     def start_warming(self) -> threading.Thread:
         """Warm the models in the background and return the thread.
@@ -260,9 +341,10 @@ class AppState:
         """Release models, staged queries and the database connection."""
         with self._lock:
             self.queries.clear()
-            self.service.close()
+            if self._service is not None:
+                self._service.close()
             self.pool.close()
-            self._connection.close()
+            self.close_library()
 
 
 #: Set by :func:`biotimbre.ui.app.create_app` so routes and pages can reach it.

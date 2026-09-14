@@ -16,6 +16,23 @@
     "loading_models_hint": "Na primeira execução são baixados cerca de 70 MB. Depois disso é instantâneo e funciona offline.",
     "models_ready": "Carregamento de modelos concluído"
   },
+  "setup": {
+    "heading": "Escolha uma biblioteca",
+    "explain": "Nenhuma biblioteca foi indicada, então nada foi criado ainda. Escolha o diretório onde esta biblioteca deve ficar — um existente para abri-lo, um vazio para começar.",
+    "path": "Diretório da biblioteca",
+    "name": "Nome da biblioteca",
+    "name_hint": "Usado apenas quando a biblioteca ainda não tem nome.",
+    "parent": "Acima",
+    "home": "Início",
+    "empty": "Nenhum subdiretório aqui.",
+    "is_library": "biblioteca",
+    "new_folder": "Nome da nova pasta",
+    "create": "Criar",
+    "open": "Abrir biblioteca",
+    "no_path": "Indique um diretório para a biblioteca.",
+    "recent": "Abertas antes",
+    "no_library": "nenhuma biblioteca aberta"
+  },
   "common": {
     "save": "Salvar",
     "cancel": "Cancelar",

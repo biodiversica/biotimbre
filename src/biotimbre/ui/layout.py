@@ -148,16 +148,22 @@ def page(active: str):
     with ui.header().classes(
         "relative items-center justify-between px-4 py-2 shadow-sm"
     ).style("background: var(--bt-header-bg)"):
-        identity = get_state().service.identity()
+        state = get_state()
+        identity = state.service.identity() if state.is_open else None
         with ui.row().classes(
             "absolute left-1/2 items-baseline gap-2"
         ).style("transform: translateX(-50%)"):
-            ui.label(identity.name or t("app.unnamed_library")).classes(
-                "text-sm font-medium"
-            ).style("color: var(--bt-header-text)")
-            ui.label(f"#{identity.uuid[:8]}").classes(
-                "text-xs font-mono"
-            ).style("color: var(--bt-header-inactive-text)").tooltip(identity.uuid)
+            ui.label(
+                (identity.name or t("app.unnamed_library"))
+                if identity is not None
+                else t("setup.no_library")
+            ).classes("text-sm font-medium").style("color: var(--bt-header-text)")
+            if identity is not None:
+                ui.label(f"#{identity.uuid[:8]}").classes(
+                    "text-xs font-mono"
+                ).style("color: var(--bt-header-inactive-text)").tooltip(
+                    identity.uuid
+                )
 
         with ui.row().classes("items-center gap-6"):
             ui.label(t("app.title")).classes("text-lg font-medium").style(

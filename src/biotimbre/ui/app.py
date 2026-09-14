@@ -19,7 +19,7 @@ from nicegui import app, ui
 from biotimbre.config import Settings, load_settings
 from biotimbre.ui import routes
 from biotimbre.ui.layout import page
-from biotimbre.ui.state import AppState, set_state
+from biotimbre.ui.state import AppState, get_state, set_state
 
 #: Default bind address. Loopback, because this is a local library: exposing it
 #: is a deliberate act, not a default (PLAN.md D5/phase 9).
@@ -79,18 +79,24 @@ def open_browser(host: str, port: int, timeout: float = BROWSER_TIMEOUT) -> None
 @ui.page("/")
 async def admin_page() -> None:
     """Library page: add, inspect, edit and delete items."""
-    from biotimbre.ui import admin
+    from biotimbre.ui import admin, setup
 
     with page("admin") as t:
+        if not get_state().is_open:
+            setup.render(t)
+            return
         await admin.render(t)
 
 
 @ui.page("/search")
 async def search_page() -> None:
     """Search page: query, filters, and ranked results with players."""
-    from biotimbre.ui import search
+    from biotimbre.ui import search, setup
 
     with page("search") as t:
+        if not get_state().is_open:
+            setup.render(t)
+            return
         await search.render(t)
 
 
@@ -106,6 +112,10 @@ def create_app(settings: Settings | None = None) -> AppState:
     state = AppState(settings)
     set_state(state)
     routes.register(app)
+    if not state.is_open:
+        # Only while there is a library to choose: the listing is withdrawn as
+        # soon as one is open (biotimbre.ui.setup).
+        routes.register_browser(app)
 
     # Warm in the background so the server answers immediately; a first run has
     # 70 MB to download and the page should say so rather than appear to hang.

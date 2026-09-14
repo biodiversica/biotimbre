@@ -11,6 +11,8 @@ a result list re-rendered on a filter change reuses the images it already has.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from fastapi import HTTPException, Response
 from fastapi.responses import FileResponse
 
@@ -27,6 +29,113 @@ from biotimbre.viz import (
 MIN_DIMENSION = 16
 MAX_WIDTH = 2400
 MAX_HEIGHT = 800
+
+#: Where the library chooser reads directories from.
+BROWSE_ROUTE = "/setup/browse"
+
+
+def list_directory(path: str | None = None) -> dict:
+    """What is in one directory, for the library chooser.
+
+    Only subdirectories: a library is a directory, and listing files would
+    expose more than the question asks.
+
+    Args:
+        path: Directory to list. ``None`` starts at the reader's home.
+
+    Returns:
+        The resolved path, its parent, the home directory, and the
+        subdirectories — each flagged if it already holds a library.
+
+    Raises:
+        NotFoundError: If the path is not a directory.
+        BiotimbreError: If it cannot be read.
+    """
+    target = Path(path).expanduser() if path else Path.home()
+    try:
+        target = target.resolve()
+        if not target.is_dir():
+            raise NotFoundError(f"No such directory: {target}")
+        entries = sorted(target.iterdir(), key=lambda entry: entry.name.lower())
+    except PermissionError as exc:
+        raise BiotimbreError(f"Permission denied: {target}") from exc
+    except OSError as exc:
+        raise BiotimbreError(f"Could not read {target}: {exc}") from exc
+
+    def holds_library(directory: Path) -> bool:
+        """Whether a directory already holds a library.
+
+        A directory that cannot be read is still a place to go — /lost+found
+        is on the way to an external drive's contents — so an unreadable one
+        answers "not that I can tell" rather than refusing the whole listing.
+        """
+        try:
+            return (directory / "library.db").is_file()
+        except OSError:
+            return False
+
+    directories = []
+    for entry in entries:
+        if entry.name.startswith("."):
+            continue
+        try:
+            if not entry.is_dir():
+                continue
+        except OSError:  # a broken symlink is not a place to go
+            continue
+        directories.append(
+            {
+                "name": entry.name,
+                "path": str(entry),
+                # Already a library, so the chooser can say "open this" rather
+                # than "make one here".
+                "is_library": holds_library(entry),
+            }
+        )
+
+    return {
+        "path": str(target),
+        "parent": str(target.parent) if target.parent != target else None,
+        "home": str(Path.home()),
+        "directories": directories,
+        "is_library": holds_library(target),
+    }
+
+
+def register_browser(app) -> None:
+    """Attach the directory listing the library chooser needs.
+
+    A browser cannot hand the server a path — a file input reports names, never
+    locations — so choosing where a library lives means the server listing its
+    own directories. That is the one place in this interface where a request
+    names a filesystem path, which is why it is mounted only while no library
+    is open and withdrawn by :func:`unregister_browser` as soon as one is.
+
+    Libraries live wherever their owner keeps them — an external drive, a
+    mounted archive — so the listing is not confined to a root. The protection
+    is the loopback bind, as it is for everything else here.
+
+    Args:
+        app: The application to register on.
+    """
+
+    @app.get(BROWSE_ROUTE)
+    async def browse(path: str | None = None):
+        """List one directory's subdirectories, for the chooser."""
+        state = get_state()
+        if state.is_open:
+            raise HTTPException(status_code=403, detail="A library is already open.")
+        try:
+            return await state.run(list_directory, path)
+        except NotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except BiotimbreError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+def unregister_browser(app) -> None:
+    """Withdraw the directory listing once a library is open."""
+    app.remove_route(BROWSE_ROUTE)
 
 
 def register(app) -> None:

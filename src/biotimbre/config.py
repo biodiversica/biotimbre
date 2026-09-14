@@ -154,6 +154,10 @@ class Settings:
             Hugging Face default (``HF_HOME`` or ``~/.cache/huggingface``).
         active_models: Model IDs to compute embeddings with on ingest. Must be
             keys of :data:`biotimbre.models_registry.MODEL_SPECS`.
+        data_dir_chosen: Whether the data directory was actually chosen —
+            given on the command line or written in a config file — rather than
+            defaulted to ``./data``. The interface asks for one on first run
+            instead of quietly making a library wherever it was started.
         language: Default UI language, one of :data:`SUPPORTED_LANGUAGES`.
         theme: UI colour palette for the light theme.
         dark_theme: UI colour palette for the dark theme. Which of the two a
@@ -178,6 +182,7 @@ class Settings:
     audio_dir: Path
     model_cache_dir: Path | None = None
     active_models: tuple[str, ...] = ("perch_v2", "birdnet_v2.4")
+    data_dir_chosen: bool = True
     language: str = "en"
     theme: Theme = field(default_factory=Theme)
     dark_theme: Theme = DEFAULT_DARK_THEME
@@ -322,11 +327,8 @@ def load_settings(
         return candidate if candidate.is_absolute() else (base / candidate)
 
     library = raw.get("library", {})
-    resolved_data_dir = (
-        _resolve(data_dir)
-        if data_dir is not None
-        else _resolve(library.get("data_dir", "data"))
-    )
+    chosen = data_dir if data_dir is not None else library.get("data_dir")
+    resolved_data_dir = _resolve(chosen if chosen is not None else "data")
 
     defaults = _default_settings(resolved_data_dir)
 
@@ -415,6 +417,7 @@ def load_settings(
         model_cache_dir=model_cache_dir,
         active_models=tuple(active),
         language=language,
+        data_dir_chosen=chosen is not None,
         theme=theme,
         dark_theme=dark_theme,
         search_batch_size=batch_size,

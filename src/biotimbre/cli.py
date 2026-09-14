@@ -348,7 +348,11 @@ def cmd_gui(args: argparse.Namespace) -> int:
         settings = type(settings)(
             **{**settings.__dict__, "active_models": tuple(args.models)}
         )
-    print(f"Library at {settings.data_dir}")
+    if settings.data_dir_chosen:
+        print(f"Library at {settings.data_dir}")
+    else:
+        # Nothing was chosen, so nothing is created: the interface asks.
+        print("No library given — choose one in the browser.")
     print(f"Serving on http://{args.host}:{args.port}")
     run_ui(
         settings,

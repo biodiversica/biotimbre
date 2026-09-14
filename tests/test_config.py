@@ -23,6 +23,19 @@ class TestDataDirResolution:
         assert settings.db_path == tmp_path / "data" / "library.db"
         assert settings.audio_dir == tmp_path / "data" / "audio"
 
+    def test_a_defaulted_data_dir_says_it_was_not_chosen(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        # The interface asks for one rather than quietly making a library
+        # wherever it happened to be started.
+        assert load_settings().data_dir_chosen is False
+
+    def test_a_given_data_dir_counts_as_chosen(self, tmp_path):
+        assert load_settings(data_dir=tmp_path / "here").data_dir_chosen is True
+
+    def test_a_configured_data_dir_counts_as_chosen(self, tmp_path):
+        config = write_config(tmp_path, '[library]\ndata_dir = "mylib"\n')
+        assert load_settings(config).data_dir_chosen is True
+
     def test_explicit_data_dir_wins(self, tmp_path):
         settings = load_settings(data_dir=tmp_path / "elsewhere")
         assert settings.data_dir == tmp_path / "elsewhere"
