@@ -24,6 +24,7 @@ import zipfile
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
 from pathlib import Path
+from typing import Mapping, Sequence
 
 import numpy as np
 
@@ -49,6 +50,15 @@ from biotimbre.domain.item import (
 from biotimbre.embeddings import audio as audio_io
 from biotimbre.embeddings.extractor import ExtractorPool, WindowEmbeddings
 from biotimbre.embeddings.query_cache import AudioKey, QueryEmbeddingCache
+from biotimbre.io.bundle import (
+    BUNDLE_SUFFIX,
+    Bundle,
+    ExportEntry,
+    ModelFingerprint,
+    SourceLibrary,
+    read_bundle,
+    write_bundle,
+)
 from biotimbre.models_registry import get_spec
 from biotimbre.search.filters import SearchFilters, select_candidates
 from biotimbre.search.vector_search import (
@@ -58,6 +68,15 @@ from biotimbre.search.vector_search import (
     reduce_to_items,
     score_matrix,
     top_k,
+)
+from biotimbre.sharing import (
+    BundlePreview,
+    EntryPlan,
+    ImportOutcome,
+    ImportPolicy,
+    ImportReport,
+    local_fingerprints,
+    plan_import,
 )
 
 
@@ -111,6 +130,24 @@ def window_npy_filename(
     return (
         f"item_{item_id}_{model_id}_w{index:02d}_{start:.2f}-{end:.2f}s.npy"
     )
+
+
+def bundle_filename(item_ids: Sequence[int]) -> str:
+    """Conventional name for a shareable bundle.
+
+    Named for what is inside rather than for the library it left, since the
+    recipient is who reads it and a sender's library name means nothing to
+    them.
+
+    Args:
+        item_ids: The items going into the bundle.
+
+    Returns:
+        A bare filename, no directory.
+    """
+    if len(item_ids) == 1:
+        return f"biotimbre_item_{item_ids[0]}{BUNDLE_SUFFIX}"
+    return f"biotimbre_{len(item_ids)}_items{BUNDLE_SUFFIX}"
 
 
 def audio_filename(item_id: int, suffix: str) -> str:
@@ -328,16 +365,26 @@ class LibraryService:
 
     # ── models ────────────────────────────────────────────────────────────────
 
-    def ensure_models_registered(self) -> dict[str, int]:
-        """Register every active model, reading dimensions from the graphs.
+    def ensure_models_registered(
+        self, model_ids: Sequence[str] | None = None
+    ) -> dict[str, int]:
+        """Register models, reading their dimensions from the graphs.
 
         Downloads model files on first call. Idempotent.
+
+        Args:
+            model_ids: Restrict to these models. ``None`` registers every
+                active model. Naming a subset avoids building a session for a
+                model this operation has no use for — an import that only needs
+                one model's dimension, say.
 
         Returns:
             Mapping of model ID to embedding dimension.
         """
         dims: dict[str, int] = {}
-        for model_id in self.settings.active_models:
+        for model_id in (
+            self.settings.active_models if model_ids is None else model_ids
+        ):
             extractor = self.pool.get(model_id)
             dim = extractor.embedding_dim()
             with self._transaction():
@@ -414,23 +461,7 @@ class LibraryService:
             ValidationError: If the audio or metadata is unusable.
             EmbeddingError: If embedding fails.
         """
-        source = Path(audio_path)
-        if not source.is_file():
-            raise ValidationError(f"No such audio file: {source}", "audio")
-
         validated = draft.validated()
-        properties = audio_io.read_properties(source)
-
-        # The library stores mono: it is what every model is fed and what a
-        # spectrogram shows, so a multi-channel submission is folded down here
-        # rather than kept in a form nothing downstream reads. The digest then
-        # describes the stored file, which is what audio_sha256 means — and two
-        # copies of the same stereo recording still recognise each other.
-        staging: tempfile.TemporaryDirectory | None = None
-        if properties.channels > 1:
-            staging = tempfile.TemporaryDirectory(prefix="biotimbre-mono-")
-            source = Path(staging.name) / f"{source.stem}.wav"
-            properties = audio_io.write_processed(audio_path, source)
 
         joined = None
         if validated.biotimbre_id is None:
@@ -440,19 +471,53 @@ class LibraryService:
         else:
             species_warnings = ()
 
-        try:
+        with self._mono_source(audio_path) as (source, properties):
             result = self._ingest(
                 source, validated, properties, compute_embeddings=compute_embeddings
             )
-        finally:
-            if staging is not None:
-                staging.cleanup()
 
         return replace(
             result,
             joined_species=joined,
             warnings=result.warnings + species_warnings,
         )
+
+    @contextmanager
+    def _mono_source(self, audio_path: str | Path):
+        """Yield the exact audio to store, folding a multi-channel file down.
+
+        The library stores mono: it is what every model is fed and what a
+        spectrogram shows, so a multi-channel submission is converted here
+        rather than kept in a form nothing downstream reads. The digest then
+        describes the stored file, which is what ``audio_sha256`` means — and
+        two copies of the same stereo recording still recognise each other.
+
+        Shared by every path that stores audio, so a sample that arrives in a
+        bundle is normalised exactly as one that arrives from a form.
+
+        Args:
+            audio_path: The submitted file.
+
+        Yields:
+            The path to store and its :class:`~biotimbre.embeddings.audio.AudioProperties`.
+            The path is the original when it is already mono, and a temporary
+            converted file otherwise — removed when the block ends.
+
+        Raises:
+            ValidationError: If the file is missing or unreadable as audio.
+        """
+        source = Path(audio_path)
+        if not source.is_file():
+            raise ValidationError(f"No such audio file: {source}", "audio")
+
+        properties = audio_io.read_properties(source)
+        if properties.channels == 1:
+            yield source, properties
+            return
+
+        with tempfile.TemporaryDirectory(prefix="biotimbre-mono-") as staging:
+            converted = Path(staging) / f"{source.stem}.wav"
+            yield converted, audio_io.write_processed(source, converted)
 
     def _join_species_biotimbre(
         self, draft: ItemDraft
@@ -498,6 +563,8 @@ class LibraryService:
         properties: audio_io.AudioProperties,
         *,
         compute_embeddings: bool,
+        embedding_rows: Mapping[str, list[tuple[float, float, np.ndarray]]] | None = None,
+        biotimbre_label: str | None = None,
     ) -> IngestResult:
         """Store one prepared file and its row. See :meth:`add_item`.
 
@@ -505,7 +572,17 @@ class LibraryService:
             source: The exact audio to store, already mono.
             validated: Validated metadata.
             properties: The source's properties.
-            compute_embeddings: Whether to embed now.
+            compute_embeddings: Whether to embed what is not supplied.
+            embedding_rows: Vectors already computed elsewhere, per model —
+                an import reusing a bundle's. Their models must be registered,
+                and the caller is responsible for having established that they
+                are comparable (see :mod:`biotimbre.sharing`). Models named
+                here are not recomputed.
+            biotimbre_label: Name to give the biotimbre if this item creates
+                it. Applied inside the same transaction, so a failed ingest
+                leaves no named-but-empty biotimbre behind, and ignored when
+                the biotimbre already exists — a local name is not overwritten
+                by a sender's.
 
         Returns:
             The :class:`IngestResult`.
@@ -514,17 +591,32 @@ class LibraryService:
         duplicates = tuple(item.item_id for item in self.repo.find_by_sha256(digest))
         warnings = self._nyquist_warnings(validated)
 
-        if compute_embeddings:
-            self.ensure_models_registered()
+        rows: dict[str, list[tuple[float, float, np.ndarray]]] = dict(
+            embedding_rows or {}
+        )
+        missing = [
+            model_id
+            for model_id in self.settings.active_models
+            if model_id not in rows
+        ]
+        if compute_embeddings and missing:
+            self.ensure_models_registered(missing)
             # Computed before the transaction opens: inference takes seconds and
             # holding a write transaction open across it would block readers.
-            embeddings = self.pool.embed_file(source, speed=validated.speed)
-        else:
-            embeddings = {}
+            embeddings = self.pool.embed_file(
+                source, speed=validated.speed, models=missing
+            )
+            rows.update(
+                {model_id: result.as_rows() for model_id, result in embeddings.items()}
+            )
 
         stored_path: Path | None = None
         try:
             with self._transaction():
+                if biotimbre_label is not None and validated.biotimbre_id is not None:
+                    self.repo.ensure_biotimbre(
+                        validated.biotimbre_id, biotimbre_label
+                    )
                 item = self.repo.create_item(
                     validated,
                     audio_path="",  # replaced below, once item_id is known
@@ -551,9 +643,9 @@ class LibraryService:
 
                 counts = {
                     model_id: self.repo.set_embeddings(
-                        item.item_id, model_id, result.as_rows()
+                        item.item_id, model_id, window_rows
                     )
-                    for model_id, result in embeddings.items()
+                    for model_id, window_rows in sorted(rows.items())
                 }
                 stored = self.repo.get_item(item.item_id)
         except Exception:
@@ -570,7 +662,11 @@ class LibraryService:
         )
 
     def add_from_sidecar(
-        self, audio_path: str | Path, sidecar_path: str | Path | None = None
+        self,
+        audio_path: str | Path,
+        sidecar_path: str | Path | None = None,
+        *,
+        compute_embeddings: bool = True,
     ) -> IngestResult:
         """Add a sample using metadata from its sidecar file.
 
@@ -578,6 +674,8 @@ class LibraryService:
             audio_path: Path to the audio file.
             sidecar_path: Path to the sidecar. ``None`` looks for one beside the
                 audio file.
+            compute_embeddings: Set false to defer embedding to a later
+                backfill, as :meth:`add_item` does.
 
         Returns:
             The :class:`IngestResult`.
@@ -596,7 +694,11 @@ class LibraryService:
                 f".txt file with the same stem.",
                 "sidecar",
             )
-        return self.add_item(audio_path, draft_from_sidecar(resolved))
+        return self.add_item(
+            audio_path,
+            draft_from_sidecar(resolved),
+            compute_embeddings=compute_embeddings,
+        )
 
     def import_directory(
         self, directory: str | Path, *, compute_embeddings: bool = True
@@ -870,6 +972,277 @@ class LibraryService:
         return out
 
     # ── read ──────────────────────────────────────────────────────────────────
+
+    # ── sharing ───────────────────────────────────────────────────────────────
+
+    def export_bundle(
+        self,
+        item_ids: Sequence[int],
+        destination: str | Path,
+        *,
+        include_embeddings: bool = True,
+    ) -> Path:
+        """Write items to a shareable bundle file.
+
+        Args:
+            item_ids: Items to include, in the order they should appear.
+            destination: Path to write. Its parent is created if needed; a
+                path without the conventional suffix gets one.
+            include_embeddings: Carry each item's vectors. False halves the
+                file size and costs the recipient an inference pass.
+
+        Returns:
+            The path written.
+
+        Raises:
+            NotFoundError: If an item does not exist, or its stored audio is
+                missing from disk.
+        """
+        path = Path(destination)
+        if path.suffix != BUNDLE_SUFFIX:
+            path = path.with_suffix(BUNDLE_SUFFIX)
+        entries, models = self._export_entries(item_ids, include_embeddings)
+        write_bundle(
+            path, entries, models=models, source_library=self._source_library()
+        )
+        return path
+
+    def export_bundle_bytes(
+        self, item_ids: Sequence[int], *, include_embeddings: bool = True
+    ) -> tuple[bytes, str]:
+        """The same bundle, for a caller with nowhere to write it.
+
+        The shape :meth:`embeddings_export` uses, so a browser download and a
+        command-line export produce the same file under the same name.
+
+        Args:
+            item_ids: Items to include.
+            include_embeddings: Carry each item's vectors.
+
+        Returns:
+            The file's bytes and the name to save them under.
+
+        Raises:
+            NotFoundError: If an item does not exist, or its audio is missing.
+        """
+        entries, models = self._export_entries(item_ids, include_embeddings)
+        buffer = io.BytesIO()
+        write_bundle(
+            buffer, entries, models=models, source_library=self._source_library()
+        )
+        return buffer.getvalue(), bundle_filename(item_ids)
+
+    def _source_library(self) -> SourceLibrary:
+        """This library's identity, as a bundle records it."""
+        identity = self.identity()
+        return SourceLibrary(uuid=identity.uuid, name=identity.name)
+
+    def _export_entries(
+        self, item_ids: Sequence[int], include_embeddings: bool
+    ) -> tuple[list[ExportEntry], dict[str, ModelFingerprint]]:
+        """Gather what a bundle needs about each item.
+
+        Args:
+            item_ids: Items to gather.
+            include_embeddings: Whether to read their vectors.
+
+        Returns:
+            The entries, and the fingerprints of every model registered here —
+            the writer keeps the ones the entries actually use.
+
+        Raises:
+            NotFoundError: If an item does not exist, or its audio is missing.
+        """
+        if not item_ids:
+            raise ValidationError("Nothing to export.", "item_ids")
+
+        entries: list[ExportEntry] = []
+        for item_id in item_ids:
+            item = self.repo.get_item(item_id)
+            audio = self.settings.absolute_audio_path(item.audio_path)
+            if not audio.is_file():
+                raise NotFoundError(
+                    f"Item {item_id}'s audio is missing from disk ({audio}); "
+                    f"there is nothing to share."
+                )
+
+            embeddings: dict[str, list[tuple[float, float, np.ndarray]]] = {}
+            if include_embeddings:
+                for model_id in self.repo.embedding_counts(item_id):
+                    embeddings[model_id] = [
+                        (start, end, vector)
+                        for _, start, end, vector in self.repo.get_embeddings(
+                            item_id, model_id
+                        )
+                    ]
+
+            entries.append(
+                ExportEntry(
+                    draft=item.to_draft(),
+                    audio=audio,
+                    audio_sha256=item.audio_sha256,
+                    duration_s=item.duration_s,
+                    sample_rate=item.sample_rate,
+                    channels=item.channels,
+                    biotimbre_label=self.get_biotimbre_label(item.biotimbre_id),
+                    embeddings=embeddings,
+                    source_item_id=item.item_id,
+                )
+            )
+        return entries, local_fingerprints(self.repo)
+
+    def _register_for_import(self, bundle: Bundle) -> None:
+        """Register the models an incoming bundle's vectors would need.
+
+        A library that has never embedded anything has no ``models`` rows, and
+        without one there is no local dimension to check a sender's vectors
+        against — so a fresh library would throw away every vector it was sent
+        and re-run inference it did not need to. Registering first is the same
+        work that library's next ingest would do anyway.
+
+        Only models this library actually uses are considered: vectors for a
+        model absent from ``active_models`` are refused however good they are,
+        because nothing here would ever search them.
+
+        Failure is not an error. A machine without the model files — the case
+        ``compute_embeddings=False`` exists for — simply does not reuse those
+        vectors, and planning says so in the rejection reason.
+
+        Args:
+            bundle: The bundle about to be planned.
+        """
+        wanted = [
+            model_id
+            for model_id in bundle.models
+            if model_id in self.settings.active_models
+            and self.repo.get_model(model_id) is None
+        ]
+        if not wanted:
+            return
+        try:
+            self.ensure_models_registered(wanted)
+        except Exception:
+            # Unobtainable model file, no network, an id this build does not
+            # know: every one of them means the same thing here, and none of
+            # them should stop an import that is otherwise fine.
+            pass
+
+    def inspect_bundle(
+        self,
+        path: str | Path,
+        *,
+        policy: ImportPolicy | None = None,
+        into: str | Path | None = None,
+    ) -> BundlePreview:
+        """Read a bundle and say what importing it would do, without doing it.
+
+        The same :func:`~biotimbre.sharing.plan_import` the import itself runs,
+        so what is shown is what will happen — decided again at import time
+        against the library as it is then, rather than replayed from here.
+
+        Registers any model the bundle's vectors need and this library uses
+        (see :meth:`_register_for_import`), which on a library that has never
+        embedded anything may load a model file.
+
+        Args:
+            path: The bundle file.
+            policy: The choices to plan under; defaults apply if omitted.
+            into: Directory to extract the bundle's audio into, for a caller
+                that wants to play or draw it. ``None`` uses a temporary
+                directory and removes it before returning — the preview's
+                metadata is then all that remains valid, and its entries'
+                ``audio`` paths point at files that are gone.
+
+        Returns:
+            A :class:`~biotimbre.sharing.BundlePreview`.
+
+        Raises:
+            ValidationError: If the file is not a readable bundle.
+        """
+        if into is not None:
+            bundle = read_bundle(path, into=into)
+            self._register_for_import(bundle)
+            return plan_import(self.repo, bundle, policy)
+
+        with tempfile.TemporaryDirectory(prefix="biotimbre-preview-") as staging:
+            bundle = read_bundle(path, into=staging)
+            self._register_for_import(bundle)
+            return plan_import(self.repo, bundle, policy)
+
+    def import_bundle(
+        self, path: str | Path, *, policy: ImportPolicy | None = None
+    ) -> ImportReport:
+        """Add a bundle's items to this library.
+
+        Each entry is its own transaction, so an entry that cannot be stored
+        does not undo the ones already added — the bargain
+        :meth:`import_directory` makes.
+
+        That resilience starts *after* the file is read. Reading is
+        all-or-nothing: a member whose digest does not match, a path that
+        escapes the archive, a field the library would refuse, and the whole
+        bundle is rejected before anything is stored. A bundle is one transfer,
+        and a damaged one is not worth salvaging piecemeal — ask the sender
+        again rather than wonder which half arrived.
+
+        What happens to an entry, and why, is decided by
+        :func:`~biotimbre.sharing.plan_import`; see :mod:`biotimbre.sharing`
+        for the positions the library takes on each kind of disagreement.
+
+        Models the bundle's vectors need are registered first (see
+        :meth:`_register_for_import`), so a library receiving its first items
+        keeps the vectors it was sent instead of recomputing them.
+
+        Args:
+            path: The bundle file.
+            policy: The choices to import under; defaults apply if omitted.
+
+        Returns:
+            An :class:`~biotimbre.sharing.ImportReport`, one outcome per entry.
+
+        Raises:
+            ValidationError: If the file is not a readable bundle. A failure
+                in a single entry is reported rather than raised.
+        """
+        resolved = policy or ImportPolicy()
+        with tempfile.TemporaryDirectory(prefix="biotimbre-import-") as staging:
+            bundle = read_bundle(path, into=staging)
+            self._register_for_import(bundle)
+            preview = plan_import(self.repo, bundle, resolved)
+            outcomes = tuple(
+                self._import_entry(plan, resolved) for plan in preview.plans
+            )
+        return ImportReport(bundle=bundle, policy=resolved, outcomes=outcomes)
+
+    def _import_entry(self, plan: EntryPlan, policy: ImportPolicy) -> ImportOutcome:
+        """Carry out one entry's plan. See :meth:`import_bundle`."""
+        if plan.action == "skip":
+            return ImportOutcome(
+                plan=plan, item=None, action="skip", reason=plan.reason
+            )
+
+        try:
+            with self._mono_source(plan.entry.audio) as (source, properties):
+                result = self._ingest(
+                    source,
+                    plan.draft,
+                    properties,
+                    compute_embeddings=policy.compute_embeddings,
+                    embedding_rows=plan.reusable_rows,
+                    biotimbre_label=plan.entry.biotimbre_label,
+                )
+        except BiotimbreError as exc:
+            return ImportOutcome(
+                plan=plan, item=None, action="failed", reason=str(exc)
+            )
+
+        return ImportOutcome(
+            plan=plan,
+            item=result.item,
+            window_counts=result.window_counts,
+            action="add",
+            warnings=plan.warnings + result.warnings,
+        )
 
     def get_item(self, item_id: int) -> LibraryItem:
         """Fetch one item.

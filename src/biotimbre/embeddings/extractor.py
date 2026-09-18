@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Sequence
 
 import numpy as np
 
@@ -218,7 +219,11 @@ class ExtractorPool:
         return self._extractors[model_id]
 
     def embed_file(
-        self, path: str | Path, *, speed: float = 1.0
+        self,
+        path: str | Path,
+        *,
+        speed: float = 1.0,
+        models: Sequence[str] | None = None,
     ) -> dict[str, WindowEmbeddings]:
         """Embed one file with every model in the pool.
 
@@ -228,16 +233,26 @@ class ExtractorPool:
         Args:
             path: Path to the audio file.
             speed: Speed factor applied before resampling.
+            models: Restrict to these models. ``None`` uses every model in the
+                pool. An import that already carries usable vectors for one
+                model names only the rest, so no inference is run for work
+                someone else has already done.
 
         Returns:
             Mapping of model ID to its :class:`WindowEmbeddings`.
+
+        Raises:
+            KeyError: If ``models`` names a model this pool does not serve.
         """
+        wanted = self._model_ids if models is None else tuple(models)
+        if not wanted:
+            return {}
         samples, native_rate = audio_io.load_mono(path)
         return {
             model_id: self.get(model_id).embed_array(
                 samples, native_rate, speed=speed
             )
-            for model_id in self._model_ids
+            for model_id in wanted
         }
 
     def embed_array_multi_speed(
