@@ -81,6 +81,8 @@ biotimbre search AUDIO [-k N] [filters]
 biotimbre models                      # registered models and vector counts
 biotimbre backfill MODEL_ID           # embed items missing this model
 biotimbre export-npy ITEM_ID MODEL_ID OUT   # .npy per window; .zip if several
+biotimbre export-bundle ITEM_ID... -o FILE  # package items to send to someone
+biotimbre import-bundle FILE [--dry-run]    # load a bundle you were sent
 biotimbre stats
 biotimbre gui [--host H] [--port P] [--no-browser]
 ```
@@ -171,6 +173,62 @@ filtered_band	2000,10000
 `filtered_band` accepts `-` for an open bound, e.g. `2000,-`. `#` and `;` start
 comments. An unrecognised field name is an error rather than being ignored, so a
 typo cannot silently drop a required value.
+
+## Sharing items between libraries
+
+`biotimbre_id` is a UUID so that one sound-being means the same thing in every
+library that holds it. A **bundle** is how one travels: a single `.btz` file
+carrying an item's metadata, its stored audio, and its embedding vectors.
+
+```bash
+biotimbre export-bundle 12 -o guyalna.btz          # one item, with its vectors
+biotimbre export-bundle 12 13 14 -o batch.btz      # several
+biotimbre export-bundle 12 -o small.btz --no-embeddings
+```
+
+Send the file however you like. On the other side, look before you leap:
+
+```bash
+biotimbre import-bundle guyalna.btz --dry-run      # says what would happen
+biotimbre import-bundle guyalna.btz
+```
+
+A `.btz` is a plain zip — open it and you will find `item.json` (the
+authoritative metadata), `item.txt` (the same fields as a sidecar, for
+reading), the audio as a mono WAV, and the vectors as `.npz` arrays.
+
+### What an import decides, and why
+
+**The same recording, already here.** Matched on the stored file's digest, so
+two copies recognise each other whatever either library called them. Under the
+same biotimbre it is the same sample and is skipped. Under a *different* one it
+is two libraries disagreeing about which being it is, which is reported and
+skipped — `--duplicates add` overrides.
+
+**A species that already has a biotimbre here.** You and the sender each
+catalogued *Guyalna bonaerensis* and have two UUIDs for one animal. One species,
+one biotimbre: the incoming sample joins yours, and the sender's id is reported
+so nothing vanishes quietly. `--species keep-incoming` keeps theirs instead, and
+leaves you with two identities for one species until you merge them.
+
+**Embeddings.** Vectors are comparable only when the whole preprocessing recipe
+matches, so the bundle carries each model's full fingerprint — source, file,
+revision, sample rate, window length, overlap, dimension — and your library
+compares it field for field. A match is stored as it is, saving an inference
+pass; a mismatch is refused, naming the field that differs, and recomputed. A
+model you do not run is refused whatever it says. `--distrust-embeddings`
+throws them all away and recomputes from the audio, which is the only part of a
+bundle that verifies itself.
+
+Anything the bundle did not supply is computed on import, so an imported item is
+searchable straight away. `--no-embeddings` leaves those gaps for `backfill`
+instead — for a bulk import on a machine without the model files.
+
+A bundle from another person is treated as untrusted: only members its manifest
+names are read, paths that would escape the archive are refused, sizes and
+compression ratios are capped, arrays load with pickling off, every audio digest
+is verified, and every field goes through the same validation a typed-in form
+would.
 
 ## Ultrasonic samples: `speed`
 

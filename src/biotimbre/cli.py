@@ -15,8 +15,10 @@ from pathlib import Path
 from biotimbre.config import load_settings
 from biotimbre.domain.errors import BiotimbreError, ValidationError
 from biotimbre.domain.item import FilteredBand, ItemDraft, Location, SampleWindow
+from biotimbre.io.bundle import BUNDLE_SUFFIX
 from biotimbre.search.filters import SearchFilters
 from biotimbre.service import IngestResult, LibraryService, SearchHit
+from biotimbre.sharing import ImportPolicy
 
 
 def _service(args: argparse.Namespace) -> LibraryService:
@@ -48,6 +50,77 @@ def _print_ingest(result: IngestResult) -> None:
         print(f"  note: identical audio already stored as item(s) {ids}")
     for warning in result.warnings:
         print(f"  warning: {warning}")
+
+
+def _print_bundle_header(bundle) -> None:
+    """Say where a bundle came from, before saying what is in it."""
+    library = bundle.source_library
+    origin = library.name or "an unnamed library"
+    if library.uuid:
+        origin += f" ({library.uuid})"
+    print(f"Bundle from {origin}")
+    print(f"  written  {bundle.created_at or 'unknown'}")
+    print(f"  items    {len(bundle)}")
+    if bundle.models:
+        for model_id, fingerprint in sorted(bundle.models.items()):
+            print(
+                f"  {model_id:<14} {fingerprint.embedding_dim}d, "
+                f"{fingerprint.window_duration_s:g} s windows at "
+                f"{fingerprint.window_overlap:g} overlap"
+            )
+    else:
+        print("  models   none (metadata and audio only)")
+
+
+def _print_plan(plan, *, outcome=None) -> None:
+    """Report one entry, either as a prediction or as what happened.
+
+    Args:
+        plan: The entry's plan.
+        outcome: The result of carrying it out, or ``None`` for a dry run —
+            which is the only difference between the two reports.
+    """
+    if outcome is None:
+        verb = "add " if plan.action == "add" else "skip"
+    elif outcome.action == "add":
+        verb = f"added item {outcome.item.item_id}"
+    elif outcome.action == "failed":
+        verb = "FAILED"
+    else:
+        verb = "skipped"
+
+    draft = plan.draft
+    print(
+        f"{plan.index:>3}. {verb}  biotimbre {plan.biotimbre_id[:8]}  "
+        f"{draft.date} {draft.time}  {draft.taxa_display}"
+    )
+
+    source = plan.provenance
+    if source.item_id is not None:
+        print(f"       was item {source.item_id} in {source.library_name or 'it'}")
+    # A rebase is not reported here: every one of them produces a warning that
+    # names the sender's id and says why it was not kept, and printing the id
+    # twice reads as two different facts.
+
+    reason = plan.reason if outcome is None else outcome.reason
+    if reason:
+        print(f"       {reason}")
+
+    if outcome is not None and outcome.window_counts:
+        for model_id, count in sorted(outcome.window_counts.items()):
+            how = "reused" if model_id in plan.reusable else "computed"
+            print(f"       {model_id:<14} {count} window(s), {how}")
+    elif plan.reusable:
+        for model_id in plan.reusable:
+            windows = len(plan.entry.embeddings[model_id])
+            print(f"       {model_id:<14} {windows} window(s), reusable")
+
+    for model_id, why in sorted(plan.rejected.items()):
+        print(f"       {model_id:<14} not reused: {why}")
+
+    warnings = plan.warnings if outcome is None else outcome.warnings
+    for warning in warnings:
+        print(f"       warning: {warning}")
 
 
 def _print_hits(hits: list[SearchHit], *, show_all_models: bool) -> None:
@@ -121,7 +194,11 @@ def cmd_add(args: argparse.Namespace) -> int:
     """Add one sample, from a sidecar or from explicit flags."""
     with _service(args) as service:
         if args.sidecar or not args.date:
-            result = service.add_from_sidecar(args.audio, args.sidecar)
+            result = service.add_from_sidecar(
+                args.audio,
+                args.sidecar,
+                compute_embeddings=not args.no_embeddings,
+            )
         else:
             missing = [
                 name
@@ -168,6 +245,16 @@ def cmd_add(args: argparse.Namespace) -> int:
 
 def cmd_import(args: argparse.Namespace) -> int:
     """Add every sidecar-paired audio file in a directory."""
+    if Path(args.directory).suffix == BUNDLE_SUFFIX:
+        # A bundle is one file, not a directory of them, and it carries far
+        # more than a sidecar can. Saying so beats "Not a directory".
+        print(
+            f"error: {args.directory} is a shared bundle. Load it with:\n"
+            f"  biotimbre import-bundle {args.directory}",
+            file=sys.stderr,
+        )
+        return 2
+
     with _service(args) as service:
         results, failures = service.import_directory(
             args.directory, compute_embeddings=not args.no_embeddings
@@ -329,6 +416,64 @@ def cmd_export_npy(args: argparse.Namespace) -> int:
     with _service(args) as service:
         out = service.export_npy(args.item_id, args.model_id, args.output)
         print(f"Wrote {out}")
+    return 0
+
+
+def cmd_export_bundle(args: argparse.Namespace) -> int:
+    """Package items into a file that another library can load."""
+    with _service(args) as service:
+        path = service.export_bundle(
+            args.item_id,
+            args.output,
+            include_embeddings=not args.no_embeddings,
+        )
+        size = path.stat().st_size / 1024
+        print(f"Wrote {path} ({size:,.0f} KiB)")
+        print(f"  {len(args.item_id)} item(s)")
+        if args.no_embeddings:
+            print("  no embeddings: the receiving library recomputes them.")
+    return 0
+
+
+def cmd_import_bundle(args: argparse.Namespace) -> int:
+    """Load a shared bundle into this library."""
+    policy = ImportPolicy(
+        trust_embeddings=not args.distrust_embeddings,
+        compute_embeddings=not args.no_embeddings,
+        duplicate_audio=args.duplicates,
+        species_conflict=args.species.replace("-", "_"),
+    )
+
+    with _service(args) as service:
+        if args.dry_run:
+            preview = service.inspect_bundle(args.bundle, policy=policy)
+            _print_bundle_header(preview.bundle)
+            print()
+            for plan in preview.plans:
+                _print_plan(plan)
+            print(
+                f"\nWould add {len(preview.to_add)}, skip {len(preview.to_skip)}. "
+                f"Nothing was changed."
+            )
+            return 0
+
+        report = service.import_bundle(args.bundle, policy=policy)
+        _print_bundle_header(report.bundle)
+        print()
+        for outcome in report.outcomes:
+            _print_plan(outcome.plan, outcome=outcome)
+        print(
+            f"\nAdded {len(report.added)}, skipped {len(report.skipped)}"
+            + (f", failed {len(report.failed)}" if report.failed else "")
+            + "."
+        )
+        if report.failed:
+            for outcome in report.failed:
+                print(
+                    f"  entry {outcome.plan.index}: {outcome.reason}",
+                    file=sys.stderr,
+                )
+            return 1
     return 0
 
 
@@ -565,6 +710,64 @@ def build_parser() -> argparse.ArgumentParser:
     p_export.add_argument("model_id")
     p_export.add_argument("output", help="Output file or directory.")
     p_export.set_defaults(func=cmd_export_npy)
+
+    p_export_bundle = subparsers.add_parser(
+        "export-bundle",
+        help="Package items into a shareable file another library can load.",
+    )
+    p_export_bundle.add_argument(
+        "item_id", type=int, nargs="+", help="Items to include."
+    )
+    p_export_bundle.add_argument(
+        "-o",
+        "--output",
+        required=True,
+        help=f"Output file. The {BUNDLE_SUFFIX} suffix is added if absent.",
+    )
+    p_export_bundle.add_argument(
+        "--no-embeddings",
+        action="store_true",
+        help="Leave the vectors out. Halves the file; costs the recipient an "
+             "inference pass.",
+    )
+    p_export_bundle.set_defaults(func=cmd_export_bundle)
+
+    p_import_bundle = subparsers.add_parser(
+        "import-bundle",
+        help="Load a bundle shared by another library.",
+    )
+    p_import_bundle.add_argument("bundle", help=f"The {BUNDLE_SUFFIX} file.")
+    p_import_bundle.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Say what would happen and change nothing.",
+    )
+    p_import_bundle.add_argument(
+        "--no-embeddings",
+        action="store_true",
+        help="Do not compute what the bundle did not supply; leave it for "
+             "`backfill`.",
+    )
+    p_import_bundle.add_argument(
+        "--distrust-embeddings",
+        action="store_true",
+        help="Ignore the bundle's vectors and recompute from its audio.",
+    )
+    p_import_bundle.add_argument(
+        "--duplicates",
+        choices=("skip", "add"),
+        default="skip",
+        help="What to do with a recording this library already holds under "
+             "another biotimbre. Default: skip.",
+    )
+    p_import_bundle.add_argument(
+        "--species",
+        choices=("join-local", "keep-incoming"),
+        default="join-local",
+        help="What to do when an incoming species already has a biotimbre "
+             "here. Default: join-local, one species one biotimbre.",
+    )
+    p_import_bundle.set_defaults(func=cmd_import_bundle)
 
     p_stats = subparsers.add_parser("stats", help="Show library totals.")
     p_stats.set_defaults(func=cmd_stats)
