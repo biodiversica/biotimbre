@@ -5,10 +5,18 @@ from __future__ import annotations
 import pytest
 
 from biotimbre.domain.errors import ValidationError
+from biotimbre.domain.item import (
+    FilteredBand,
+    ItemDraft,
+    Location,
+    SampleWindow,
+    generate_biotimbre_id,
+)
 from biotimbre.io.sidecar import (
     draft_from_fields,
     draft_from_sidecar,
     find_sidecar,
+    format_sidecar,
     parse_sidecar,
     read_sidecar,
 )
@@ -169,3 +177,82 @@ class TestMandatoryFields:
     def test_unreadable_file_raises(self, tmp_path):
         with pytest.raises(ValidationError, match="Could not read"):
             read_sidecar(tmp_path / "nope.txt")
+
+
+class TestFormatSidecar:
+    """Writing the format back out. See :func:`format_sidecar`."""
+
+    def test_round_trips_through_the_parser(self):
+        draft = ItemDraft(
+            date="2020-01-14",
+            time="09:40:21",
+            location=Location(-20.5, -46.25),
+            sample_window=SampleWindow(5.0, 10.0),
+            biotimbre_id=generate_biotimbre_id(),
+            taxa="cicadidae, guyalna bonaerensis",
+            device="Audiomoth",
+            microphone="built-in",
+            recorded_by="Kaue",
+            filtered_band=FilteredBand(2000.0, 10_000.0),
+            filter_type="Butterworth",
+            filter_order=4,
+            temperature=21.5,
+            humidity=78.0,
+            speed=0.25,
+            link_to_full_recording="https://example.org/rec/1",
+            notes="two cicadas, one close",
+        ).validated()
+        assert draft_from_fields(parse_sidecar(format_sidecar(draft))) == draft
+
+    def test_round_trips_a_minimal_draft(self):
+        draft = ItemDraft(
+            date="2020-01-14", time="09:40:21", location=Location(0.0, 0.0)
+        ).validated()
+        assert draft_from_fields(parse_sidecar(format_sidecar(draft))) == draft
+
+    def test_round_trips_the_real_examples(self):
+        for name in ("GUYVIR.txt", "ZAMTYM.txt"):
+            draft = draft_from_sidecar(EXAMPLES_DIR / name)
+            assert draft_from_fields(parse_sidecar(format_sidecar(draft))) == draft
+
+    def test_omits_absent_optional_fields(self):
+        draft = ItemDraft(
+            date="2020-01-14", time="09:40:21", location=Location(0.0, 0.0)
+        ).validated()
+        written = {line.split()[0] for line in format_sidecar(draft).splitlines()}
+        # Absence means "not supplied"; an empty value would be a third state.
+        assert written == {"date", "time", "location", "speed"}
+
+    def test_always_writes_speed(self):
+        # It decides what the item's embeddings mean, so a file meant for
+        # another person says it rather than leaving it to be assumed.
+        draft = ItemDraft(
+            date="2020-01-14", time="09:40:21", location=Location(0.0, 0.0)
+        ).validated()
+        assert "speed" in parse_sidecar(format_sidecar(draft))
+
+    def test_collapses_a_multiline_note(self):
+        draft = ItemDraft(
+            date="2020-01-14",
+            time="09:40:21",
+            location=Location(0.0, 0.0),
+            notes="first line\nsecond line",
+        ).validated()
+        text = format_sidecar(draft)
+        assert len(text.splitlines()) == 5
+        assert parse_sidecar(text)["notes"] == "first line second line"
+
+    def test_normalises_a_loose_draft(self):
+        draft = ItemDraft(
+            date="2020-1-4", time="9:40:21", location="-20,-46", taxa=" Cicadidae "
+        )
+        fields = parse_sidecar(format_sidecar(draft))
+        assert fields["date"] == "2020-01-04"
+        assert fields["time"] == "09:40:21"
+        assert fields["taxa"] == "cicadidae"
+
+    def test_rejects_an_invalid_draft(self):
+        with pytest.raises(ValidationError):
+            format_sidecar(
+                ItemDraft(date="nope", time="09:40:21", location=Location(0.0, 0.0))
+            )

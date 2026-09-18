@@ -1,19 +1,51 @@
 """Import and export formats."""
 
+from biotimbre.io.bundle import (
+    BUNDLE_FORMAT,
+    BUNDLE_SUFFIX,
+    BUNDLE_VERSION,
+    AudioInfo,
+    Bundle,
+    BundleEntry,
+    ExportEntry,
+    ModelFingerprint,
+    Provenance,
+    SourceLibrary,
+    draft_from_json,
+    draft_to_json,
+    read_bundle,
+    write_bundle,
+)
 from biotimbre.io.sidecar import (
     SIDECAR_FIELDS,
     draft_from_fields,
     draft_from_sidecar,
     find_sidecar,
+    format_sidecar,
     parse_sidecar,
     read_sidecar,
 )
 
 __all__ = [
+    "BUNDLE_FORMAT",
+    "BUNDLE_SUFFIX",
+    "BUNDLE_VERSION",
     "SIDECAR_FIELDS",
+    "AudioInfo",
+    "Bundle",
+    "BundleEntry",
+    "ExportEntry",
+    "ModelFingerprint",
+    "Provenance",
+    "SourceLibrary",
     "draft_from_fields",
+    "draft_from_json",
     "draft_from_sidecar",
+    "draft_to_json",
     "find_sidecar",
+    "format_sidecar",
     "parse_sidecar",
+    "read_bundle",
     "read_sidecar",
+    "write_bundle",
 ]

@@ -211,3 +211,105 @@ def draft_from_sidecar(path: str | Path) -> ItemDraft:
         ValidationError: If the file is unreadable or its contents invalid.
     """
     return draft_from_fields(read_sidecar(path))
+
+
+#: Order fields are written in: identity, then when and where, then how it was
+#: recorded, then the free text. Reading a generated sidecar top to bottom
+#: should answer the questions in the order a person asks them.
+_WRITE_ORDER: tuple[str, ...] = (
+    "biotimbre_id",
+    "taxa",
+    "date",
+    "time",
+    "location",
+    "sample_window",
+    "device",
+    "microphone",
+    "recorded_by",
+    "filtered_band",
+    "filter_type",
+    "filter_order",
+    "temperature",
+    "humidity",
+    "speed",
+    "link_to_full_recording",
+    "notes",
+)
+
+#: Column the values line up in. Wide enough for the longest field name plus a
+#: space, so a generated file reads as two columns rather than a ragged list.
+_NAME_WIDTH = max(len(name) for name in _WRITE_ORDER) + 2
+
+
+def format_sidecar(draft: ItemDraft) -> str:
+    """Render a draft as sidecar text.
+
+    The inverse of :func:`parse_sidecar`, and the reason this lives here: a
+    format with a reader and a writer in different modules grows two opinions
+    about itself. Round-trips through :func:`draft_from_fields`, save for what
+    the format cannot hold — see below.
+
+    Absent optional fields are omitted rather than written empty: the format
+    reads absence as "not supplied", so an empty value would be a third state
+    it has no meaning for. ``speed`` is always written even at its default,
+    because it decides what an item's embeddings mean and leaving it implicit
+    in a file meant for another person invites the wrong assumption.
+
+    One thing does not survive: the format is one field per line, so a newline
+    inside ``notes`` becomes a space. Where this matters — inside a bundle —
+    the sidecar is the readable copy and ``item.json`` is the authoritative
+    one.
+
+    Args:
+        draft: The draft to render. Validated first, so the output is
+            canonical regardless of how loosely the caller built it.
+
+    Returns:
+        Sidecar text, one field per line, ending in a newline.
+
+    Raises:
+        ValidationError: If the draft does not validate.
+    """
+    validated = draft.validated()
+    values: dict[str, str | None] = {
+        "biotimbre_id": validated.biotimbre_id,
+        "taxa": ", ".join(validated.taxa) if validated.taxa else None,
+        "date": validated.date,
+        "time": validated.time,
+        "location": str(validated.location),
+        "sample_window": (
+            None if validated.sample_window is None else str(validated.sample_window)
+        ),
+        "device": validated.device,
+        "microphone": validated.microphone,
+        "recorded_by": validated.recorded_by,
+        "filtered_band": (
+            None if validated.filtered_band.is_unset else str(validated.filtered_band)
+        ),
+        "filter_type": validated.filter_type,
+        "filter_order": (
+            None if validated.filter_order is None else str(validated.filter_order)
+        ),
+        "temperature": _number(validated.temperature),
+        "humidity": _number(validated.humidity),
+        "speed": f"{validated.speed:g}",
+        "link_to_full_recording": validated.link_to_full_recording,
+        "notes": validated.notes,
+    }
+
+    lines = [
+        f"{name.ljust(_NAME_WIDTH)}{_one_line(values[name])}"
+        for name in _WRITE_ORDER
+        if values[name] is not None
+    ]
+    return "\n".join(lines) + "\n"
+
+
+def _number(value: float | None) -> str | None:
+    """A float without a trailing ``.0``, or ``None`` when absent."""
+    return None if value is None else f"{value:g}"
+
+
+def _one_line(value: str | None) -> str:
+    """Collapse whitespace so a value cannot break the one-field-per-line rule."""
+    return _SPLIT.sub(" ", (value or "").strip())
