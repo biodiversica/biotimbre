@@ -13,6 +13,7 @@ import socket
 import threading
 import time
 import webbrowser
+from collections.abc import Mapping
 
 from nicegui import app, ui
 
@@ -100,16 +101,23 @@ async def search_page() -> None:
         await search.render(t)
 
 
-def create_app(settings: Settings | None = None) -> AppState:
+def create_app(
+    settings: Settings | None = None,
+    *,
+    overrides: Mapping[str, object] | None = None,
+) -> AppState:
     """Build application state, register routes, and start warming models.
 
     Args:
         settings: Resolved settings. ``None`` loads them from the usual places.
+        overrides: Settings fields given on the command line. Passed on so
+            they survive the reader opening a different library, which re-reads
+            the configuration.
 
     Returns:
         The installed :class:`~biotimbre.ui.state.AppState`.
     """
-    state = AppState(settings)
+    state = AppState(settings, overrides=overrides)
     set_state(state)
     routes.register(app)
     if not state.is_open:
@@ -131,6 +139,7 @@ def run(
     port: int = DEFAULT_PORT,
     show: bool = True,
     reload: bool = False,
+    overrides: Mapping[str, object] | None = None,
 ) -> None:
     """Start the interface.
 
@@ -140,8 +149,13 @@ def run(
         port: Bind port.
         show: Open a browser window on start.
         reload: Enable NiceGUI's auto-reload (development only).
+        overrides: Settings fields given on the command line, which outrank
+            any config file the reader later opens a library beside.
     """
-    create_app(settings if settings is not None else load_settings())
+    create_app(
+        settings if settings is not None else load_settings(),
+        overrides=overrides,
+    )
     if show:
         # Opened here rather than by NiceGUI's ``show``, which goes through
         # ``webbrowser.open`` and can open a tab per launcher it tries.

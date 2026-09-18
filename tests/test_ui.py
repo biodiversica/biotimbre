@@ -258,3 +258,84 @@ class TestBrowserLaunch:
             probe.bind(("127.0.0.1", 0))
             free_port = probe.getsockname()[1]
         ui_app.open_browser("127.0.0.1", free_port, timeout=0.3)
+
+
+class TestCommandLineOverrides:
+    """Flags typed for one run must outlive opening a library from the browser.
+
+    ``open_library`` reloads the configuration so the new directory resolves
+    against it. Left alone, that also silently undoes every command-line flag.
+    """
+
+    @staticmethod
+    def _config(tmp_path, body: str, monkeypatch):
+        """Put a config file where ``load_settings`` will find it."""
+        directory = tmp_path / "workdir"
+        directory.mkdir()
+        (directory / "biotimbre.toml").write_text(body, "utf-8")
+        monkeypatch.chdir(directory)
+        return tmp_path / "elsewhere"
+
+    def test_an_override_survives_opening_another_library(
+        self, settings, shared_pool, tmp_path, monkeypatch
+    ):
+        target = self._config(tmp_path, "[map]\nenabled = true\n", monkeypatch)
+        app_state = AppState(settings, overrides={"map_enabled": False})
+        app_state.pool = shared_pool
+        try:
+            assert app_state.settings.map_enabled is False
+            app_state.open_library(target)
+            # The flag outranks the file, exactly as --data-dir does.
+            assert app_state.settings.map_enabled is False
+        finally:
+            app_state.close()
+
+    def test_without_an_override_the_config_file_wins(
+        self, settings, shared_pool, tmp_path, monkeypatch
+    ):
+        target = self._config(tmp_path, "[map]\nenabled = false\n", monkeypatch)
+        app_state = AppState(settings)
+        app_state.pool = shared_pool
+        try:
+            app_state.open_library(target)
+            assert app_state.settings.map_enabled is False
+        finally:
+            app_state.close()
+
+    def test_unrelated_settings_are_still_reloaded(
+        self, settings, shared_pool, tmp_path, monkeypatch
+    ):
+        target = self._config(
+            tmp_path, '[ui]\nlanguage = "pt_BR"\n', monkeypatch
+        )
+        app_state = AppState(settings, overrides={"map_enabled": False})
+        app_state.pool = shared_pool
+        try:
+            app_state.open_library(target)
+            # Only the overridden field is pinned; everything else is reloaded.
+            assert app_state.settings.language == "pt_BR"
+            assert app_state.settings.map_enabled is False
+        finally:
+            app_state.close()
+
+    def test_the_models_flag_survives_too(
+        self, settings, shared_pool, tmp_path, monkeypatch
+    ):
+        target = self._config(tmp_path, "", monkeypatch)
+        app_state = AppState(settings, overrides={"active_models": ("perch_v2",)})
+        app_state.pool = shared_pool
+        try:
+            app_state.open_library(target)
+            # --models was quietly reverted to the default pair before this.
+            assert app_state.settings.active_models == ("perch_v2",)
+        finally:
+            app_state.close()
+
+    def test_no_overrides_leaves_settings_untouched(self, settings, shared_pool):
+        app_state = AppState(settings)
+        app_state.pool = shared_pool
+        try:
+            assert app_state.overrides == {}
+            assert app_state.apply_overrides(settings) is settings
+        finally:
+            app_state.close()

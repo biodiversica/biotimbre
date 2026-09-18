@@ -256,6 +256,12 @@
     "compare_hint": "Play the query, then each result, to judge the match by ear.",
     "marker_hint": "The lighter band marks the window that produced the score."
   },
+  "map": {
+    "heading": "Where the results are from",
+    "pick_hint": "One dot per result; click a dot to see which. Clicking anywhere else sets the location filter's centre.",
+    "library_heading": "Where the library is from",
+    "library_hint": "One dot per item. Click a dot to see which."
+  },
   "inat": {
     "observation": "iNaturalist observation ID or link",
     "fetch": "Fetch",

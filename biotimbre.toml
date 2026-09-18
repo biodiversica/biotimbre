@@ -10,6 +10,18 @@ language = "en"            # en | pt_BR
 # kept offline; nothing else changes.
 enabled = true
 
+[map]
+# The location map: one per page, plotting every item on the library page and
+# the current results on the search page. Leaflet is served from this process,
+# but the basemap tiles below are fetched from OpenStreetMap as a page is
+# drawn — the only part of the interface that reaches the network on its own.
+# Set false for a library kept offline; location filtering is unaffected.
+# For one run only: biotimbre gui --no-map
+enabled = true
+# tile_url    = "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+# attribution = "&copy; OpenStreetMap contributors"
+# max_zoom    = 19
+
 [ui.theme]
 # Every key optional; omitted ones fall back to the built-in defaults.
 primary = "#20460a"

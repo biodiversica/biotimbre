@@ -23,6 +23,24 @@ from pathlib import Path
 DEFAULT_CONFIG_NAME = "biotimbre.toml"
 ENV_CONFIG = "BIOTIMBRE_CONFIG"
 
+#: Default basemap for the location map: OpenStreetMap's standard raster tiles.
+#: Leaflet itself ships with NiceGUI and is served from this process, so the
+#: tiles are the only part of the map that comes off the network — which is why
+#: the whole feature has a switch (``[map] enabled = false``, ``gui --no-map``).
+DEFAULT_TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+
+#: Attribution shown in the map corner. Displaying it is a condition of using
+#: OSM tiles, so it travels with the URL and changes when the URL does.
+DEFAULT_TILE_ATTRIBUTION = (
+    '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+    " contributors"
+)
+
+#: Deepest zoom the standard OSM layer serves. A self-hosted or regional tile
+#: set usually stops earlier, and asking for levels it does not have shows
+#: blank tiles rather than a zoomed-in map.
+DEFAULT_TILE_MAX_ZOOM = 19
+
 #: Languages the UI ships translations for. Single source of truth is the
 #: catalogue package, so adding a language means adding a file, not editing two
 #: lists that can drift apart.
@@ -161,6 +179,19 @@ class Settings:
         inaturalist_enabled: Whether the interface offers to fetch recordings
             from iNaturalist by observation ID. Switched off for a library
             that is kept offline.
+        map_enabled: Whether the pages show the location map. Unlike the
+            iNaturalist panel, which only reaches the network when someone
+            presses its button, a map requests tiles as soon as a page is
+            drawn — so a library kept offline turns this off and loses nothing
+            but the picture. The coordinates are still filtered on and still
+            printed on every result.
+        map_tile_url: Leaflet tile URL template, with ``{z}``, ``{x}`` and
+            ``{y}`` placeholders. Point it at a tile server of your own to
+            keep the map off the public one.
+        map_attribution: Credit line drawn in the map corner. Must name
+            whoever the tiles come from.
+        map_max_zoom: Deepest zoom offered, which should be the deepest the
+            tile server actually has.
         language: Default UI language, one of :data:`SUPPORTED_LANGUAGES`.
         theme: UI colour palette for the light theme.
         dark_theme: UI colour palette for the dark theme. Which of the two a
@@ -187,6 +218,10 @@ class Settings:
     active_models: tuple[str, ...] = ("perch_v2", "birdnet_v2.4")
     data_dir_chosen: bool = True
     inaturalist_enabled: bool = True
+    map_enabled: bool = True
+    map_tile_url: str = DEFAULT_TILE_URL
+    map_attribution: str = DEFAULT_TILE_ATTRIBUTION
+    map_max_zoom: int = DEFAULT_TILE_MAX_ZOOM
     language: str = "en"
     theme: Theme = field(default_factory=Theme)
     dark_theme: Theme = DEFAULT_DARK_THEME
@@ -393,6 +428,34 @@ def load_settings(
         raise ValueError("sources.inaturalist must be a table, e.g. enabled = true.")
     inaturalist_enabled = bool(inaturalist.get("enabled", True))
 
+    map_section = raw.get("map", {})
+    if not isinstance(map_section, dict):
+        raise ValueError("map must be a table, e.g. enabled = true.")
+    unknown_map = set(map_section) - {
+        "enabled",
+        "tile_url",
+        "attribution",
+        "max_zoom",
+    }
+    if unknown_map:
+        raise ValueError(f"Unknown map key(s): {', '.join(sorted(unknown_map))}.")
+    map_enabled = bool(map_section.get("enabled", defaults.map_enabled))
+    map_tile_url = str(map_section.get("tile_url", defaults.map_tile_url))
+    absent = [
+        placeholder
+        for placeholder in ("{z}", "{x}", "{y}")
+        if placeholder not in map_tile_url
+    ]
+    if absent:
+        raise ValueError(
+            f"map.tile_url is a Leaflet template and must contain "
+            f"{', '.join(absent)}."
+        )
+    map_attribution = str(map_section.get("attribution", defaults.map_attribution))
+    map_max_zoom = int(map_section.get("max_zoom", defaults.map_max_zoom))
+    if not 1 <= map_max_zoom <= 22:
+        raise ValueError("map.max_zoom must be between 1 and 22.")
+
     search = raw.get("search", {})
     batch_size = int(search.get("batch_size", defaults.search_batch_size))
     if batch_size < 1:
@@ -429,6 +492,10 @@ def load_settings(
         language=language,
         data_dir_chosen=chosen is not None,
         inaturalist_enabled=inaturalist_enabled,
+        map_enabled=map_enabled,
+        map_tile_url=map_tile_url,
+        map_attribution=map_attribution,
+        map_max_zoom=map_max_zoom,
         theme=theme,
         dark_theme=dark_theme,
         search_batch_size=batch_size,

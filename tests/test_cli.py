@@ -521,3 +521,38 @@ class TestSidecarAddDefersEmbedding:
             if row.startswith("embeddings")
         ]
         assert line and line[0].split()[-1] == "none"
+
+
+class TestGuiMapFlag:
+    """``gui --no-map``: refusing the map for one run, without a config file."""
+
+    def test_the_flag_defaults_to_keeping_the_map(self):
+        args = build_parser().parse_args(["gui"])
+        assert args.no_map is False
+
+    def test_the_flag_is_accepted(self):
+        assert build_parser().parse_args(["gui", "--no-map"]).no_map is True
+
+    def test_it_reaches_the_interface_as_a_setting(self, data_dir, monkeypatch):
+        seen = {}
+
+        def fake_run(settings, **kwargs):
+            seen["settings"] = settings
+
+        import biotimbre.ui.app as ui_app
+
+        monkeypatch.setattr(ui_app, "run", fake_run)
+        assert main(["--data-dir", data_dir, "gui", "--no-map"]) == 0
+        assert seen["settings"].map_enabled is False
+
+    def test_without_the_flag_the_map_stays_on(self, data_dir, monkeypatch):
+        seen = {}
+
+        def fake_run(settings, **kwargs):
+            seen["settings"] = settings
+
+        import biotimbre.ui.app as ui_app
+
+        monkeypatch.setattr(ui_app, "run", fake_run)
+        assert main(["--data-dir", data_dir, "gui"]) == 0
+        assert seen["settings"].map_enabled is True

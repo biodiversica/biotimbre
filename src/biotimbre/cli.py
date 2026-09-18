@@ -9,6 +9,7 @@ phase 8.
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import sys
 from pathlib import Path
 
@@ -489,10 +490,19 @@ def cmd_gui(args: argparse.Namespace) -> int:
         return 2
 
     settings = load_settings(args.config, data_dir=args.data_dir)
+    # Kept as overrides rather than only folded into ``settings``: opening a
+    # library from the browser reloads the configuration, and a flag typed for
+    # this run has to survive that.
+    overrides: dict[str, object] = {}
     if args.models:
-        settings = type(settings)(
-            **{**settings.__dict__, "active_models": tuple(args.models)}
-        )
+        overrides["active_models"] = tuple(args.models)
+    if args.no_map:
+        # The one part of the interface that reaches the network just by being
+        # looked at, so it can be refused for a single run without editing the
+        # config file.
+        overrides["map_enabled"] = False
+    if overrides:
+        settings = dataclasses.replace(settings, **overrides)
     if settings.data_dir_chosen:
         print(f"Library at {settings.data_dir}")
     else:
@@ -505,6 +515,7 @@ def cmd_gui(args: argparse.Namespace) -> int:
         port=args.port,
         show=not args.no_browser,
         reload=args.reload,
+        overrides=overrides,
     )
     return 0
 
@@ -784,6 +795,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_gui.add_argument(
         "--reload", action="store_true", help="Auto-reload on edits (development)."
+    )
+    p_gui.add_argument(
+        "--no-map",
+        action="store_true",
+        help=(
+            "Do not show the location map. Its basemap tiles are fetched from "
+            "OpenStreetMap as a page is drawn; everything else works offline."
+        ),
     )
     p_gui.set_defaults(func=cmd_gui)
 

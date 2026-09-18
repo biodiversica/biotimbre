@@ -23,7 +23,7 @@ from biotimbre.embeddings import audio as audio_io
 from biotimbre.i18n import Translator
 from biotimbre.models_registry import get_spec
 from biotimbre.sources import inaturalist
-from biotimbre.ui import inat
+from biotimbre.ui import inat, maps
 from biotimbre.ui.exports import export_button
 from biotimbre.ui.sharing import import_card
 from biotimbre.ui.forms import _blank_to_none, metadata_form
@@ -1022,8 +1022,38 @@ async def _open_edit(t: Translator, item: LibraryItem, parent, on_changed) -> No
 # ── list ──────────────────────────────────────────────────────────────────────
 
 
-async def _items_table(t: Translator, container, on_changed) -> None:
-    """Render the item list into ``container``."""
+def _item_points(items) -> list[maps.MapPoint]:
+    """Turn library items into plottable points.
+
+    Args:
+        items: The items currently listed.
+
+    Returns:
+        One point per item, labelled the way its table row is.
+    """
+    return [
+        maps.MapPoint(
+            latitude=item.location.latitude,
+            longitude=item.location.longitude,
+            label=f"#{item.item_id} · {item.taxa_display} · {item.date}",
+        )
+        for item in items
+    ]
+
+
+async def _items_table(
+    t: Translator, container, on_changed, library_map=None
+) -> None:
+    """Render the item list into ``container``, and plot it if there is a map.
+
+    Args:
+        t: Active translator.
+        container: Where the table goes.
+        on_changed: Called after an edit or a deletion.
+        library_map: The page's map, fed from the same list the table is built
+            from — the items are already loaded here, and a second query for
+            the same rows would be pure waste.
+    """
     state = get_state()
     # Everything is read before the container is emptied: an await after the
     # clear leaves the list blank for as long as it takes, and a redraw that is
@@ -1031,6 +1061,9 @@ async def _items_table(t: Translator, container, on_changed) -> None:
     items = await state.run(state.service.list_items)
     biotimbres = await state.run(state.service.repo.list_biotimbres)
     labels = {b["biotimbre_id"]: b["label"] for b in biotimbres}
+
+    if library_map is not None:
+        library_map.show(_item_points(items))
 
     container.clear()
     with container:
@@ -1085,6 +1118,15 @@ async def render(t: Translator) -> None:
     summary_container = ui.column().classes("w-full")
     add_container = ui.column().classes("w-full")
     import_container = ui.column().classes("w-full")
+    # One map for the whole library, above the list it plots — never one per
+    # row. Created here rather than further down because ``redraw`` closes
+    # over it and ``refresh`` can schedule one from any callback.
+    library_map = None
+    if maps.enabled():
+        with ui.column().classes("w-full"):
+            library_map = maps.map_card(
+                t, heading=t("map.library_heading"), hint=t("map.library_hint")
+            )
     table_container = ui.column().classes("w-full gap-2")
     # Home for the timers ``refresh`` schedules. See below for why they cannot
     # live wherever the caller happens to be.
@@ -1095,7 +1137,7 @@ async def render(t: Translator) -> None:
         summary_container.clear()
         with summary_container:
             await _summary_row(t)
-        await _items_table(t, table_container, refresh)
+        await _items_table(t, table_container, refresh, library_map)
 
     def refresh() -> None:
         """Schedule a redraw from a synchronous callback.

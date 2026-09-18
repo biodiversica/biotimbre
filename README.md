@@ -58,6 +58,8 @@ uv run biotimbre gui        # http://127.0.0.1:8080
 
 Loopback by default; exposing the library takes an explicit `--host`. Models load
 in the background, so the page is usable while the header reports progress.
+`--no-map` leaves out the location map, which is the only part that fetches
+anything from the network on its own.
 
 - **Library** — add, inspect, edit, delete. Choosing a file shows its spectrogram
   and sample rate before you commit, with each model's frequency limit noted.
@@ -315,6 +317,17 @@ max_query_duration_s = 15
 [ui]
 language = "en"            # en | pt_BR
 
+[map]
+# The location map on both pages. This is the only part of the interface that
+# reaches the network simply by being looked at — Leaflet itself is served
+# from this process, but the basemap tiles come from the URL below — so an
+# offline library sets enabled = false. Coordinates are still filtered on and
+# still shown as text either way.
+enabled = true
+# tile_url    = "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+# attribution = "&copy; OpenStreetMap contributors"   # must credit the source
+# max_zoom    = 19        # match what your tile server actually has
+
 [ui.theme]
 # The light palette. Every key optional; shown values are the defaults. Colours
 # are CSS values (hex, rgb(a), named) — primary..warning feed Quasar's palette,
@@ -438,6 +451,36 @@ Turn the whole thing off for an offline library:
 [sources.inaturalist]
 enabled = false
 ```
+
+### The location map
+
+Every item carries coordinates — the columns are `NOT NULL` — so both pages
+show **one map**: the library page plots every item, the search page plots the
+current results. One dot per recording; click a dot to see which one it is.
+There is deliberately no mini-map per row, which would mean one map instance
+and one set of tile requests per result.
+
+On the search page the map also works the other way round: clicking it fills
+in the location filter's centre (opening the filter panel so the narrowing is
+visible), and the centre and radius are drawn as a dot and a circle that
+follow whatever the three filter fields say.
+
+Leaflet ships inside NiceGUI and is served from this process, so no script is
+fetched from a CDN. The **basemap tiles are the exception** and the only reason
+the map touches the network. Turn it off for a library kept offline — the
+coordinates are still filtered on and still printed on every result:
+
+```toml
+[map]
+enabled = false
+```
+
+or, for a single run, `biotimbre gui --no-map`. Command-line flags outrank the
+config file and survive opening a different library from the browser.
+
+Pointing `tile_url` at a tile server of your own keeps the map off the public
+one; whatever you point it at, `attribution` has to credit it, and `max_zoom`
+should match the deepest zoom it actually serves or you get blank tiles.
 
 ### Spectrogram or waveform
 

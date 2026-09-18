@@ -926,6 +926,97 @@ class TestObservationFetch:
         ]
 
 
+class TestLibraryMap:
+    """One map of the whole library, above the list — and never one per row."""
+
+    @pytest.fixture(autouse=True)
+    def registered_pages(self, user: User):
+        """Re-register the pages against this test's own NiceGUI app.
+
+        ``biotimbre.ui.app`` registers its routes with module-level
+        ``@ui.page`` decorators, which run once on first import. Another
+        module imports it at collection time, and the ``user`` fixture resets
+        the router per test, so by the time this class runs the routes are
+        gone and every ``user.open`` 404s. Same reasoning, and the same cure,
+        as ``tests/test_sharing_page.py``.
+        """
+        import importlib
+
+        from biotimbre.ui import app as ui_app
+
+        importlib.reload(ui_app)
+
+    @staticmethod
+    def _store(state, *locations):
+        from biotimbre.domain.item import ItemDraft, Location, SampleWindow
+        from conftest import add_item
+
+        for index, (latitude, longitude) in enumerate(locations):
+            draft = ItemDraft(
+                date="2020-01-14",
+                time="09:40:21",
+                location=Location(latitude, longitude),
+                sample_window=SampleWindow(5.0, 10.0),
+                taxa=("cicadidae",),
+            ).validated()
+            add_item(state.service.repo, draft, sha256=f"{index:064d}")
+
+    async def test_plots_one_point_per_item(self, user: User, installed_state):
+        from biotimbre.ui import maps
+
+        self._store(installed_state, (-26.3, -48.85), (-25.4, -49.2))
+        from biotimbre.ui import app as ui_app  # noqa: F401
+        await user.open("/")
+        await user.should_see("2 item(s)")
+
+        elements = list(user.find(ui.leaflet).elements)
+        # One map for the page, not one per item.
+        assert len(elements) == 1
+        markers = [
+            layer
+            for layer in elements[0].layers
+            if layer.to_dict()["type"] == "circleMarker"
+        ]
+        assert len(markers) == 2
+        assert {tuple(layer.to_dict()["args"][0]) for layer in markers} == {
+            (-26.3, -48.85),
+            (-25.4, -49.2),
+        }
+        assert maps.enabled()
+
+    async def test_an_empty_library_still_renders_a_map(
+        self, user: User, installed_state
+    ):
+        from biotimbre.ui import app as ui_app  # noqa: F401
+        await user.open("/")
+        await user.should_see("The library is empty")
+        elements = list(user.find(ui.leaflet).elements)
+        assert len(elements) == 1
+        assert not [
+            layer
+            for layer in elements[0].layers
+            if layer.to_dict()["type"] == "circleMarker"
+        ]
+
+    async def test_the_switch_hides_it(self, user: User, installed_state):
+        import dataclasses
+
+        installed_state.settings = dataclasses.replace(
+            installed_state.settings, map_enabled=False
+        )
+        self._store(installed_state, (-26.3, -48.85))
+        from biotimbre.ui import app as ui_app  # noqa: F401
+        await user.open("/")
+        await user.should_see("1 item(s)")
+        # Nothing is fetched from a tile server. ``user.find`` insists on a
+        # match, so absence is checked against the page's own elements.
+        assert not [
+            element
+            for element in user.client.elements.values()
+            if isinstance(element, ui.leaflet)
+        ]
+
+
 @pytest.mark.usefixtures("installed_state")
 class TestAudioView:
     """Choosing between the spectrogram and the waveform."""

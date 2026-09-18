@@ -19,12 +19,13 @@ worker thread while holding a lock.
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import secrets
 import shutil
 import tempfile
 import threading
 from collections import OrderedDict
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, TypeVar
@@ -154,9 +155,19 @@ class AppState:
 
     Args:
         settings: Resolved settings. ``None`` loads them from the usual places.
+        overrides: Settings fields given on the command line, which must
+            survive :meth:`open_library`. Opening a library re-reads the
+            configuration so the new directory is resolved against it, and
+            that would otherwise quietly undo every flag typed for this run.
     """
 
-    def __init__(self, settings: Settings | None = None):
+    def __init__(
+        self,
+        settings: Settings | None = None,
+        *,
+        overrides: Mapping[str, object] | None = None,
+    ):
+        self.overrides = dict(overrides or {})
         self.settings = settings if settings is not None else load_settings()
         self._lock = threading.RLock()
 
@@ -218,7 +229,7 @@ class AppState:
             BiotimbreError: If the directory cannot be used as a library.
         """
         with self._lock:
-            settings = load_settings(data_dir=data_dir)
+            settings = self.apply_overrides(load_settings(data_dir=data_dir))
             settings.ensure_dirs()
             # allow_threads because request handlers and the inference worker
             # do not share a thread; the lock is what makes that safe.
@@ -236,6 +247,21 @@ class AppState:
                 # learn their dimensions before anything can be embedded.
                 service.ensure_models_registered()
             return settings
+
+    def apply_overrides(self, settings: Settings) -> Settings:
+        """Put the command line's last word back on freshly loaded settings.
+
+        A flag outranks the config file, the same way ``--data-dir`` does.
+
+        Args:
+            settings: Settings as read from the configuration.
+
+        Returns:
+            The same settings with every override reapplied.
+        """
+        if not self.overrides:
+            return settings
+        return dataclasses.replace(settings, **self.overrides)
 
     def close_library(self) -> None:
         """Close the open library, if any, leaving the models loaded."""

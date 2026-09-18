@@ -723,6 +723,175 @@ class TestObservationFetch:
         ]
 
 
+class TestResultMap:
+    """One map above the results, and the location filter made visible on it."""
+
+    @pytest.fixture(autouse=True)
+    def registered_pages(self, user: User):
+        """Re-register the pages against this test's own NiceGUI app.
+
+        ``biotimbre.ui.app`` registers its routes with module-level
+        ``@ui.page`` decorators, which run once on first import. Another
+        module imports it at collection time, and the ``user`` fixture resets
+        the router per test, so by the time this class runs the routes are
+        gone and every ``user.open`` 404s. Same reasoning, and the same cure,
+        as ``tests/test_sharing_page.py``.
+        """
+        import importlib
+
+        from biotimbre.ui import app as ui_app
+
+        importlib.reload(ui_app)
+
+    @staticmethod
+    def _store(state, *locations):
+        from biotimbre.domain.item import ItemDraft, Location, SampleWindow
+        from conftest import add_item
+
+        for index, (latitude, longitude) in enumerate(locations):
+            draft = ItemDraft(
+                date="2020-01-14",
+                time="09:40:21",
+                location=Location(latitude, longitude),
+                sample_window=SampleWindow(5.0, 10.0),
+                taxa=("cicadidae",),
+            ).validated()
+            add_item(state.service.repo, draft, sha256=f"{index:064d}")
+
+    @staticmethod
+    def _map(user: User):
+        return list(user.find(ui.leaflet).elements)[0]
+
+    @staticmethod
+    def _run_search(user: User) -> None:
+        """Click the page's Search button, not the header's Search tab."""
+        from nicegui.testing.user_interaction import UserInteraction
+
+        button = next(
+            element
+            for element in user.find(ui.button).elements
+            if element._props.get("label") == "Search"
+            and "flat" not in element._props
+        )
+        UserInteraction(user, {button}, None).click()
+
+    @staticmethod
+    def _markers(element):
+        return [
+            layer
+            for layer in element.layers
+            if layer.to_dict()["type"] == "circleMarker"
+        ]
+
+    async def test_one_map_for_the_page_not_one_per_result(
+        self, user: User, installed_state
+    ):
+        from biotimbre.ui import app as ui_app  # noqa: F401
+
+        self._store(installed_state, (-26.3, -48.85), (-25.4, -49.2))
+        await user.open("/search")
+        await user.should_see("Find similar samples")
+
+        elements = list(user.find(ui.leaflet).elements)
+        assert len(elements) == 1
+
+    async def test_results_are_plotted(self, user: User, installed_state):
+        from biotimbre.ui import app as ui_app  # noqa: F401
+
+        self._store(installed_state, (-26.3, -48.85), (-25.4, -49.2))
+        await user.open("/search")
+        await user.should_see("Find similar samples")
+
+        # A metadata-only search, so no models are needed: a filter alone is
+        # enough, and a search with no filter and no query is refused.
+        dates = {
+            element._props.get("label"): element
+            for element in user.find(ui.input).elements
+        }
+        dates["From date"].value = "2000-01-01"
+
+        self._run_search(user)
+        await user.should_see("2 match(es)")
+
+        markers = self._markers(self._map(user))
+        assert {tuple(layer.to_dict()["args"][0]) for layer in markers} == {
+            (-26.3, -48.85),
+            (-25.4, -49.2),
+        }
+
+    async def test_the_location_filter_draws_a_centre_and_a_radius(
+        self, user: User, installed_state
+    ):
+        from biotimbre.ui import app as ui_app  # noqa: F401
+
+        await user.open("/search")
+        await user.should_see("Find similar samples")
+
+        # Typing into the filter is enough: the map follows the inputs rather
+        # than each of the four places that write them.
+        numbers = {
+            element._props.get("label"): element
+            for element in user.find(ui.number).elements
+        }
+        numbers["Centre latitude"].value = -26.3
+        numbers["Centre longitude"].value = -48.85
+        numbers["Radius"].value = 25.0
+
+        element = self._map(user)
+        circles = [
+            layer for layer in element.layers if layer.to_dict()["type"] == "circle"
+        ]
+        assert len(circles) == 1
+        assert circles[0].to_dict()["args"][0] == [-26.3, -48.85]
+        assert circles[0].to_dict()["args"][1]["radius"] == 25_000.0
+
+    async def test_clearing_the_filters_removes_the_centre(
+        self, user: User, installed_state
+    ):
+        from biotimbre.ui import app as ui_app  # noqa: F401
+
+        await user.open("/search")
+        await user.should_see("Find similar samples")
+
+        numbers = {
+            element._props.get("label"): element
+            for element in user.find(ui.number).elements
+        }
+        numbers["Centre latitude"].value = -26.3
+        numbers["Centre longitude"].value = -48.85
+        numbers["Radius"].value = 25.0
+
+        user.find("Clear filters").click()
+        element = self._map(user)
+        assert not [
+            layer for layer in element.layers if layer.to_dict()["type"] == "circle"
+        ]
+
+    async def test_the_switch_hides_it(self, user: User, installed_state):
+        import dataclasses
+
+        from biotimbre.ui import app as ui_app  # noqa: F401
+
+        installed_state.settings = dataclasses.replace(
+            installed_state.settings, map_enabled=False
+        )
+        self._store(installed_state, (-26.3, -48.85))
+        await user.open("/search")
+        await user.should_see("Find similar samples")
+
+        # The coordinate filters are untouched by the switch: only the picture
+        # goes away, not the ability to search on location.
+        labels = {
+            element._props.get("label") for element in user.find(ui.number).elements
+        }
+        assert {"Centre latitude", "Centre longitude", "Radius"} <= labels
+        assert not [
+            element
+            for element in user.client.elements.values()
+            if isinstance(element, ui.leaflet)
+        ]
+
+
 class TestSearchEndToEnd:
     async def test_finds_a_stored_item(self, user: User, installed_state):
         installed_state.warm_models()

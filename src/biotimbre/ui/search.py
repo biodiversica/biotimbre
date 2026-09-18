@@ -24,7 +24,7 @@ from biotimbre.search.vector_search import FUSIONS, METRICS
 from biotimbre.service import SearchHit
 from biotimbre.sources import inaturalist
 from biotimbre.ui.admin import ACCEPTED
-from biotimbre.ui import inat
+from biotimbre.ui import inat, maps
 from biotimbre.ui.exports import export_button
 from biotimbre.ui.layout import notify_error
 from biotimbre.ui.spectrograms import place_span_marker
@@ -116,6 +116,35 @@ def _fill_filters_from(t: Translator, inputs: dict, observation) -> None:
         # filter is visible and editable, which is the point of filling it in.
         inputs["radius_km"].value = inputs["radius_km"].value or OBSERVATION_RADIUS_KM
     inputs["panel"].value = True
+
+
+def _hit_points(t: Translator, hits) -> list[maps.MapPoint]:
+    """Turn search hits into plottable points.
+
+    The popup says which recording a dot is, in the same terms as the card
+    below it — a dot the reader cannot connect to a result is just decoration.
+
+    Args:
+        t: Active translator.
+        hits: What the search returned.
+
+    Returns:
+        One point per hit, in rank order.
+    """
+    points = []
+    for rank, hit in enumerate(hits, start=1):
+        item = hit.item
+        parts = [f"{rank}. {item.taxa_display}", f"#{item.item_id}", item.date]
+        if hit.distance_km is not None:
+            parts.append(t("search.distance", km=f"{hit.distance_km:.1f}"))
+        points.append(
+            maps.MapPoint(
+                latitude=item.location.latitude,
+                longitude=item.location.longitude,
+                label=" · ".join(part for part in parts if part),
+            )
+        )
+    return points
 
 
 def _embedding_counts(item_ids: list[int]) -> dict[int, dict[str, int]]:
@@ -436,6 +465,9 @@ async def render(t: Translator) -> None:
             query.end = 0.0
             uploader.reset()
             results_area.clear()
+            if result_map is not None:
+                # The dots answered the query that just went away.
+                result_map.show(())
             await draw_query()
 
         async def draw_query() -> None:
@@ -656,6 +688,43 @@ async def render(t: Translator) -> None:
     if not state.models.ready:
         ui.label(t("app.loading_models_hint")).classes("text-notice text-sm")
 
+    result_map = None
+    if maps.enabled():
+
+        def pick_centre(latitude: float, longitude: float) -> None:
+            """Make the clicked point the location filter's centre.
+
+            Filled in rather than applied: the panel opens so the narrowing is
+            visible, exactly as a fetched observation's coordinates are.
+            """
+            filters["latitude"].value = round(latitude, 6)
+            filters["longitude"].value = round(longitude, 6)
+            filters["radius_km"].value = (
+                filters["radius_km"].value or OBSERVATION_RADIUS_KM
+            )
+            filters["panel"].value = True
+
+        result_map = maps.map_card(
+            t,
+            heading=t("map.heading"),
+            hint=t("map.pick_hint"),
+            on_pick=pick_centre,
+        )
+
+        def show_centre() -> None:
+            """Redraw the centre and radius from whatever the filter now holds."""
+            result_map.set_focus(
+                filters["latitude"].value,
+                filters["longitude"].value,
+                filters["radius_km"].value,
+            )
+
+        # Bound to the inputs rather than called from each place that writes
+        # them: the centre is set by clicking the map, by typing, by a fetched
+        # observation and by Clear filters, and all four have to agree.
+        for name in ("latitude", "longitude", "radius_km"):
+            filters[name].on_value_change(show_centre)
+
     results_area = ui.column().classes("w-full gap-2")
 
     #: What the results area is currently showing, so a view change can redraw
@@ -745,6 +814,8 @@ async def render(t: Translator) -> None:
             scored: Whether the hits came from a query rather than filters.
         """
         shown.update(hits=hits, counts=counts, scored=scored)
+        if result_map is not None:
+            result_map.show(_hit_points(t, hits))
         results_area.clear()
         with results_area:
             if not hits:

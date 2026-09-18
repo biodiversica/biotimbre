@@ -6,7 +6,13 @@ from pathlib import Path
 
 import pytest
 
-from biotimbre.config import ENV_CONFIG, Settings, find_config_file, load_settings
+from biotimbre.config import (
+    DEFAULT_TILE_URL,
+    ENV_CONFIG,
+    Settings,
+    find_config_file,
+    load_settings,
+)
 
 
 def write_config(directory: Path, body: str, name: str = "biotimbre.toml") -> Path:
@@ -194,3 +200,58 @@ class TestValidation:
         assert settings.default_metric == "cosine"
         assert settings.max_query_duration_s == 15.0
         assert settings.active_models == ("perch_v2", "birdnet_v2.4")
+
+
+class TestMapSection:
+    """``[map]``: the switch, and where the basemap comes from."""
+
+    def test_the_map_is_on_by_default(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        settings = load_settings()
+        assert settings.map_enabled is True
+        assert settings.map_tile_url == DEFAULT_TILE_URL
+        assert "OpenStreetMap" in settings.map_attribution
+
+    def test_it_can_be_switched_off(self, tmp_path):
+        config = write_config(tmp_path, "[map]\nenabled = false\n")
+        # The only part of the interface that reaches the network simply by
+        # being looked at, so a library kept offline turns it off.
+        assert load_settings(config).map_enabled is False
+
+    def test_a_tile_server_of_your_own(self, tmp_path):
+        config = write_config(
+            tmp_path,
+            '[map]\n'
+            'tile_url = "http://192.168.1.4:8080/tile/{z}/{x}/{y}.png"\n'
+            'attribution = "Tiles from the shed"\n'
+            'max_zoom = 14\n',
+        )
+        settings = load_settings(config)
+        assert settings.map_tile_url == "http://192.168.1.4:8080/tile/{z}/{x}/{y}.png"
+        assert settings.map_attribution == "Tiles from the shed"
+        assert settings.map_max_zoom == 14
+
+    @pytest.mark.parametrize(
+        "body,message",
+        [
+            ('[map]\ntile_url = "http://tiles/{x}/{y}.png"\n', r"\{z\}"),
+            ('[map]\ntile_url = "http://tiles/static.png"\n', r"\{z\}"),
+            ("[map]\nmax_zoom = 0\n", "max_zoom"),
+            ("[map]\nmax_zoom = 30\n", "max_zoom"),
+            ("[map]\nenable = true\n", "Unknown map key"),
+        ],
+    )
+    def test_a_broken_map_section_is_rejected(self, tmp_path, body, message):
+        # A typo'd switch that silently leaves the map on is worse than a
+        # refusal to start.
+        config = write_config(tmp_path, body)
+        with pytest.raises(ValueError, match=message):
+            load_settings(config)
+
+    def test_switching_the_map_off_leaves_everything_else_alone(self, tmp_path):
+        config = write_config(tmp_path, "[map]\nenabled = false\n")
+        settings = load_settings(config)
+        assert settings.map_enabled is False
+        # Location filtering is not part of the picture.
+        assert settings.inaturalist_enabled is True
+        assert settings.default_top_k == 10

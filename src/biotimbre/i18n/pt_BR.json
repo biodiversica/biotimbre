@@ -256,6 +256,12 @@
     "compare_hint": "Reproduza a busca e depois cada resultado para julgar a correspondência de ouvido.",
     "marker_hint": "A faixa mais clara marca a janela que gerou a pontuação."
   },
+  "map": {
+    "heading": "De onde vêm os resultados",
+    "pick_hint": "Um ponto por resultado; clique em um ponto para ver qual. Clicar em qualquer outro lugar define o centro do filtro de localização.",
+    "library_heading": "De onde vem a biblioteca",
+    "library_hint": "Um ponto por item. Clique em um ponto para ver qual."
+  },
   "inat": {
     "observation": "ID ou link de observação no iNaturalist",
     "fetch": "Buscar",
