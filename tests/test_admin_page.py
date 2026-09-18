@@ -445,7 +445,7 @@ class TestAdminPageRenders:
         await user.open("/")
         await user.should_see("No file chosen yet.")
 
-        uploader = next(iter(user.find(ui.upload).elements))
+        uploader = next(iter(user.find(marker="upload-audio").elements))
         await uploader.handle_uploads(
             [SmallFileUpload("GUYVIR.wav", "audio/wav", GUYVIR.read_bytes())]
         )
@@ -477,7 +477,7 @@ class TestAdminPageRenders:
         from biotimbre.ui import app as ui_app  # noqa: F401
 
         await user.open("/")
-        uploader = next(iter(user.find(ui.upload).elements))
+        uploader = next(iter(user.find(marker="upload-audio").elements))
         await uploader.handle_uploads(
             [SmallFileUpload("GUYVIR.wav", "audio/wav", GUYVIR.read_bytes())]
         )
@@ -513,7 +513,7 @@ class TestAdminPageRenders:
         from biotimbre.ui import app as ui_app  # noqa: F401
 
         await user.open("/")
-        uploader = next(iter(user.find(ui.upload).elements))
+        uploader = next(iter(user.find(marker="upload-audio").elements))
         await uploader.handle_uploads(
             [SmallFileUpload("GUYVIR.wav", "audio/wav", GUYVIR.read_bytes())]
         )
@@ -556,7 +556,7 @@ class TestAdminPageRenders:
         sf.write(path, stereo, rate, subtype="FLOAT")
 
         await user.open("/")
-        uploader = next(iter(user.find(ui.upload).elements))
+        uploader = next(iter(user.find(marker="upload-audio").elements))
         await uploader.handle_uploads(
             [SmallFileUpload("stereo.wav", "audio/wav", path.read_bytes())]
         )
@@ -571,7 +571,7 @@ class TestAdminPageRenders:
         from biotimbre.ui.admin import AddState  # noqa: F401
 
         await user.open("/")
-        uploader = next(iter(user.find(ui.upload).elements))
+        uploader = next(iter(user.find(marker="upload-audio").elements))
         await uploader.handle_uploads(
             [SmallFileUpload("GUYVIR.wav", "audio/wav", GUYVIR.read_bytes())]
         )
@@ -695,7 +695,7 @@ class TestSpeciesJoinsItsBiotimbre:
         from nicegui.elements.upload_files import SmallFileUpload
         from nicegui.testing.user_interaction import UserInteraction
 
-        uploader = next(iter(user.find(ui.upload).elements))
+        uploader = next(iter(user.find(marker="upload-audio").elements))
         await uploader.handle_uploads(
             [SmallFileUpload("GUYVIR.wav", "audio/wav", GUYVIR.read_bytes())]
         )

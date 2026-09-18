@@ -25,6 +25,7 @@ from biotimbre.models_registry import get_spec
 from biotimbre.sources import inaturalist
 from biotimbre.ui import inat
 from biotimbre.ui.exports import export_button
+from biotimbre.ui.sharing import import_card
 from biotimbre.ui.forms import _blank_to_none, metadata_form
 from biotimbre.ui.layout import notify_error
 from biotimbre.ui.spectrograms import place_span_marker
@@ -640,13 +641,18 @@ def _add_card(t: Translator, on_added) -> None:
             """Report a file the browser refused, e.g. wrong type or too large."""
             ui.notify(t("error.no_audio"), type="warning", position="top")
 
+        # Marked because the page carries a second upload control — the bundle
+        # importer below — and "the upload element" stopped being unambiguous
+        # the moment it did.
         uploader = ui.upload(
             label=t("admin.upload"),
             on_upload=handle_upload,
             on_rejected=handle_rejected,
             auto_upload=True,
             max_files=1,
-        ).props(f'accept="{ACCEPTED}" flat bordered').classes("w-full")
+        ).props(f'accept="{ACCEPTED}" flat bordered').classes("w-full").mark(
+            "upload-audio"
+        )
 
         async def stage_observation_sound(observation, sound, on_progress) -> None:
             """Stage one of an observation's recordings for adding."""
@@ -1074,9 +1080,11 @@ async def render(t: Translator) -> None:
     """
     ui.label(t("admin.heading")).classes("text-xl font-medium")
 
-    # Containers are created in display order: totals, the add form, then the list.
+    # Containers are created in display order: totals, the add form, the
+    # bundle importer, then the list.
     summary_container = ui.column().classes("w-full")
     add_container = ui.column().classes("w-full")
+    import_container = ui.column().classes("w-full")
     table_container = ui.column().classes("w-full gap-2")
     # Home for the timers ``refresh`` schedules. See below for why they cannot
     # live wherever the caller happens to be.
@@ -1103,4 +1111,6 @@ async def render(t: Translator) -> None:
 
     with add_container:
         _add_card(t, refresh)
+    with import_container:
+        import_card(t, refresh)
     await redraw()

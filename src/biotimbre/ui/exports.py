@@ -28,6 +28,22 @@ async def _download_audio(t: Translator, item_id: int) -> None:
     ui.download.file(path, audio_filename(item_id, path.suffix), mime)
 
 
+async def _download_bundle(t: Translator, item_id: int) -> None:
+    """Send a shareable bundle of one item to the browser.
+
+    The whole item — metadata, audio and vectors — rather than one of its
+    parts, because this is the download meant for another person rather than
+    for a tool.
+    """
+    state = get_state()
+    try:
+        data, name = await state.run(state.service.export_bundle_bytes, [item_id])
+    except BiotimbreError as exc:
+        notify_error(t, exc)
+        return
+    ui.download.content(data, name, "application/zip")
+
+
 async def _download_embeddings(t: Translator, item_id: int, model_id: str) -> None:
     """Send one model's embeddings to the browser, one file per window."""
     state = get_state()
@@ -64,6 +80,14 @@ def export_button(t: Translator, item_id: int, counts: dict[str, int]) -> ui.but
                 t("export.audio"),
                 on_click=lambda: _download_audio(t, item_id),
             )
+            # The one entry here that is for a person rather than a program:
+            # everything the receiving library needs to file this sample under
+            # the same identity it has here.
+            ui.menu_item(
+                t("export.bundle"),
+                on_click=lambda: _download_bundle(t, item_id),
+            )
+            ui.separator()
             for model, count in sorted(counts.items()):
                 # The label names the artefact: a window per file means several
                 # windows arrive as an archive, not as one .npy.
