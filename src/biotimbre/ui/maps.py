@@ -62,6 +62,20 @@ FIT_MAX_ZOOM = 14
 #: Latitude beyond which Web Mercator stops being defined.
 MERCATOR_LIMIT = 85.05112878
 
+#: Kilometres per degree of latitude. A sphere, not the ellipsoid: the error is
+#: a few parts in a thousand, and this only decides a framing.
+KM_PER_DEGREE = 111.32
+
+#: How much wider than the radius circle its frame is drawn. A circle flush
+#: against the edges of the map reads as something cut off rather than as the
+#: area being searched.
+FOCUS_PADDING = 1.25
+
+#: Floor on ``cos(latitude)`` when converting kilometres to degrees of
+#: longitude. At the poles the true factor is zero and the conversion diverges;
+#: this caps the box at a few thousand kilometres wide instead.
+MIN_COSINE = 0.01
+
 #: Point and radius styling. Colours live in the stylesheet rather than in the
 #: layer options because Leaflet writes them as SVG presentation attributes,
 #: where ``var(--bt-primary)`` does not resolve; a class does.
@@ -165,6 +179,35 @@ def fit_view(
     return centre, max(WORLD_ZOOM, min(FIT_MAX_ZOOM, zoom))
 
 
+def radius_box(
+    latitude: float, longitude: float, radius_km: float
+) -> list[tuple[float, float]]:
+    """Corners of a box enclosing the circle of ``radius_km`` about a centre.
+
+    Framing a circle is framing its bounding box, and :func:`fit_view` already
+    knows how to frame a set of points. The box is padded so the circle sits
+    inside the map rather than against its edges.
+
+    Args:
+        latitude: Centre latitude in degrees.
+        longitude: Centre longitude in degrees.
+        radius_km: Radius in kilometres.
+
+    Returns:
+        The south-west and north-east corners as ``(latitude, longitude)``.
+    """
+    reach = abs(radius_km) * FOCUS_PADDING
+    span_lat = reach / KM_PER_DEGREE
+    # A degree of longitude shrinks towards the poles, so the same radius is
+    # more degrees wide the further north or south the centre is.
+    cosine = max(MIN_COSINE, math.cos(math.radians(latitude)))
+    span_lon = min(180.0, reach / (KM_PER_DEGREE * cosine))
+    return [
+        (max(-90.0, latitude - span_lat), longitude - span_lon),
+        (min(90.0, latitude + span_lat), longitude + span_lon),
+    ]
+
+
 class LocationMap:
     """A single map, redrawable with a new set of points.
 
@@ -185,6 +228,9 @@ class LocationMap:
         self._height = height
         self._points: list = []
         self._focus: list = []
+        # The corners the focus contributes to a fit, so that a later redraw of
+        # the points keeps the searched area whole rather than cropping it.
+        self._focus_bounds: list[tuple[float, float]] = []
         # Layers bound to a popup before the map came up, which have to wait:
         # a method call on an uninitialised map is silently discarded.
         self._pending_popups: list[tuple[object, str]] = []
@@ -247,13 +293,26 @@ class LocationMap:
         else:
             self._pending_popups.append((layer, content))
 
+    def _move_to(self, points: Sequence[tuple[float, float]]) -> None:
+        """Frame ``points``, which may be markers, focus corners or both."""
+        centre, zoom = fit_view(points, height=self._height)
+        # The bindable attributes rather than set_center/set_zoom: those
+        # write the props behind the binding's back, leaving anything
+        # bound to the view stale.
+        self.element.center = centre
+        self.element.zoom = zoom
+        # Props alone only reach a map that has yet to be built. For one
+        # already on screen, this is what turns them into a setView.
+        self.element.update()
+
     def show(self, points: Sequence[MapPoint], *, refit: bool = True) -> None:
         """Replace the plotted points.
 
         Args:
             points: What to draw.
-            refit: Whether to move the view to cover them. ``False`` leaves the
-                reader where they had panned to.
+            refit: Whether to move the view to cover them, and the searched
+                area if one is set. ``False`` leaves the reader where they had
+                panned to.
         """
         for layer in self._points:
             self.element.remove_layer(layer)
@@ -276,24 +335,21 @@ class LocationMap:
                 self._popup(layer, point.label)
 
         if refit:
-            centre, zoom = fit_view(
-                [(point.latitude, point.longitude) for point in points],
-                height=self._height,
+            # The focus goes into the fit as well: a search narrowed to a
+            # radius would otherwise frame its hits and cut the circle that
+            # explains why those are the hits.
+            self._move_to(
+                [(point.latitude, point.longitude) for point in points]
+                + self._focus_bounds
             )
-            # The bindable attributes rather than set_center/set_zoom: those
-            # write the props behind the binding's back, leaving anything
-            # bound to the view stale.
-            self.element.center = centre
-            self.element.zoom = zoom
-            # Props alone only reach a map that has yet to be built. For one
-            # already on screen, this is what turns them into a setView.
-            self.element.update()
 
     def set_focus(
         self,
         latitude: float | None,
         longitude: float | None,
         radius_km: float | None,
+        *,
+        refit: bool = False,
     ) -> None:
         """Draw the search centre and its radius, or clear them.
 
@@ -305,13 +361,25 @@ class LocationMap:
             longitude: Centre longitude, or ``None`` for no centre.
             radius_km: Radius in kilometres. ``None`` or zero draws the centre
                 alone, which is what a half-filled filter deserves.
+            refit: Whether to frame the searched area. A circle drawn at the
+                world zoom is a few pixels wide and tells the reader nothing,
+                so setting a centre is also a request to go and look at it.
+                Clearing the centre never moves the view: there is nothing to
+                look at, and yanking the map back would lose the reader's place.
         """
         for layer in self._focus:
             self.element.remove_layer(layer)
         self._focus.clear()
+        self._focus_bounds = []
 
         if latitude is None or longitude is None:
             return
+
+        self._focus_bounds = (
+            radius_box(latitude, longitude, float(radius_km))
+            if radius_km
+            else [(latitude, longitude)]
+        )
 
         with self.element:
             if radius_km:
@@ -337,6 +405,9 @@ class LocationMap:
                     ],
                 )
             )
+
+        if refit:
+            self._move_to(self._focus_bounds)
 
 
 def map_card(

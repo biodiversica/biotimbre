@@ -258,7 +258,7 @@
   },
   "map": {
     "heading": "De onde vêm os resultados",
-    "pick_hint": "Um ponto por resultado; clique em um ponto para ver qual. Clicar em qualquer outro lugar define o centro do filtro de localização.",
+    "pick_hint": "Um ponto por resultado; clique em um ponto para ver qual. Clicar em qualquer outro lugar define o centro do filtro de localização e aproxima o mapa no raio.",
     "library_heading": "De onde vem a biblioteca",
     "library_hint": "Um ponto por item. Clique em um ponto para ver qual."
   },

@@ -14,8 +14,13 @@ from nicegui import ui  # noqa: E402
 from nicegui.testing import User  # noqa: E402
 
 from biotimbre.i18n import Translator  # noqa: E402
-from biotimbre.ui import routes  # noqa: E402
-from biotimbre.ui.search import QueryState, _build_filters, _filters_panel  # noqa: E402
+from biotimbre.ui import maps, routes  # noqa: E402
+from biotimbre.ui.search import (  # noqa: E402
+    OBSERVATION_RADIUS_KM,
+    QueryState,
+    _build_filters,
+    _filters_panel,
+)
 from biotimbre.ui.state import AppState, QueryStore, get_state, set_state  # noqa: E402
 from conftest import EXAMPLES_DIR  # noqa: E402
 
@@ -738,6 +743,30 @@ class TestResultMap:
         UserInteraction(user, {button}, None).click()
 
     @staticmethod
+    def _click_map(element, latitude: float, longitude: float) -> None:
+        """Deliver a Leaflet map-click, as the browser would."""
+        # NiceGUI camel-cases event names on the way in, so the listener for
+        # "map-click" is filed under "mapClick".
+        listener = next(
+            listener
+            for listener in element._event_listeners.values()
+            if listener.type == "mapClick"
+        )
+        element._handle_event(
+            {
+                "listener_id": listener.id,
+                "args": {"latlng": {"lat": latitude, "lng": longitude}},
+            }
+        )
+
+    @staticmethod
+    def _numbers(user: User):
+        return {
+            element._props.get("label"): element
+            for element in user.find(ui.number).elements
+        }
+
+    @staticmethod
     def _markers(element):
         return [
             layer
@@ -800,6 +829,57 @@ class TestResultMap:
         assert len(circles) == 1
         assert circles[0].to_dict()["args"][0] == [-26.3, -48.85]
         assert circles[0].to_dict()["args"][1]["radius"] == 25_000.0
+
+    async def test_clicking_the_map_fills_the_centre_and_zooms_to_it(
+        self, user: User, installed_state
+    ):
+        from test_maps import visible_height_km
+
+        await user.open("/search")
+        await user.should_see("Find similar samples")
+
+        element = self._map(user)
+        self._click_map(element, -26.3, -48.85)
+
+        numbers = self._numbers(user)
+        assert numbers["Centre latitude"].value == -26.3
+        assert numbers["Centre longitude"].value == -48.85
+        # A click is a click on a region, not on a point: the default radius
+        # is assumed and the map goes to the scale that shows it.
+        assert numbers["Radius"].value == OBSERVATION_RADIUS_KM
+        assert element.center == pytest.approx((-26.3, -48.85))
+        shown = visible_height_km(element.zoom, -26.3)
+        assert 2 * OBSERVATION_RADIUS_KM <= shown <= 200.0
+
+    async def test_a_new_radius_reframes_the_map(
+        self, user: User, installed_state
+    ):
+        await user.open("/search")
+        await user.should_see("Find similar samples")
+
+        element = self._map(user)
+        self._click_map(element, -26.3, -48.85)
+        near = element.zoom
+
+        # The filter is the thing the map is drawing, so widening it there is
+        # enough; nothing has to be clicked again.
+        self._numbers(user)["Radius"].value = 200.0
+        assert element.zoom < near
+
+    async def test_a_kept_radius_survives_a_second_click(
+        self, user: User, installed_state
+    ):
+        await user.open("/search")
+        await user.should_see("Find similar samples")
+
+        element = self._map(user)
+        self._numbers(user)["Radius"].value = 5.0
+        self._click_map(element, -26.3, -48.85)
+
+        # A radius the curator chose is not overwritten by the default, and
+        # the framing follows the radius that is actually in force.
+        assert self._numbers(user)["Radius"].value == 5.0
+        assert element.zoom > maps.fit_view(maps.radius_box(-26.3, -48.85, 25.0))[1]
 
     async def test_clearing_the_filters_removes_the_centre(
         self, user: User, installed_state

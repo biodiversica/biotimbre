@@ -110,11 +110,14 @@ def _fill_filters_from(t: Translator, inputs: dict, observation) -> None:
             value=[observation.taxon],
         )
     if observation.latitude is not None and observation.longitude is not None:
-        inputs["latitude"].value = observation.latitude
-        inputs["longitude"].value = observation.longitude
         # A radius is required with a centre, and one has to be assumed; the
         # filter is visible and editable, which is the point of filling it in.
+        # It is written first because the map follows these three inputs, and
+        # the centre is what completes them: an order that sets it last leaves
+        # the map framing a centre it is about to reframe.
         inputs["radius_km"].value = inputs["radius_km"].value or OBSERVATION_RADIUS_KM
+        inputs["latitude"].value = observation.latitude
+        inputs["longitude"].value = observation.longitude
     inputs["panel"].value = True
 
 
@@ -695,13 +698,16 @@ async def render(t: Translator) -> None:
             """Make the clicked point the location filter's centre.
 
             Filled in rather than applied: the panel opens so the narrowing is
-            visible, exactly as a fetched observation's coordinates are.
+            visible, exactly as a fetched observation's coordinates are. The
+            map then zooms to the area the radius selects, so the click reads
+            as choosing a region rather than as dropping a pin on a continent.
             """
-            filters["latitude"].value = round(latitude, 6)
-            filters["longitude"].value = round(longitude, 6)
+            # Radius first, centre second: see :func:`_fill_filters_from`.
             filters["radius_km"].value = (
                 filters["radius_km"].value or OBSERVATION_RADIUS_KM
             )
+            filters["latitude"].value = round(latitude, 6)
+            filters["longitude"].value = round(longitude, 6)
             filters["panel"].value = True
 
         result_map = maps.map_card(
@@ -712,11 +718,18 @@ async def render(t: Translator) -> None:
         )
 
         def show_centre() -> None:
-            """Redraw the centre and radius from whatever the filter now holds."""
+            """Redraw the centre and radius from whatever the filter now holds.
+
+            The view follows too. A 25 km circle on a world map is a speck, so
+            picking a centre — by clicking, by typing, or by fetching an
+            observation — is also a request to see the area it selects, and a
+            change of radius is a request to see the new one.
+            """
             result_map.set_focus(
                 filters["latitude"].value,
                 filters["longitude"].value,
                 filters["radius_km"].value,
+                refit=True,
             )
 
         # Bound to the inputs rather than called from each place that writes

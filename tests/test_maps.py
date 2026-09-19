@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
+import math
 
 import pytest
 
@@ -34,6 +35,19 @@ def installed_state(settings, shared_pool):
     state.close()
     if previous is not None:
         set_state(previous)
+
+
+#: Ground resolution in metres per pixel at zoom 0 on the equator, which fixes
+#: how much of the world a zoom shows. Written out here rather than imported so
+#: the framing tests check the picture the reader gets, not the arithmetic the
+#: module used to get there.
+METRES_PER_PIXEL_AT_ZOOM_0 = 156543.03392
+
+
+def visible_height_km(zoom: int, latitude: float, height: int = maps.DEFAULT_HEIGHT):
+    """How many kilometres of ground the map shows top to bottom."""
+    resolution = METRES_PER_PIXEL_AT_ZOOM_0 * math.cos(math.radians(latitude))
+    return height * resolution / (2**zoom) / 1000.0
 
 
 def leaflets(user: User):
@@ -85,6 +99,35 @@ class TestFitView:
         _, equator = maps.fit_view([(0.0, 0.0), (10.0, 0.0)])
         _, polar = maps.fit_view([(70.0, 0.0), (80.0, 0.0)])
         assert polar < equator
+
+
+class TestRadiusBox:
+    def test_the_box_reaches_past_the_circle(self):
+        # One degree of latitude, so an unpadded box would stop at exactly one
+        # degree; the circle is meant to sit inside the frame, not on its edge.
+        south, north = maps.radius_box(0.0, 0.0, maps.KM_PER_DEGREE)
+        assert north[0] == pytest.approx(maps.FOCUS_PADDING)
+        assert south[0] == pytest.approx(-maps.FOCUS_PADDING)
+        assert maps.FOCUS_PADDING > 1.0
+
+    def test_the_same_radius_is_more_degrees_near_the_poles(self):
+        _, equator = maps.radius_box(0.0, 0.0, 25.0)
+        _, polar = maps.radius_box(60.0, 0.0, 25.0)
+        # cos(60°) is a half, so the box is twice as wide in degrees.
+        assert polar[1] == pytest.approx(equator[1] * 2.0, rel=1e-6)
+
+    def test_a_centre_on_the_pole_stays_on_the_globe(self):
+        # cos(90°) is zero, which the conversion cannot divide by, and a box
+        # wider than the world is not a box Leaflet can frame.
+        south, north = maps.radius_box(90.0, 0.0, 25.0)
+        assert north[0] <= 90.0
+        assert south[0] >= -90.0
+        assert abs(north[1]) <= 180.0
+
+    def test_a_wider_radius_frames_a_wider_view(self):
+        _, near = maps.fit_view(maps.radius_box(-26.3, -48.85, 25.0))
+        _, far = maps.fit_view(maps.radius_box(-26.3, -48.85, 250.0))
+        assert far < near
 
 
 class TestTileLayer:
@@ -231,6 +274,100 @@ class TestFocus:
         assert [layer.to_dict()["type"] for layer in location_map._focus] == [
             "circleMarker"
         ]
+
+    async def test_a_centre_is_framed_at_the_scale_of_its_radius(
+        self, user: User, installed_state
+    ):
+        holder = {}
+
+        @ui.page("/focusview")
+        def page() -> None:
+            holder["map"] = maps.LocationMap()
+
+        await user.open("/focusview")
+        location_map = holder["map"]
+
+        location_map.set_focus(-26.3, -48.85, 25.0, refit=True)
+        assert location_map.element.center == pytest.approx((-26.3, -48.85))
+
+        # The 50 km circle has to fit, and the view must not be so much wider
+        # that the reader is back to looking at a speck on a continent.
+        shown = visible_height_km(location_map.element.zoom, -26.3)
+        assert 50.0 <= shown <= 200.0
+
+    async def test_a_changed_radius_reframes_the_view(
+        self, user: User, installed_state
+    ):
+        holder = {}
+
+        @ui.page("/refocus")
+        def page() -> None:
+            holder["map"] = maps.LocationMap()
+
+        await user.open("/refocus")
+        location_map = holder["map"]
+
+        location_map.set_focus(-26.3, -48.85, 25.0, refit=True)
+        near = location_map.element.zoom
+        location_map.set_focus(-26.3, -48.85, 200.0, refit=True)
+        assert location_map.element.zoom < near
+        assert visible_height_km(location_map.element.zoom, -26.3) >= 400.0
+
+    async def test_the_view_holds_still_unless_asked(
+        self, user: User, installed_state
+    ):
+        holder = {}
+
+        @ui.page("/quietfocus")
+        def page() -> None:
+            holder["map"] = maps.LocationMap()
+
+        await user.open("/quietfocus")
+        location_map = holder["map"]
+
+        location_map.set_focus(-26.3, -48.85, 25.0)
+        assert location_map.element.center == maps.WORLD_VIEW
+        assert location_map.element.zoom == maps.WORLD_ZOOM
+
+    async def test_clearing_the_centre_leaves_the_view_where_it_was(
+        self, user: User, installed_state
+    ):
+        holder = {}
+
+        @ui.page("/dropfocus")
+        def page() -> None:
+            holder["map"] = maps.LocationMap()
+
+        await user.open("/dropfocus")
+        location_map = holder["map"]
+
+        location_map.set_focus(-26.3, -48.85, 25.0, refit=True)
+        centre, zoom = location_map.element.center, location_map.element.zoom
+
+        # Nothing left to look at is no reason to throw the reader back to the
+        # world map: the results are still plotted where they were.
+        location_map.set_focus(None, None, None, refit=True)
+        assert location_map.element.center == centre
+        assert location_map.element.zoom == zoom
+
+    async def test_plotting_results_keeps_the_radius_in_frame(
+        self, user: User, installed_state
+    ):
+        holder = {}
+
+        @ui.page("/focusfit")
+        def page() -> None:
+            holder["map"] = maps.LocationMap()
+
+        await user.open("/focusfit")
+        location_map = holder["map"]
+
+        location_map.set_focus(-26.3, -48.85, 100.0, refit=True)
+        # One hit, in the middle of the circle. Fitting the hits alone would
+        # zoom to it and cut away the circle that explains the result.
+        location_map.show([maps.MapPoint(-26.3, -48.85, "")])
+        assert location_map.element.zoom < maps.SINGLE_POINT_ZOOM
+        assert visible_height_km(location_map.element.zoom, -26.3) >= 200.0
 
     async def test_clearing_the_centre_removes_both(
         self, user: User, installed_state
