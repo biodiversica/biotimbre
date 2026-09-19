@@ -10,6 +10,7 @@ and the button reports progress rather than the page appearing to hang.
 
 from __future__ import annotations
 
+import asyncio
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -555,7 +556,7 @@ def _add_card(t: Translator, on_added) -> None:
                             add_state.duration,
                         )
 
-                async def restage() -> None:
+                async def _restage_once() -> None:
                     """Re-apply the choice and show what would be stored."""
                     add_state.highpass = _blank_to_none(highpass.value)
                     add_state.lowpass = _blank_to_none(lowpass.value)
@@ -606,6 +607,22 @@ def _add_card(t: Translator, on_added) -> None:
                             height=PREVIEW_VIEW_HEIGHT,
                         )
 
+                # Each run unlinks the previous copy and rewrites one at a
+                # fixed path, so two overlapping runs would have one deleting
+                # the file the other is still writing. Serialised, and a run a
+                # newer choice has already overtaken is dropped rather than
+                # spending a decode on a preview nobody will see.
+                staging = {"latest": 0}
+                staging_lock = asyncio.Lock()
+
+                async def restage() -> None:
+                    """Re-apply the choice, where the newest choice wins."""
+                    staging["latest"] += 1
+                    mine = staging["latest"]
+                    async with staging_lock:
+                        if mine == staging["latest"]:
+                            await _restage_once()
+
                 def on_span(event) -> None:
                     add_state.start = float(event.value["min"])
                     add_state.end = float(event.value["max"])
@@ -622,11 +639,6 @@ def _add_card(t: Translator, on_added) -> None:
                         describe_span()
                     await restage()
 
-                # Once up front: a stereo submission is already destined for a
-                # mono copy, and the preview should be of that copy rather than
-                # of something the library will not keep.
-                await restage()
-
                 picker.on_value_change(on_span)
                 # Cutting and filtering are done on the settled value: each one
                 # decodes and rewrites the segment, which is not something to
@@ -635,7 +647,16 @@ def _add_card(t: Translator, on_added) -> None:
                 for element in (highpass, lowpass, order):
                     element.on("change", lambda _: restage())
 
+                # Wired up and labelled before the first restage rather than
+                # after it: the picker is on the page as soon as it is built,
+                # and a drag landing during that first decode used to reach an
+                # unwired picker and be dropped with nothing to show for it.
                 describe_span()
+
+                # Once up front: a stereo submission is already destined for a
+                # mono copy, and the preview should be of that copy rather than
+                # of something the library will not keep.
+                await restage()
 
         def handle_rejected(_event) -> None:
             """Report a file the browser refused, e.g. wrong type or too large."""

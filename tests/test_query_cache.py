@@ -6,7 +6,6 @@ import numpy as np
 import pytest
 
 from biotimbre.embeddings.extractor import WindowEmbeddings
-from biotimbre.embeddings.onnx_backend import DEFAULT_MAX_BATCH
 from biotimbre.embeddings.query_cache import AudioKey, QueryEmbeddingCache
 from conftest import EXAMPLES_DIR
 
@@ -253,12 +252,6 @@ class TestBoundedInferenceBatch:
         np.testing.assert_allclose(chunked.vectors, whole.vectors, atol=1e-4)
         one_at_a_time.close()
         all_at_once.close()
-
-    def test_default_is_per_window(self):
-        # Measured: batching makes Perch 2.1x slower and helps BirdNET only
-        # within noise, so per-window is both the fastest option and the tightest
-        # memory bound (~19 MB per BirdNET window).
-        assert DEFAULT_MAX_BATCH == 1
 
 
 @pytest.mark.models

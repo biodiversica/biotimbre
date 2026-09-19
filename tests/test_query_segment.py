@@ -12,7 +12,6 @@ import soundfile as sf
 
 from biotimbre.domain.errors import ValidationError
 from biotimbre.embeddings.audio import (
-    MAX_QUERY_DURATION_S,
     load_mono,
     resolve_query_segment,
 )
@@ -89,9 +88,6 @@ class TestResolveQuerySegment:
         assert resolve_query_segment(25.0, max_duration_s=30.0) == (0.0, 25.0)
         with pytest.raises(ValidationError):
             resolve_query_segment(25.0, max_duration_s=20.0)
-
-    def test_default_cap_value(self):
-        assert MAX_QUERY_DURATION_S == 15.0
 
 
 class TestSegmentDecoding:

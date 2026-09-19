@@ -67,9 +67,11 @@ class TestFitView:
         _, far = maps.fit_view([(-10.0, -70.0), (-40.0, -35.0)])
         assert far < near
 
-    def test_a_whole_hemisphere_stays_within_the_world_zoom(self):
-        _, zoom = maps.fit_view([(-55.0, -80.0), (12.0, -34.0)])
-        assert zoom >= maps.WORLD_ZOOM
+    def test_a_pole_to_pole_span_is_lifted_to_the_world_zoom(self):
+        # Unclamped this computes 0, which Leaflet will not accept. A
+        # hemisphere does not reach the clamp, so it cannot stand in here.
+        _, zoom = maps.fit_view([(-85.0, 0.0), (85.0, 0.1)])
+        assert zoom == maps.WORLD_ZOOM
 
     def test_close_points_are_not_zoomed_to_the_street(self):
         # Two recordings metres apart should not fill the view with a street

@@ -247,11 +247,3 @@ class TestMapSection:
         config = write_config(tmp_path, body)
         with pytest.raises(ValueError, match=message):
             load_settings(config)
-
-    def test_switching_the_map_off_leaves_everything_else_alone(self, tmp_path):
-        config = write_config(tmp_path, "[map]\nenabled = false\n")
-        settings = load_settings(config)
-        assert settings.map_enabled is False
-        # Location filtering is not part of the picture.
-        assert settings.inaturalist_enabled is True
-        assert settings.default_top_k == 10

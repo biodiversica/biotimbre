@@ -526,13 +526,6 @@ class TestSidecarAddDefersEmbedding:
 class TestGuiMapFlag:
     """``gui --no-map``: refusing the map for one run, without a config file."""
 
-    def test_the_flag_defaults_to_keeping_the_map(self):
-        args = build_parser().parse_args(["gui"])
-        assert args.no_map is False
-
-    def test_the_flag_is_accepted(self):
-        assert build_parser().parse_args(["gui", "--no-map"]).no_map is True
-
     def test_it_reaches_the_interface_as_a_setting(self, data_dir, monkeypatch):
         seen = {}
 

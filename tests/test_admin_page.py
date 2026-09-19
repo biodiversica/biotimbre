@@ -245,7 +245,10 @@ class TestMetadataForm:
         with pytest.raises(ValidationError) as exc:
             form.draft()
         # The point of ValidationError.field: mark the input, not a bare toast.
+        assert exc.value.field == "location"
         assert form.show_error(exc.value) is True
+        # A half-given location is reported on latitude, the first of the pair.
+        assert form.inputs["latitude"]._props["error"] is True
 
     async def test_bad_date_is_mapped_to_the_date_input(self, user: User):
         form = await self._form(user)
@@ -272,7 +275,11 @@ class TestMetadataForm:
 
         with pytest.raises(ValidationError) as exc:
             form.draft()
+        # The pair is wrong rather than either end alone, so the error is on
+        # the window as a whole and lands on the first of the two inputs.
+        assert exc.value.field == "sample_window"
         assert form.show_error(exc.value) is True
+        assert form.inputs["window_start"]._props["error"] is True
 
     async def test_open_ended_band_is_accepted(self, user: User):
         form = await self._form(user)
@@ -400,16 +407,12 @@ class TestEditPrefill:
 @pytest.mark.usefixtures("installed_state")
 class TestAdminPageRenders:
     async def test_empty_library_invites_adding(self, user: User):
-        from biotimbre.ui import app as ui_app  # noqa: F401  (registers pages)
-
         await user.open("/")
         await user.should_see("Library items")
         await user.should_see("Add a sample")
         await user.should_see("The library is empty. Add a sample to begin.")
 
     async def test_shows_required_and_optional_sections(self, user: User):
-        from biotimbre.ui import app as ui_app  # noqa: F401
-
         await user.open("/")
         await user.should_see("Required")
         await user.should_see("Optional")
@@ -417,7 +420,6 @@ class TestAdminPageRenders:
 
     async def test_lists_an_existing_item(self, user: User, installed_state):
         from biotimbre.io.sidecar import draft_from_sidecar
-        from biotimbre.ui import app as ui_app  # noqa: F401
 
         result = installed_state.call(
             installed_state.service.add_item,
@@ -439,8 +441,6 @@ class TestAdminPageRenders:
 
     async def test_a_chosen_file_can_be_taken_back(self, user: User):
         from nicegui.elements.upload_files import SmallFileUpload
-
-        from biotimbre.ui import app as ui_app  # noqa: F401
 
         await user.open("/")
         await user.should_see("No file chosen yet.")
@@ -474,8 +474,6 @@ class TestAdminPageRenders:
     ):
         from nicegui.elements.upload_files import SmallFileUpload
 
-        from biotimbre.ui import app as ui_app  # noqa: F401
-
         await user.open("/")
         uploader = next(iter(user.find(marker="upload-audio").elements))
         await uploader.handle_uploads(
@@ -487,6 +485,12 @@ class TestAdminPageRenders:
         await user.should_see(
             "Drag to keep only part of the recording.", retries=60
         )
+        # The picker is on the page before its handlers are: they are attached
+        # only after the first restage, and the initial span label is written
+        # last of all. Dragging before that label exists drops the event on an
+        # unwired picker and nothing ever updates, so wait for the label rather
+        # than for the hint above.
+        await user.should_see("Keeping 0.00–5.00 s of 5.00 s", retries=60)
 
         picker = next(iter(user.find(ui.range).elements))
         picker.value = {"min": 1.0, "max": 3.0}
@@ -510,8 +514,6 @@ class TestAdminPageRenders:
         from nicegui import app as nicegui_app
         from nicegui.elements.upload_files import SmallFileUpload
 
-        from biotimbre.ui import app as ui_app  # noqa: F401
-
         await user.open("/")
         uploader = next(iter(user.find(marker="upload-audio").elements))
         await uploader.handle_uploads(
@@ -520,6 +522,12 @@ class TestAdminPageRenders:
         await user.should_see(
             "Drag to keep only part of the recording.", retries=60
         )
+        # The picker is on the page before its handlers are: they are attached
+        # only after the first restage, and the initial span label is written
+        # last of all. Dragging before that label exists drops the event on an
+        # unwired picker and nothing ever updates, so wait for the label rather
+        # than for the hint above.
+        await user.should_see("Keeping 0.00–5.00 s of 5.00 s", retries=60)
 
         player = next(iter(user.find(ui.audio).elements))
         published = player._props["src"]
@@ -539,14 +547,63 @@ class TestAdminPageRenders:
         assert player._props["src"] == published
         await user.should_see("Keeping 0.00–3.00 s of 5.00 s")
 
+    async def test_a_drag_during_the_first_decode_is_not_lost(
+        self, user: User, monkeypatch, tmp_path
+    ):
+        import time
+
+        import numpy as np
+        import soundfile as sf
+        from nicegui.elements.upload_files import SmallFileUpload
+
+        from biotimbre.embeddings import audio as audio_io
+
+        # Stereo, so the very first restage has a downmix to write rather than
+        # returning early, and slowed so the drag below reliably lands while
+        # that write is still going.
+        rate = 32_000
+        stereo = np.zeros((5 * rate, 2), dtype=np.float32)
+        stereo[:, 0] = 0.4
+        stereo[:, 1] = -0.2
+        path = tmp_path / "stereo.wav"
+        sf.write(path, stereo, rate, subtype="FLOAT")
+
+        real_write = audio_io.write_processed
+
+        def slow_write(*args, **kwargs):
+            time.sleep(0.5)
+            return real_write(*args, **kwargs)
+
+        monkeypatch.setattr(audio_io, "write_processed", slow_write)
+
+        await user.open("/")
+        uploader = next(iter(user.find(marker="upload-audio").elements))
+        await uploader.handle_uploads(
+            [SmallFileUpload("stereo.wav", "audio/wav", path.read_bytes())]
+        )
+        await user.should_see(
+            "Drag to keep only part of the recording.", retries=60
+        )
+
+        # Deliberately without waiting for the span label, unlike the tests
+        # above: the picker is on the page from here, so this drag lands while
+        # the first restage is still writing. It used to reach a picker whose
+        # handlers were not attached yet and be dropped for good.
+        picker = next(iter(user.find(ui.range).elements))
+        picker.value = {"min": 1.0, "max": 3.0}
+        user.find(ui.range).trigger("change", args={"min": 1.0, "max": 3.0})
+
+        await user.should_see("Keeping 1.00–3.00 s of 5.00 s", retries=60)
+        # And the cut the drag asked for is what ends up staged, rather than
+        # the full-length copy the first restage was part way through.
+        await user.should_see("What will be stored (2.00 s)", retries=120)
+
     async def test_a_stereo_upload_is_played_as_it_will_be_stored(
         self, user: User, tmp_path
     ):
         import numpy as np
         import soundfile as sf
         from nicegui.elements.upload_files import SmallFileUpload
-
-        from biotimbre.ui import app as ui_app  # noqa: F401
 
         rate = 16_000
         stereo = np.zeros((rate, 2), dtype=np.float32)
@@ -567,7 +624,6 @@ class TestAdminPageRenders:
     async def test_the_player_follows_the_processed_copy(self, user: User):
         from nicegui.elements.upload_files import SmallFileUpload
 
-        from biotimbre.ui import app as ui_app  # noqa: F401
         from biotimbre.ui.admin import AddState  # noqa: F401
 
         await user.open("/")
@@ -578,6 +634,12 @@ class TestAdminPageRenders:
         await user.should_see(
             "Drag to keep only part of the recording.", retries=60
         )
+        # The picker is on the page before its handlers are: they are attached
+        # only after the first restage, and the initial span label is written
+        # last of all. Dragging before that label exists drops the event on an
+        # unwired picker and nothing ever updates, so wait for the label rather
+        # than for the hint above.
+        await user.should_see("Keeping 0.00–5.00 s of 5.00 s", retries=60)
         player = next(iter(user.find(ui.audio).elements))
         raw = player._props["src"]
 
@@ -605,7 +667,6 @@ class TestAdminPageRenders:
         self, user: User, installed_state
     ):
         from biotimbre.io.sidecar import draft_from_sidecar
-        from biotimbre.ui import app as ui_app  # noqa: F401
 
         installed_state.call(
             installed_state.service.add_item,
@@ -630,7 +691,6 @@ class TestAdminPageRenders:
         import dataclasses
 
         from biotimbre.io.sidecar import draft_from_sidecar
-        from biotimbre.ui import app as ui_app  # noqa: F401
 
         draft = dataclasses.replace(
             draft_from_sidecar(EXAMPLES_DIR / "GUYVIR.txt"), speed=0.25
@@ -651,8 +711,6 @@ class TestAdminPageRenders:
         await user.should_see("0.25")
 
     async def test_translates_to_portuguese(self, user: User):
-        from biotimbre.ui import app as ui_app  # noqa: F401
-
         installed = get_state()
         installed.settings = type(installed.settings)(
             **{**installed.settings.__dict__, "language": "pt_BR"}
@@ -667,8 +725,6 @@ class TestLanguageSelect:
     """The header select sits on the dark header, where primary is invisible."""
 
     async def test_marks_the_current_language_readably(self, user: User):
-        from biotimbre.ui import app as ui_app  # noqa: F401
-
         await user.open("/")
         # Other pages leave selects in the registry, so pick the one offering
         # the languages rather than the first one found.
@@ -725,8 +781,6 @@ class TestSpeciesJoinsItsBiotimbre:
     async def test_a_second_sample_of_a_species_joins_the_first(
         self, user: User, installed_state
     ):
-        from biotimbre.ui import app as ui_app  # noqa: F401
-
         await user.open("/")
         await self._add(user, "Guyalna bonaerensis")
         await user.should_see("1 item(s)", retries=200)
@@ -742,8 +796,6 @@ class TestSpeciesJoinsItsBiotimbre:
     async def test_a_family_does_not_join_anything(
         self, user: User, installed_state
     ):
-        from biotimbre.ui import app as ui_app  # noqa: F401
-
         await user.open("/")
         await self._add(user, "Cicadidae")
         await user.should_see("1 item(s)", retries=200)
@@ -791,7 +843,6 @@ class TestObservationFetch:
         from nicegui.testing.user_interaction import UserInteraction
 
         from biotimbre.sources import inaturalist
-        from biotimbre.ui import app as ui_app  # noqa: F401
 
         observation = observation or self._observation()
 
@@ -871,7 +922,6 @@ class TestObservationFetch:
         from nicegui.testing.user_interaction import UserInteraction
 
         from biotimbre.sources import inaturalist
-        from biotimbre.ui import app as ui_app  # noqa: F401
 
         observation = self._observation()
 
@@ -912,8 +962,6 @@ class TestObservationFetch:
     async def test_the_switch_hides_it(self, user: User, installed_state):
         import dataclasses
 
-        from biotimbre.ui import app as ui_app  # noqa: F401
-
         installed_state.settings = dataclasses.replace(
             installed_state.settings, inaturalist_enabled=False
         )
@@ -928,23 +976,6 @@ class TestObservationFetch:
 
 class TestLibraryMap:
     """One map of the whole library, above the list — and never one per row."""
-
-    @pytest.fixture(autouse=True)
-    def registered_pages(self, user: User):
-        """Re-register the pages against this test's own NiceGUI app.
-
-        ``biotimbre.ui.app`` registers its routes with module-level
-        ``@ui.page`` decorators, which run once on first import. Another
-        module imports it at collection time, and the ``user`` fixture resets
-        the router per test, so by the time this class runs the routes are
-        gone and every ``user.open`` 404s. Same reasoning, and the same cure,
-        as ``tests/test_sharing_page.py``.
-        """
-        import importlib
-
-        from biotimbre.ui import app as ui_app
-
-        importlib.reload(ui_app)
 
     @staticmethod
     def _store(state, *locations):
@@ -965,7 +996,6 @@ class TestLibraryMap:
         from biotimbre.ui import maps
 
         self._store(installed_state, (-26.3, -48.85), (-25.4, -49.2))
-        from biotimbre.ui import app as ui_app  # noqa: F401
         await user.open("/")
         await user.should_see("2 item(s)")
 
@@ -987,7 +1017,6 @@ class TestLibraryMap:
     async def test_an_empty_library_still_renders_a_map(
         self, user: User, installed_state
     ):
-        from biotimbre.ui import app as ui_app  # noqa: F401
         await user.open("/")
         await user.should_see("The library is empty")
         elements = list(user.find(ui.leaflet).elements)
@@ -1005,7 +1034,6 @@ class TestLibraryMap:
             installed_state.settings, map_enabled=False
         )
         self._store(installed_state, (-26.3, -48.85))
-        from biotimbre.ui import app as ui_app  # noqa: F401
         await user.open("/")
         await user.should_see("1 item(s)")
         # Nothing is fetched from a tile server. ``user.find`` insists on a
@@ -1035,7 +1063,6 @@ class TestAudioView:
         self, user: User, installed_state
     ):
         from biotimbre.io.sidecar import draft_from_sidecar
-        from biotimbre.ui import app as ui_app  # noqa: F401
 
         item = installed_state.call(
             installed_state.service.add_item,
@@ -1061,7 +1088,6 @@ class TestAudioView:
         self, user: User, installed_state
     ):
         from biotimbre.io.sidecar import draft_from_sidecar
-        from biotimbre.ui import app as ui_app  # noqa: F401
         from biotimbre.ui.visuals import preferred_view
 
         item = installed_state.call(
@@ -1111,8 +1137,6 @@ class TestThemeControl:
     async def test_starts_out_following_the_system(self, user: User):
         from nicegui import app as nicegui_app
 
-        from biotimbre.ui import app as ui_app  # noqa: F401
-
         await user.open("/")
         assert self._toggle(user)._props["icon"] == "brightness_auto"
         # Nothing stored: "system" is the default, not a pinned choice.
@@ -1121,8 +1145,6 @@ class TestThemeControl:
     async def test_cycles_system_light_dark_and_back(self, user: User):
         from nicegui import app as nicegui_app
         from nicegui.testing.user_interaction import UserInteraction
-
-        from biotimbre.ui import app as ui_app  # noqa: F401
 
         await user.open("/")
         button = self._toggle(user)
@@ -1137,8 +1159,6 @@ class TestThemeControl:
             assert button._props["icon"] == icon
 
     async def test_the_page_carries_both_palettes(self, user: User):
-        from biotimbre.ui import app as ui_app  # noqa: F401
-
         await user.open("/")
         head = "".join(user.client._head_html)
         # One declaration per colour, so the palettes cannot drift apart.
@@ -1164,8 +1184,6 @@ class TestItemDetail:
         )
 
     async def test_shows_the_link_and_the_timestamps(self, user: User, installed_state):
-        from biotimbre.ui import app as ui_app  # noqa: F401
-
         item = self._add(
             installed_state, link_to_full_recording="https://example.org/rec"
         ).item
@@ -1189,8 +1207,6 @@ class TestItemDetail:
     async def test_offers_the_audio_and_each_model_for_export(
         self, user: User, installed_state
     ):
-        from biotimbre.ui import app as ui_app  # noqa: F401
-
         import dataclasses
 
         from conftest import unit_vectors
@@ -1241,8 +1257,6 @@ class TestItemDetail:
     async def test_reads_the_band_and_window_with_dashes(
         self, user: User, installed_state
     ):
-        from biotimbre.ui import app as ui_app  # noqa: F401
-
         # ZAMTYM.txt: filtered_band 2000,10000 and sample_window 5,10.
         item = self._add(installed_state).item
         await user.open("/")
@@ -1253,8 +1267,6 @@ class TestItemDetail:
         await user.should_see("5 - 10 s")
 
     async def test_names_the_link_field_even_when_unset(self, user: User, installed_state):
-        from biotimbre.ui import app as ui_app  # noqa: F401
-
         item = self._add(installed_state).item
         await user.open("/")
         await user.should_see("1 item(s)")
@@ -1264,8 +1276,6 @@ class TestItemDetail:
 
     async def test_list_survives_an_edit(self, user: User, installed_state):
         import asyncio
-
-        from biotimbre.ui import app as ui_app  # noqa: F401
 
         item = self._add(installed_state).item
         await user.open("/")

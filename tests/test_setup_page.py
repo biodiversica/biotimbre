@@ -131,7 +131,6 @@ class TestSetupPage:
         monkeypatch.chdir(tmp_path)
         state = AppState(load_settings())
         set_state(state)
-        from biotimbre.ui import app as ui_app  # noqa: F401
 
         try:
             await user.open("/")
@@ -146,7 +145,6 @@ class TestSetupPage:
         monkeypatch.chdir(tmp_path)
         state = AppState(load_settings())
         set_state(state)
-        from biotimbre.ui import app as ui_app  # noqa: F401
 
         try:
             await user.open("/")

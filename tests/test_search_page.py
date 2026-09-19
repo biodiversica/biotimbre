@@ -286,30 +286,22 @@ class TestQueryRoutes:
 @pytest.mark.usefixtures("installed_state")
 class TestSearchPageRenders:
     async def test_renders_without_a_query(self, user: User):
-        from biotimbre.ui import app as ui_app  # noqa: F401
-
         await user.open("/search")
         await user.should_see("Find similar samples")
         await user.should_see("Choose a recording to search with")
         await user.should_see("Search")
 
     async def test_mentions_the_query_limit(self, user: User):
-        from biotimbre.ui import app as ui_app  # noqa: F401
-
         await user.open("/search")
         # The cap has to be visible before a long file is rejected.
         await user.should_see("Up to 15 s is searched")
 
     async def test_shows_filter_and_option_panels(self, user: User):
-        from biotimbre.ui import app as ui_app  # noqa: F401
-
         await user.open("/search")
         await user.should_see("Filters")
         await user.should_see("Options")
 
     async def test_shows_the_dsp_filter_controls(self, user: User):
-        from biotimbre.ui import app as ui_app  # noqa: F401
-
         await user.open("/search")
         await user.should_see("Query speed")
         await user.should_see("Highpass cutoff")
@@ -317,8 +309,6 @@ class TestSearchPageRenders:
         await user.should_see("Filter order")
 
     async def test_translates_to_portuguese(self, user: User):
-        from biotimbre.ui import app as ui_app  # noqa: F401
-
         installed = get_state()
         installed.settings = type(installed.settings)(
             **{**installed.settings.__dict__, "language": "pt_BR"}
@@ -337,8 +327,6 @@ class TestQueryRemoval:
         self, user: User, installed_state
     ):
         from nicegui.elements.upload_files import SmallFileUpload
-
-        from biotimbre.ui import app as ui_app  # noqa: F401
 
         await user.open("/search")
         await user.should_see("Query recording")
@@ -374,8 +362,6 @@ class TestSegmentPicker:
     @staticmethod
     async def _stage(user: User, path):
         from nicegui.elements.upload_files import SmallFileUpload
-
-        from biotimbre.ui import app as ui_app  # noqa: F401
 
         await user.open("/search")
         await user.should_see("Query recording")
@@ -433,8 +419,6 @@ class TestMetadataOnlySearch:
 
     @staticmethod
     async def _open(user: User, installed_state):
-        from biotimbre.ui import app as ui_app  # noqa: F401
-
         installed_state.call(
             installed_state.service.import_directory,
             EXAMPLES_DIR,
@@ -504,7 +488,6 @@ class TestResultExport:
         self, user: User, installed_state
     ):
         from biotimbre.models_registry import ModelSpec
-        from biotimbre.ui import app as ui_app  # noqa: F401
         from conftest import unit_vectors
 
         installed_state.call(
@@ -605,8 +588,6 @@ class TestObservationFetch:
 
     async def _fetch(self, user: User, monkeypatch, observation=None):
         from nicegui.testing.user_interaction import UserInteraction
-
-        from biotimbre.ui import app as ui_app  # noqa: F401
 
         observation = observation or self._observation()
         self._stub(monkeypatch, observation)
@@ -709,8 +690,6 @@ class TestObservationFetch:
     ):
         import dataclasses
 
-        from biotimbre.ui import app as ui_app  # noqa: F401
-
         installed_state.settings = dataclasses.replace(
             installed_state.settings, inaturalist_enabled=False
         )
@@ -725,23 +704,6 @@ class TestObservationFetch:
 
 class TestResultMap:
     """One map above the results, and the location filter made visible on it."""
-
-    @pytest.fixture(autouse=True)
-    def registered_pages(self, user: User):
-        """Re-register the pages against this test's own NiceGUI app.
-
-        ``biotimbre.ui.app`` registers its routes with module-level
-        ``@ui.page`` decorators, which run once on first import. Another
-        module imports it at collection time, and the ``user`` fixture resets
-        the router per test, so by the time this class runs the routes are
-        gone and every ``user.open`` 404s. Same reasoning, and the same cure,
-        as ``tests/test_sharing_page.py``.
-        """
-        import importlib
-
-        from biotimbre.ui import app as ui_app
-
-        importlib.reload(ui_app)
 
     @staticmethod
     def _store(state, *locations):
@@ -786,8 +748,6 @@ class TestResultMap:
     async def test_one_map_for_the_page_not_one_per_result(
         self, user: User, installed_state
     ):
-        from biotimbre.ui import app as ui_app  # noqa: F401
-
         self._store(installed_state, (-26.3, -48.85), (-25.4, -49.2))
         await user.open("/search")
         await user.should_see("Find similar samples")
@@ -796,8 +756,6 @@ class TestResultMap:
         assert len(elements) == 1
 
     async def test_results_are_plotted(self, user: User, installed_state):
-        from biotimbre.ui import app as ui_app  # noqa: F401
-
         self._store(installed_state, (-26.3, -48.85), (-25.4, -49.2))
         await user.open("/search")
         await user.should_see("Find similar samples")
@@ -822,8 +780,6 @@ class TestResultMap:
     async def test_the_location_filter_draws_a_centre_and_a_radius(
         self, user: User, installed_state
     ):
-        from biotimbre.ui import app as ui_app  # noqa: F401
-
         await user.open("/search")
         await user.should_see("Find similar samples")
 
@@ -848,8 +804,6 @@ class TestResultMap:
     async def test_clearing_the_filters_removes_the_centre(
         self, user: User, installed_state
     ):
-        from biotimbre.ui import app as ui_app  # noqa: F401
-
         await user.open("/search")
         await user.should_see("Find similar samples")
 
@@ -869,8 +823,6 @@ class TestResultMap:
 
     async def test_the_switch_hides_it(self, user: User, installed_state):
         import dataclasses
-
-        from biotimbre.ui import app as ui_app  # noqa: F401
 
         installed_state.settings = dataclasses.replace(
             installed_state.settings, map_enabled=False

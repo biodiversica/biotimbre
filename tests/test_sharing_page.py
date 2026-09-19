@@ -59,26 +59,6 @@ def _offline_settings(data_dir) -> Settings:
     )
 
 
-@pytest.fixture(autouse=True)
-def registered_pages(user: User):
-    """Re-register the pages against this test's own NiceGUI app.
-
-    ``biotimbre.ui.app`` registers ``/`` and ``/search`` with module-level
-    ``@ui.page`` decorators, which run once when the module is first imported.
-    The ``user`` fixture resets NiceGUI's router for every test, so from the
-    second test module onwards the import is a no-op and the routes are simply
-    gone — every ``user.open("/")`` then 404s.
-
-    Reloading re-runs the decorators against the router as it now is. Depends
-    on ``user`` so that it happens after that reset, not before.
-    """
-    import importlib
-
-    from biotimbre.ui import app as ui_app
-
-    importlib.reload(ui_app)
-
-
 @pytest.fixture
 def receiver(tmp_path):
     """Install app state for the library that receives bundles."""

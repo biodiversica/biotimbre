@@ -27,6 +27,48 @@ try:  # pragma: no cover - depends on whether the gui extra is installed
 except ImportError:  # pragma: no cover
     pytest_plugins = []
 
+#: The module whose ``@ui.page`` decorators define ``/`` and ``/search``.
+PAGES_MODULE = "biotimbre.ui.app"
+
+
+@pytest.fixture(autouse=True)
+def registered_pages(request):
+    """Give every page test its routes back.
+
+    ``biotimbre.ui.app`` registers ``/`` and ``/search`` with module-level
+    ``@ui.page`` decorators, which run once when the module is first imported.
+    NiceGUI's ``user`` fixture resets the router around every test, so those
+    routes have to be re-registered each time or ``user.open("/")`` 404s.
+
+    NiceGUI does that itself, but only for modules it knows about: on teardown
+    it drops each ``Client.page_routes`` function's module from ``sys.modules``
+    (``nicegui/testing/general.py``), so the next import re-runs the
+    decorators. That cycle only starts if the module was first imported
+    *inside* a ``user`` fixture's lifetime — setup clears ``page_routes``, so a
+    module imported before any test (``tests/test_ui.py`` imports it while
+    pytest is still collecting) is never recorded, never evicted, stays cached
+    for the rest of the session and never registers its pages again.
+
+    Importing it here, after the reset and for every test that takes ``user``,
+    makes that independent of who imported what first.
+    """
+    if "user" not in request.fixturenames:
+        return
+    # Force the reset to happen before the import rather than after it.
+    request.getfixturevalue("user")
+
+    import importlib
+    import sys
+
+    module = sys.modules.get(PAGES_MODULE)
+    if module is None:
+        importlib.import_module(PAGES_MODULE)
+    else:
+        # Cached from before the reset, so its decorators did not run: this is
+        # what re-registers the pages.
+        importlib.reload(module)
+
+
 #: Models used by the ``models``-marked tests.
 MODEL_IDS = ("perch_v2", "birdnet_v2.4")
 

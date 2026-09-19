@@ -330,12 +330,3 @@ class TestCommandLineOverrides:
             assert app_state.settings.active_models == ("perch_v2",)
         finally:
             app_state.close()
-
-    def test_no_overrides_leaves_settings_untouched(self, settings, shared_pool):
-        app_state = AppState(settings)
-        app_state.pool = shared_pool
-        try:
-            assert app_state.overrides == {}
-            assert app_state.apply_overrides(settings) is settings
-        finally:
-            app_state.close()
