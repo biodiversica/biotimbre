@@ -192,6 +192,12 @@ class Settings:
             whoever the tiles come from.
         map_max_zoom: Deepest zoom offered, which should be the deepest the
             tile server actually has.
+        search_only: Whether the interface serves the search page alone. The
+            library page is withdrawn, the chooser with it, and the database is
+            opened read-only — so a run started this way can answer questions
+            about a library but cannot change it. This is what to start for
+            people who should search someone else's library rather than keep
+            their own.
         language: Default UI language, one of :data:`SUPPORTED_LANGUAGES`.
         theme: UI colour palette for the light theme.
         dark_theme: UI colour palette for the dark theme. Which of the two a
@@ -222,6 +228,7 @@ class Settings:
     map_tile_url: str = DEFAULT_TILE_URL
     map_attribution: str = DEFAULT_TILE_ATTRIBUTION
     map_max_zoom: int = DEFAULT_TILE_MAX_ZOOM
+    search_only: bool = False
     language: str = "en"
     theme: Theme = field(default_factory=Theme)
     dark_theme: Theme = DEFAULT_DARK_THEME
@@ -393,6 +400,7 @@ def load_settings(
         raise ValueError("models.active must list at least one model id.")
 
     ui = raw.get("ui", {})
+    search_only = bool(ui.get("search_only", defaults.search_only))
     language = ui.get("language", defaults.language)
     if language not in SUPPORTED_LANGUAGES:
         raise ValueError(
@@ -496,6 +504,7 @@ def load_settings(
         map_tile_url=map_tile_url,
         map_attribution=map_attribution,
         map_max_zoom=map_max_zoom,
+        search_only=search_only,
         theme=theme,
         dark_theme=dark_theme,
         search_batch_size=batch_size,

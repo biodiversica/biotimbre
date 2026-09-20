@@ -123,7 +123,9 @@ def page(active: str):
     """Wrap page content in the shared frame.
 
     Args:
-        active: Which nav entry to highlight, ``"admin"`` or ``"search"``.
+        active: Which nav entry to highlight, ``"admin"`` or ``"search"``. On a
+            search-only run there is only the one, and the library tab is left
+            out rather than drawn dead.
 
     Yields:
         The translator for this session, so callers need not fetch it again.
@@ -164,16 +166,32 @@ def page(active: str):
                 ).style("color: var(--bt-header-inactive-text)").tooltip(
                     identity.uuid
                 )
+            if settings.search_only:
+                # Beside the library's name, because that is the question this
+                # answers: which library, and in what capacity. Without it the
+                # only evidence is a missing tab, which reads as a bug.
+                with ui.row().classes("items-center gap-1").style(
+                    "color: var(--bt-header-inactive-text)"
+                ):
+                    ui.icon("lock", size="0.9rem")
+                    ui.label(t("app.search_only")).classes("text-xs").tooltip(
+                        t("app.search_only_hint")
+                    )
 
         with ui.row().classes("items-center gap-6"):
             ui.label(t("app.title")).classes("text-lg font-medium").style(
                 "color: var(--bt-header-text)"
             )
             with ui.row().classes("gap-1"):
-                for name, target, icon in (
+                entries = [
                     ("admin", "/", "library_music"),
                     ("search", "/search", "search"),
-                ):
+                ]
+                if settings.search_only:
+                    # The library page is not served on this run, so a tab
+                    # pointing at it would be a link to a redirect.
+                    entries = [e for e in entries if e[0] != "admin"]
+                for name, target, icon in entries:
                     is_active = name == active
                     text_color = (
                         "var(--bt-header-text)"

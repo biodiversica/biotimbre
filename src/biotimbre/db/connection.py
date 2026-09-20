@@ -100,6 +100,66 @@ def connect(
     return conn
 
 
+def open_read_only(
+    db_path: str | Path, *, allow_threads: bool = False
+) -> sqlite3.Connection:
+    """Open an existing library that must not be changed.
+
+    The counterpart to :func:`initialize` for a search-only run
+    (``gui --search-only``). It creates nothing and migrates nothing: both are
+    writes, and the point of this connection is that it cannot perform any. A
+    library that is absent, or that is not at the current schema version, is
+    therefore refused here rather than being quietly fixed.
+
+    Args:
+        db_path: Path to the SQLite file. It must already exist.
+        allow_threads: See :func:`connect`.
+
+    Returns:
+        A read-only connection to a library at :data:`SCHEMA_VERSION`.
+
+    Raises:
+        BiotimbreError: If there is no database at ``db_path``, if it is not a
+            biotimbre library, or if its schema version is not the current one.
+    """
+    path = Path(db_path)
+    if not path.is_file():
+        raise BiotimbreError(
+            f"No library database at {path}. A search-only run reads an "
+            f"existing library; it does not create one."
+        )
+
+    conn = connect(path, read_only=True, allow_threads=allow_threads)
+    try:
+        row = conn.execute(
+            "SELECT value FROM schema_meta WHERE key = ?", (_SCHEMA_KEY,)
+        ).fetchone()
+    except sqlite3.Error as exc:
+        conn.close()
+        raise BiotimbreError(f"{path} is not a biotimbre library: {exc}") from exc
+
+    if row is None:
+        conn.close()
+        raise BiotimbreError(f"{path} is not a biotimbre library.")
+
+    found = int(row["value"])
+    if found > SCHEMA_VERSION:
+        conn.close()
+        raise BiotimbreError(
+            f"Database {path} has schema version {found}, but this software "
+            f"understands at most {SCHEMA_VERSION}. Upgrade biotimbre-library."
+        )
+    if found < SCHEMA_VERSION:
+        # Migrating is a write, and this connection has none to give.
+        conn.close()
+        raise BiotimbreError(
+            f"Database {path} has schema version {found} and needs upgrading "
+            f"to {SCHEMA_VERSION}, which a read-only run cannot do. Open it "
+            f"once without --search-only to migrate it."
+        )
+    return conn
+
+
 def _items_table_ddl(name: str) -> str:
     """The current ``items`` definition from schema.sql, under another name.
 

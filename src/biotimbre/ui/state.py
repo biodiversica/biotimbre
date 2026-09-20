@@ -31,7 +31,7 @@ from pathlib import Path
 from typing import Any, TypeVar
 
 from biotimbre.config import Settings, load_settings
-from biotimbre.db.connection import initialize
+from biotimbre.db.connection import initialize, open_read_only
 from biotimbre.embeddings.extractor import ExtractorPool
 from biotimbre.service import LibraryService
 
@@ -159,6 +159,9 @@ class AppState:
             survive :meth:`open_library`. Opening a library re-reads the
             configuration so the new directory is resolved against it, and
             that would otherwise quietly undo every flag typed for this run.
+            :attr:`Settings.search_only` joins them on its own, whether it came
+            from a flag or a config file: it is the one setting whose quiet
+            reversal would hand out more access than was intended.
     """
 
     def __init__(
@@ -169,6 +172,13 @@ class AppState:
     ):
         self.overrides = dict(overrides or {})
         self.settings = settings if settings is not None else load_settings()
+        if self.settings.search_only:
+            # Sticky, however it was asked for. Opening a library re-reads the
+            # configuration, and a configuration that no longer mentions this
+            # -- a --config file that is not found again, a different library
+            # directory -- must not be able to hand out a writable library to
+            # whoever this run was started for. Overrides are what survive.
+            self.overrides["search_only"] = True
         self._lock = threading.RLock()
 
         # The models do not depend on which library is open — only on the model
@@ -217,25 +227,40 @@ class AppState:
         holds no database yet — opening a new library and opening an old one
         are the same act from the reader's side.
 
+        Under :attr:`Settings.search_only` none of that applies: the library is
+        opened read-only and must already exist. A run that cannot add an item
+        has no business creating the library it was pointed at, and a typo in
+        the path should say so rather than quietly produce an empty library.
+
         Args:
             data_dir: Directory the library lives in.
             name: Name to give a library that does not have one yet. An
-                existing name is never overwritten here.
+                existing name is never overwritten here — nor is one set at all
+                in a search-only run, which is a write like any other.
 
         Returns:
             The settings now in force.
 
         Raises:
-            BiotimbreError: If the directory cannot be used as a library.
+            BiotimbreError: If the directory cannot be used as a library, or if
+                a search-only run was pointed at one that is not there.
         """
         with self._lock:
             settings = self.apply_overrides(load_settings(data_dir=data_dir))
-            settings.ensure_dirs()
             # allow_threads because request handlers and the inference worker
             # do not share a thread; the lock is what makes that safe.
-            connection = initialize(settings.db_path, allow_threads=True)
-            service = LibraryService(settings, connection=connection, pool=self.pool)
-            if name and not service.identity().name:
+            if settings.search_only:
+                connection = open_read_only(settings.db_path, allow_threads=True)
+            else:
+                settings.ensure_dirs()
+                connection = initialize(settings.db_path, allow_threads=True)
+            service = LibraryService(
+                settings,
+                connection=connection,
+                pool=self.pool,
+                read_only=settings.search_only,
+            )
+            if name and not settings.search_only and not service.identity().name:
                 service.rename(name)
 
             self.close_library()

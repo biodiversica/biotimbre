@@ -240,6 +240,12 @@ class LibraryService:
             should build it once at startup — where it can show progress — rather
             than paying for it on the first search. A pool passed in is *not*
             closed by :meth:`close`; the caller owns its lifetime.
+        read_only: Promise that this service will not change the library. It
+            makes the read path avoid the one write it would otherwise perform
+            (see :meth:`ensure_models_registered`) and leaves the directories
+            alone. It is a statement about the ``connection`` given, not an
+            enforcement: what actually refuses a write is opening that
+            connection with :func:`~biotimbre.db.connection.open_read_only`.
     """
 
     def __init__(
@@ -248,9 +254,12 @@ class LibraryService:
         *,
         connection=None,
         pool: ExtractorPool | None = None,
+        read_only: bool = False,
     ):
         self.settings = settings if settings is not None else load_settings()
-        self.settings.ensure_dirs()
+        self.read_only = read_only
+        if not read_only:
+            self.settings.ensure_dirs()
         self._owns_connection = connection is None
         self._conn = connection if connection is not None else initialize(
             self.settings.db_path
@@ -372,6 +381,12 @@ class LibraryService:
 
         Downloads model files on first call. Idempotent.
 
+        A read-only service reads the dimensions and records nothing. The
+        registration says which models a library was *built* with, and a
+        service that cannot add an item has nothing to add to that; :meth:`search`
+        calls this on every query, so without the exemption a search-only run
+        would fail on its first search rather than on an ingest it never does.
+
         Args:
             model_ids: Restrict to these models. ``None`` registers every
                 active model. Naming a subset avoids building a session for a
@@ -387,8 +402,9 @@ class LibraryService:
         ):
             extractor = self.pool.get(model_id)
             dim = extractor.embedding_dim()
-            with self._transaction():
-                self.repo.register_model(extractor.spec, dim)
+            if not self.read_only:
+                with self._transaction():
+                    self.repo.register_model(extractor.spec, dim)
             dims[model_id] = dim
         return dims
 

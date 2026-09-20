@@ -14,7 +14,9 @@
     "unnamed_library": "(unnamed library)",
     "loading_models": "Loading models…",
     "loading_models_hint": "First run downloads about 70 MB. Afterwards this is instant and works offline.",
-    "models_ready": "Models ready"
+    "models_ready": "Models ready",
+    "search_only": "Search only",
+    "search_only_hint": "This instance can search this library but cannot change it."
   },
   "setup": {
     "heading": "Choose a library",
@@ -31,7 +33,8 @@
     "open": "Open library",
     "no_path": "Give a directory for the library.",
     "recent": "Opened before",
-    "no_library": "no library open"
+    "no_library": "no library open",
+    "search_only_missing": "Nothing to search: this instance was started for searching only, and no library was given. Start it again with --data-dir pointing at an existing library."
   },
   "common": {
     "save": "Save",

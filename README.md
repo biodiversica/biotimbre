@@ -70,6 +70,40 @@ anything from the network on its own.
   breakdown. The query stays playable at the top for A/B comparison. For a file
   over 15 s, a slider over the spectrogram picks the segment.
 
+### Search-only runs
+
+```bash
+uv run biotimbre gui --data-dir ./library --search-only
+```
+
+For giving other people a way to search a library without giving them the
+library. The Library page is not served — `/` redirects, so the page is never
+built and none of its handlers exist — the library chooser is never mounted, and
+**the database is opened read-only**, which is what makes this a guarantee
+rather than a hidden tab. The header says `Search only` so it is clear which
+kind of run this is.
+
+The library has to exist: `--search-only` names one with `--data-dir` (or
+`library.data_dir`) and creates nothing, so a mistyped path is an error rather
+than a new empty library. A library whose schema needs upgrading is refused too
+— migrating is a write — so open it once without the flag first.
+
+Everything the search page offers stays available, including downloading a
+result's audio or exporting it as a bundle. The mode stops the library being
+*changed*; it is not a restriction on reading what it holds. Combine with
+`--host` to reach it from another machine:
+
+```bash
+uv run biotimbre gui --data-dir ./library --search-only --host 0.0.0.0
+```
+
+The same thing config-side, for a machine that should only ever serve searches:
+
+```toml
+[ui]
+search_only = true
+```
+
 ## Commands
 
 ```bash
@@ -86,7 +120,7 @@ biotimbre export-npy ITEM_ID MODEL_ID OUT   # .npy per window; .zip if several
 biotimbre export-bundle ITEM_ID... -o FILE  # package items to send to someone
 biotimbre import-bundle FILE [--dry-run]    # load a bundle you were sent
 biotimbre stats
-biotimbre gui [--host H] [--port P] [--no-browser]
+biotimbre gui [--host H] [--port P] [--no-browser] [--no-map] [--search-only]
 ```
 
 Global options: `--data-dir`, `--config`, `--models`.
@@ -316,6 +350,7 @@ max_query_duration_s = 15
 
 [ui]
 language = "en"            # en | pt_BR
+search_only = false        # serve the search page alone, library read-only
 
 [map]
 # The location map on both pages. This is the only part of the interface that

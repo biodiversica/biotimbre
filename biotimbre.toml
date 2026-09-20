@@ -4,6 +4,13 @@ data_dir = "data"
 [ui]
 language = "en"            # en | pt_BR
 
+# Serve the search page alone, with the library opened read-only: no library
+# page, no library chooser, nothing that can change what is stored. For giving
+# other people a way to search this library without giving them the library.
+# Needs a library to point at, since it may not open or create one.
+# For one run only: biotimbre gui --search-only
+search_only = false
+
 [sources.inaturalist]
 # Offer to fetch a recording from iNaturalist by observation ID, in the search
 # page's query card and the library page's add form. Set false for a library

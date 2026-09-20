@@ -501,13 +501,30 @@ def cmd_gui(args: argparse.Namespace) -> int:
         # looked at, so it can be refused for a single run without editing the
         # config file.
         overrides["map_enabled"] = False
+    if args.search_only:
+        overrides["search_only"] = True
     if overrides:
         settings = dataclasses.replace(settings, **overrides)
+
+    if settings.search_only and not settings.data_dir_chosen:
+        # The chooser is what a run without a library falls back on, and a
+        # search-only run does not have one: it may not open a library, let
+        # alone create one. So the library has to be named here.
+        print(
+            "error: --search-only needs a library to search. Pass --data-dir, "
+            "or set library.data_dir in the config file.",
+            file=sys.stderr,
+        )
+        return 2
+
     if settings.data_dir_chosen:
         print(f"Library at {settings.data_dir}")
     else:
         # Nothing was chosen, so nothing is created: the interface asks.
         print("No library given — choose one in the browser.")
+    if settings.search_only:
+        print("Search only: the library page is not served and the database "
+              "is opened read-only.")
     print(f"Serving on http://{args.host}:{args.port}")
     run_ui(
         settings,
@@ -802,6 +819,15 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "Do not show the location map. Its basemap tiles are fetched from "
             "OpenStreetMap as a page is drawn; everything else works offline."
+        ),
+    )
+    p_gui.add_argument(
+        "--search-only",
+        action="store_true",
+        help=(
+            "Serve the search page alone, with the library opened read-only. "
+            "For giving other people a way to search a library without being "
+            "able to change it. Requires --data-dir or a configured library."
         ),
     )
     p_gui.set_defaults(func=cmd_gui)

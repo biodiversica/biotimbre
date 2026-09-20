@@ -14,7 +14,9 @@
     "unnamed_library": "(biblioteca sem nome)",
     "loading_models": "Carregando modelos…",
     "loading_models_hint": "Na primeira execução são baixados cerca de 70 MB. Depois disso é instantâneo e funciona offline.",
-    "models_ready": "Carregamento de modelos concluído"
+    "models_ready": "Carregamento de modelos concluído",
+    "search_only": "Somente busca",
+    "search_only_hint": "Esta instância pode buscar nesta biblioteca, mas não pode alterá-la."
   },
   "setup": {
     "heading": "Escolha uma biblioteca",
@@ -31,7 +33,8 @@
     "open": "Abrir biblioteca",
     "no_path": "Indique um diretório para a biblioteca.",
     "recent": "Abertas antes",
-    "no_library": "nenhuma biblioteca aberta"
+    "no_library": "nenhuma biblioteca aberta",
+    "search_only_missing": "Nada para buscar: esta instância foi iniciada apenas para busca e nenhuma biblioteca foi indicada. Inicie novamente com --data-dir apontando para uma biblioteca existente."
   },
   "common": {
     "save": "Salvar",

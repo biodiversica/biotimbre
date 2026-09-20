@@ -4,6 +4,15 @@ The two pages live in :mod:`biotimbre.ui.admin` and :mod:`biotimbre.ui.search`;
 this module wires them to routes and starts the server. Both are imported lazily
 inside their page function so importing this module does not drag in the whole
 interface.
+
+**Search-only runs** (:attr:`Settings.search_only`, ``gui --search-only``) serve
+the search page and nothing else, for people who should be able to query a
+library without being able to change it. The library page is not hidden but
+withdrawn — ``/`` redirects, so the page is never built and none of its handlers
+exist to be reached over the socket — and the library chooser is never mounted,
+since choosing a library is how a reader would otherwise get a writable one.
+The database itself is opened read-only (:meth:`AppState.open_library`), which is
+what makes this a guarantee rather than a convention.
 """
 
 from __future__ import annotations
@@ -15,6 +24,8 @@ import time
 import webbrowser
 from collections.abc import Mapping
 
+from fastapi import Response
+from fastapi.responses import RedirectResponse
 from nicegui import app, ui
 
 from biotimbre.config import Settings, load_settings
@@ -78,15 +89,26 @@ def open_browser(host: str, port: int, timeout: float = BROWSER_TIMEOUT) -> None
 
 
 @ui.page("/")
-async def admin_page() -> None:
-    """Library page: add, inspect, edit and delete items."""
+async def admin_page() -> Response | None:
+    """Library page: add, inspect, edit and delete items.
+
+    Returns:
+        A redirect to the search page on a search-only run, where this page
+        does not exist; ``None`` otherwise, having rendered it.
+    """
     from biotimbre.ui import admin, setup
+
+    if get_state().settings.search_only:
+        # Returned rather than rendered: NiceGUI hands a Response straight back,
+        # so the page is never built and its handlers are never registered.
+        return RedirectResponse("/search")
 
     with page("admin") as t:
         if not get_state().is_open:
             setup.render(t)
-            return
+            return None
         await admin.render(t)
+    return None
 
 
 @ui.page("/search")
@@ -95,7 +117,13 @@ async def search_page() -> None:
     from biotimbre.ui import search, setup
 
     with page("search") as t:
-        if not get_state().is_open:
+        state = get_state()
+        if not state.is_open:
+            if state.settings.search_only:
+                # The chooser opens libraries, which is exactly what this run
+                # is not for. Saying so is all that is left to do.
+                ui.label(t("setup.search_only_missing")).classes("text-notice")
+                return
             setup.render(t)
             return
         await search.render(t)
@@ -120,9 +148,11 @@ def create_app(
     state = AppState(settings, overrides=overrides)
     set_state(state)
     routes.register(app)
-    if not state.is_open:
+    if not state.is_open and not state.settings.search_only:
         # Only while there is a library to choose: the listing is withdrawn as
-        # soon as one is open (biotimbre.ui.setup).
+        # soon as one is open (biotimbre.ui.setup), and never mounted at all on
+        # a search-only run, where no library may be chosen and the route would
+        # be the one place a request could name a path on the server.
         routes.register_browser(app)
 
     # Warm in the background so the server answers immediately; a first run has
