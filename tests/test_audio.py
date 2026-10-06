@@ -252,6 +252,86 @@ class TestWriteProcessed:
             )
 
 
+def _write_float(path, samples, rate=16_000, subtype="FLOAT"):
+    import soundfile as sf
+
+    sf.write(path, np.asarray(samples, dtype=np.float32), rate, subtype=subtype)
+    return path
+
+
+#: -1 dBFS as a linear amplitude.
+_TARGET = 10 ** (-1 / 20)
+
+
+class TestOverRange:
+    """Float audio beyond full scale, normalised to peak at -1 dBFS."""
+
+    def test_audio_within_full_scale_is_untouched(self):
+        samples = np.array([0.5, -1.0, 0.25], dtype=np.float32)
+        out, peak = audio_io.normalise_over_range(samples)
+        assert out is samples
+        assert peak == pytest.approx(1.0)
+
+    def test_audio_beyond_it_peaks_at_minus_one_dbfs(self):
+        samples = np.array([0.5, -4.0, 2.0], dtype=np.float32)
+        out, peak = audio_io.normalise_over_range(samples)
+        assert peak == pytest.approx(4.0)
+        assert np.abs(out).max() == pytest.approx(_TARGET)
+        # One gain for the whole selection, so its dynamics survive.
+        np.testing.assert_allclose(out / out[0], samples / samples[0], rtol=1e-6)
+
+    def test_non_finite_samples_are_refused(self):
+        with pytest.raises(ValidationError, match="non-finite"):
+            audio_io.sample_peak(np.array([0.1, np.nan], dtype=np.float32))
+
+    def test_integer_files_are_ruled_out_without_decoding(self, monkeypatch):
+        def fail(*_args, **_kwargs):
+            raise AssertionError("decoded an integer file")
+
+        monkeypatch.setattr(audio_io, "load_mono", fail)
+        assert audio_io.over_range_peak(GUYVIR) is None
+
+    def test_peak_is_measured_within_the_selection(self, tmp_path):
+        # Loud only in the second half: the first half is within full scale.
+        rate = 1000
+        samples = np.full(2 * rate, 0.5, dtype=np.float32)
+        samples[rate:] = 3.0
+        path = _write_float(tmp_path / "hot.wav", samples, rate)
+        assert audio_io.over_range_peak(path, start_time=0.0, end_time=1.0) is None
+        assert audio_io.over_range_peak(path, start_time=1.0) == pytest.approx(3.0)
+        assert audio_io.over_range_peak(path) == pytest.approx(3.0)
+
+    def test_message_names_the_peak_and_the_target(self):
+        message = audio_io.over_range_message("hot.wav", 4.0)
+        assert "hot.wav" in message
+        assert "+12.0 dBFS" in message
+        assert "-1 dBFS" in message
+
+    def test_written_copy_is_normalised(self, tmp_path):
+        source = _write_float(tmp_path / "hot.wav", [0.5, -4.0, 2.0] * 1000)
+        out = tmp_path / "out.wav"
+        audio_io.write_processed(source, out)
+        written, _ = audio_io.load_mono(out)
+        assert np.abs(written).max() == pytest.approx(_TARGET)
+
+    def test_written_cut_is_normalised_by_its_own_peak(self, tmp_path):
+        rate = 1000
+        samples = np.full(2 * rate, 2.0, dtype=np.float32)
+        samples[rate:] = 8.0
+        source = _write_float(tmp_path / "hot.wav", samples, rate)
+        out = tmp_path / "cut.wav"
+        audio_io.write_processed(source, out, start_time=0.0, end_time=1.0)
+        written, _ = audio_io.load_mono(out)
+        np.testing.assert_allclose(written, _TARGET, rtol=1e-6)
+
+    def test_written_copy_within_full_scale_keeps_its_level(self, tmp_path):
+        source = _write_float(tmp_path / "quiet.wav", [0.1, -0.2] * 1000)
+        out = tmp_path / "out.wav"
+        audio_io.write_processed(source, out)
+        written, _ = audio_io.load_mono(out)
+        assert np.abs(written).max() == pytest.approx(0.2)
+
+
 class TestFrame:
     def test_exact_length_yields_one_window_at_any_overlap(self):
         # 5 s of audio under a 5 s window leaves no room for a second hop.

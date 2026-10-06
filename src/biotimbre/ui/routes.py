@@ -17,6 +17,7 @@ from fastapi import HTTPException, Response
 from fastapi.responses import FileResponse
 
 from biotimbre.domain.errors import BiotimbreError, NotFoundError
+from biotimbre.embeddings import audio as audio_io
 from biotimbre.ui.state import get_state
 from biotimbre.viz import (
     DEFAULT_HEIGHT,
@@ -138,6 +139,22 @@ def unregister_browser(app) -> None:
     app.remove_route(BROWSE_ROUTE)
 
 
+def _normalised_wav(path: Path, start: float | None, end: float | None) -> bytes:
+    """Encode a selection, normalised if it goes beyond full scale, as WAV."""
+    import io
+
+    from scipy.io import wavfile
+
+    samples, rate = audio_io.load_mono(path, start_time=start, end_time=end)
+    samples, _ = audio_io.normalise_over_range(samples)
+    buffer = io.BytesIO()
+    # scipy, not soundfile: soundfile reaches a buffer through cffi callbacks,
+    # which fail outright where libffi does not match what cffi was built for.
+    # float32 is written as IEEE-float WAV, which browsers play.
+    wavfile.write(buffer, rate, samples)
+    return buffer.getvalue()
+
+
 def register(app) -> None:
     """Attach the media routes to a FastAPI application.
 
@@ -213,6 +230,32 @@ def register(app) -> None:
             raise HTTPException(status_code=404, detail="Unknown query token.")
         return FileResponse(
             path,
+            media_type="audio/wav",
+            headers={"Cache-Control": "private, max-age=3600"},
+        )
+
+    @app.get("/media/query/{token}/normalised")
+    async def query_audio_normalised(
+        token: str, start: float | None = None, end: float | None = None
+    ):
+        """Stream a query's selection, brought within full scale.
+
+        For a selection that goes beyond it, which the browser would clip on
+        playback. The selection alone, not the file scaled by its gain: it is at
+        most the query cap long, and a whole file could be an hour. Normalised
+        exactly as the search normalises it, so what is heard is what is
+        searched with.
+        """
+        state = get_state()
+        path = state.queries.path(token)
+        if path is None:
+            raise HTTPException(status_code=404, detail="Unknown query token.")
+        try:
+            wav = await state.run(_normalised_wav, path, start, end)
+        except BiotimbreError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return Response(
+            content=wav,
             media_type="audio/wav",
             headers={"Cache-Control": "private, max-age=3600"},
         )

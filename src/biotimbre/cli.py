@@ -16,6 +16,7 @@ from pathlib import Path
 from biotimbre.config import load_settings
 from biotimbre.domain.errors import BiotimbreError, ValidationError
 from biotimbre.domain.item import FilteredBand, ItemDraft, Location, SampleWindow
+from biotimbre.embeddings import audio as audio_io
 from biotimbre.io.bundle import BUNDLE_SUFFIX
 from biotimbre.search.filters import SearchFilters
 from biotimbre.service import IngestResult, LibraryService, SearchHit
@@ -378,6 +379,18 @@ def cmd_search(args: argparse.Namespace) -> int:
             start_time=args.start_time,
             end_time=args.end_time,
         )
+        # After the search, which has already refused an unusable segment, and
+        # over the segment it resolved: a start alone means the cap from there.
+        start, end = audio_io.resolve_query_segment(
+            audio_io.read_properties(args.audio).duration_s,
+            args.start_time,
+            args.end_time,
+            service.settings.max_query_duration_s,
+        )
+        peak = audio_io.over_range_peak(args.audio, start_time=start, end_time=end)
+        if peak is not None:
+            name = Path(args.audio).name
+            print(f"warning: {audio_io.over_range_message(name, peak)}", file=sys.stderr)
         _print_hits(hits, show_all_models=True)
     return 0
 

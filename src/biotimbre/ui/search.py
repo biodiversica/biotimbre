@@ -23,7 +23,7 @@ from biotimbre.search.filters import SearchFilters
 from biotimbre.search.vector_search import FUSIONS, METRICS
 from biotimbre.service import SearchHit
 from biotimbre.sources import inaturalist
-from biotimbre.ui.admin import ACCEPTED
+from biotimbre.ui.admin import ACCEPTED, _over_range_args
 from biotimbre.ui import inat, maps
 from biotimbre.ui.exports import export_button
 from biotimbre.ui.layout import notify_error
@@ -56,6 +56,8 @@ class QueryState:
         properties: Decoded audio properties.
         start: Selected segment start in seconds.
         end: Selected segment end in seconds.
+        over_range_peak: The searched audio's peak when it goes beyond full
+            scale, and so is normalised before searching and playing.
     """
 
     token: str | None = None
@@ -63,6 +65,7 @@ class QueryState:
     properties: audio_io.AudioProperties | None = None
     start: float = 0.0
     end: float = 0.0
+    over_range_peak: float | None = None
 
     @property
     def duration(self) -> float:
@@ -467,6 +470,7 @@ async def render(t: Translator) -> None:
             query.properties = None
             query.start = 0.0
             query.end = 0.0
+            query.over_range_peak = None
             uploader.reset()
             results_area.clear()
             if result_map is not None:
@@ -507,9 +511,48 @@ async def render(t: Translator) -> None:
                     end simply plays on, which is what it did before.
                     """
                     source = state.query_audio_url(query.token)
-                    if query.needs_segment:
+                    if query.over_range_peak is not None:
+                        # The browser would clip it, so it hears the selection
+                        # as the search uses it: normalised, and only that.
+                        source += "/normalised"
+                        if query.needs_segment:
+                            source += f"?start={query.start:.3f}&end={query.end:.3f}"
+                    elif query.needs_segment:
                         source += f"#t={query.start:.2f},{query.end:.2f}"
                     player.set_source(source)
+
+                async def refresh_level() -> None:
+                    """Check the selection's level, and warn and switch the player if it is over.
+
+                    Only the selection counts: a loud passage outside it is not
+                    searched with, so it should not turn the searched part down.
+                    """
+                    segment = query.segment()
+                    try:
+                        peak = await state.run(
+                            audio_io.over_range_peak,
+                            state.queries.path(query.token),
+                            start_time=segment[0],
+                            end_time=segment[1],
+                        )
+                    except BiotimbreError as exc:
+                        notify_error(t, exc)
+                        return
+                    if query.segment() != segment:
+                        # A newer drag settled while this one decoded.
+                        return
+                    was_over = query.over_range_peak is not None
+                    query.over_range_peak = peak
+                    level_label.set_visibility(peak is not None)
+                    if peak is not None:
+                        level_label.set_text(
+                            t("search.over_range", **_over_range_args(peak))
+                        )
+                    # The player already follows the segment; it only needs a
+                    # new source when the level decides a different one, so a
+                    # drag still reloads the media once rather than twice.
+                    if was_over != (peak is not None):
+                        play_segment()
 
                 # Rebuilt only when the view changes. Within a view, the
                 # marker moves rather than the picture being redrawn.
@@ -579,7 +622,7 @@ async def render(t: Translator) -> None:
                                 marker, (low, high), 0.0, query.duration
                             )
 
-                    def on_span_settled(event) -> None:
+                    def on_span_settled(event):
                         # The settled value comes with the event: it and the
                         # drag's own updates arrive separately, so reading the
                         # last one to have landed can lag a step behind.
@@ -588,6 +631,10 @@ async def render(t: Translator) -> None:
                             query.start = float(span["min"])
                             query.end = float(span["max"])
                         play_segment()
+                        # Returned rather than awaited: the player follows the
+                        # release at once, and NiceGUI runs the level check
+                        # after it, in this element's context.
+                        return refresh_level()
 
                     picker.on_value_change(on_span)
                     # Only once the drag settles: changing the source reloads
@@ -606,6 +653,9 @@ async def render(t: Translator) -> None:
                         t("search.whole_file", duration=f"{query.duration:.2f}")
                     )
 
+                level_label = ui.label().classes("text-xs text-notice")
+                level_label.set_visibility(False)
+
                 with ui.row().classes("items-center gap-2 w-full"):
                     ui.label(t("search.play_query")).classes(
                         "text-xs text-muted"
@@ -613,7 +663,10 @@ async def render(t: Translator) -> None:
                     player = ui.audio(state.query_audio_url(query.token)).classes(
                         "grow"
                     )
+                # Not yet known for this file; the check corrects it if need be.
+                query.over_range_peak = None
                 play_segment()
+                await refresh_level()
 
         async def handle_upload(event) -> None:
             # event.file is a NiceGUI FileUpload: .name plus async read()/save().

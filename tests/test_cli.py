@@ -288,6 +288,25 @@ class TestEndToEndCli:
         with zipfile.ZipFile(reported) as archive:
             assert len(archive.namelist()) == 3
 
+    def test_search_warns_about_a_query_beyond_full_scale(
+        self, data_dir, tmp_path, capsys
+    ):
+        import numpy as np
+        import soundfile as sf
+
+        run(data_dir, "init", "--name", "Test Library")
+        run(data_dir, "add", str(GUYVIR_WAV))
+        samples, rate = sf.read(GUYVIR_WAV, dtype="float32")
+        hot = tmp_path / "hot.wav"
+        sf.write(hot, samples * 10, rate, subtype="FLOAT")
+        capsys.readouterr()
+
+        assert run(data_dir, "search", str(hot), "-k", "1") == 0
+        captured = capsys.readouterr()
+        assert "beyond full scale" in captured.err
+        # Searched normalised, so it is still its own sample.
+        assert "1. score +1.0000" in captured.out
+
     def test_speed_shifted_item_found_by_native_query(self, data_dir, capsys):
         run(data_dir, "init", "--name", "Test Library")
         run(

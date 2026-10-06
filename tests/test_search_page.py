@@ -264,6 +264,29 @@ class TestQueryRoutes:
     def test_unknown_token_is_404(self, client):
         assert client.get("/media/query/bogus").status_code == 404
 
+    def test_serves_a_selection_normalised(self, client, installed_state, tmp_path):
+        import io
+
+        samples = np.full(32_000, 0.5, dtype=np.float32)
+        samples[16_000:] = 4.0
+        hot = tmp_path / "hot.wav"
+        sf.write(hot, samples, 16_000, subtype="FLOAT")
+        token = installed_state.queries.add("hot.wav", hot.read_bytes())
+
+        response = client.get(f"/media/query/{token}/normalised?start=1&end=2")
+        assert response.status_code == 200
+        assert response.headers["content-type"] == "audio/wav"
+        from scipy.io import wavfile
+
+        rate, played = wavfile.read(io.BytesIO(response.content))
+        # The selection alone, brought within full scale.
+        assert rate == 16_000
+        assert played.size == 16_000
+        assert np.abs(played).max() == pytest.approx(10 ** (-1 / 20))
+
+    def test_normalised_selection_of_unknown_token_is_404(self, client):
+        assert client.get("/media/query/bogus/normalised").status_code == 404
+
     def test_query_audio_is_not_publicly_cacheable(self, client, installed_state):
         # An uploaded query is the user's own material, not library content.
         token = installed_state.queries.add("q.wav", GUYVIR.read_bytes())
@@ -428,6 +451,24 @@ class TestSegmentPicker:
             picker._props["max-span"]
             == installed_state.settings.max_query_duration_s
         )
+
+    async def test_a_selection_beyond_full_scale_is_flagged_and_played_normalised(
+        self, user: User, installed_state, tmp_path
+    ):
+        samples, rate = sf.read(GUYVIR, dtype="float32")
+        hot = tmp_path / "hot.wav"
+        sf.write(hot, samples * 10, rate, subtype="FLOAT")
+        await self._stage(user, hot)
+
+        await user.should_see("beyond full scale")
+        player = next(iter(user.find(ui.audio).elements))
+        assert player._props["src"].endswith("/normalised")
+
+    async def test_a_selection_within_full_scale_is_not_flagged(
+        self, user: User, installed_state, long_wav
+    ):
+        await self._stage(user, long_wav)
+        await user.should_not_see("beyond full scale")
 
     async def test_a_short_recording_plays_whole(self, user: User, installed_state):
         await self._stage(user, GUYVIR)

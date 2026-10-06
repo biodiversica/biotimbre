@@ -111,6 +111,43 @@ class TestAddState:
         assert audio_io.read_properties(add_state.source).channels == 1
         add_state.discard()
 
+    def test_an_upload_beyond_full_scale_is_prepared_normalised(self, tmp_path):
+        import numpy as np
+        import soundfile as sf
+
+        from biotimbre.embeddings import audio as audio_io
+
+        path = tmp_path / "hot.wav"
+        sf.write(path, np.full(16_000, 3.0, dtype=np.float32), 16_000, subtype="FLOAT")
+
+        add_state = AddState()
+        add_state.replace("hot.wav", path.read_bytes())
+        # Mono, whole and unfiltered, but it would clip: a copy is stored.
+        add_state.apply()
+        assert add_state.over_range_peak == pytest.approx(3.0)
+        assert add_state.source == add_state.processed
+        samples, _ = audio_io.load_mono(add_state.source)
+        assert np.abs(samples).max() == pytest.approx(10 ** (-1 / 20))
+        add_state.discard()
+        assert add_state.over_range_peak is None
+
+    def test_only_the_kept_segment_is_judged(self, tmp_path):
+        import numpy as np
+        import soundfile as sf
+
+        samples = np.full(32_000, 0.5, dtype=np.float32)
+        samples[16_000:] = 3.0
+        path = tmp_path / "half_hot.wav"
+        sf.write(path, samples, 16_000, subtype="FLOAT")
+
+        add_state = AddState()
+        add_state.replace("half_hot.wav", path.read_bytes())
+        add_state.start, add_state.end = 0.0, 1.0
+        add_state.apply()
+        # The loud second half is cut away, so nothing needs normalising.
+        assert add_state.over_range_peak is None
+        add_state.discard()
+
     def test_a_chosen_segment_is_cut_before_storing(self):
         add_state = AddState()
         add_state.replace("a.wav", GUYVIR.read_bytes())

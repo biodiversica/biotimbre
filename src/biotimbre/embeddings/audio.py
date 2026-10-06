@@ -43,6 +43,16 @@ MAX_QUERY_DURATION_S = 15.0
 #: Slack for floating-point comparisons on durations.
 _DURATION_EPSILON = 1e-6
 
+#: Peak, in dBFS, that a selection beyond full scale is brought down to.
+#:
+#: A peak and not an RMS target: bird song carries peaks some 15-25 dB above its
+#: RMS, so an RMS level near full scale would push the peaks far past it.
+NORMALISED_PEAK_DBFS = -1.0
+
+#: Subtypes whose samples are bounded by full scale, so they never need a decode
+#: to be ruled out. Floating-point and lossy formats can go past it.
+_BOUNDED_SUBTYPE_PREFIXES = ("PCM_", "ULAW", "ALAW", "DPCM_", "DWVW_")
+
 
 @dataclass(frozen=True)
 class AudioProperties:
@@ -170,6 +180,109 @@ def load_mono(
     return np.ascontiguousarray(mono, dtype=np.float32), int(sample_rate)
 
 
+def sample_peak(samples: np.ndarray) -> float:
+    """Largest absolute sample value.
+
+    Args:
+        samples: Audio samples.
+
+    Returns:
+        The peak, ``0.0`` for empty audio.
+
+    Raises:
+        ValidationError: If any sample is NaN or infinite, which a float file
+            can hold and nothing downstream can use.
+    """
+    if samples.size == 0:
+        return 0.0
+    peak = float(np.max(np.abs(samples)))
+    if not np.isfinite(peak):
+        raise ValidationError(
+            "The audio contains non-finite samples (NaN or infinity).", "audio"
+        )
+    return peak
+
+
+def normalise_over_range(samples: np.ndarray) -> tuple[np.ndarray, float]:
+    """Bring audio that goes beyond full scale down to peak at -1 dBFS.
+
+    Audio within ``[-1, 1]`` is returned untouched, so only a selection that
+    would otherwise clip on playback, and skew a level-sensitive model such as
+    Perch, is changed. One gain for the whole selection, so its dynamics are
+    kept.
+
+    Args:
+        samples: The selected audio.
+
+    Returns:
+        The samples, scaled when they went past full scale, and the peak they
+        had before scaling.
+
+    Raises:
+        ValidationError: If any sample is non-finite.
+    """
+    peak = sample_peak(samples)
+    if peak <= 1.0:
+        return samples, peak
+    gain = 10.0 ** (NORMALISED_PEAK_DBFS / 20.0) / peak
+    return np.ascontiguousarray(samples * gain, dtype=np.float32), peak
+
+
+def over_range_peak(
+    path: str | Path,
+    *,
+    start_time: float | None = None,
+    end_time: float | None = None,
+) -> float | None:
+    """The peak of a selection, if it goes beyond full scale.
+
+    The question every caller asks before normalising or warning. Integer
+    formats cannot exceed full scale, so they are answered from the header
+    without decoding anything.
+
+    Args:
+        path: The audio file.
+        start_time: Selection start in seconds. ``None`` starts at the beginning.
+        end_time: Selection end in seconds. ``None`` runs to the end.
+
+    Returns:
+        The selection's peak when it is above 1.0, otherwise ``None``.
+
+    Raises:
+        ValidationError: If the file cannot be decoded or holds non-finite samples.
+    """
+    import soundfile as sf
+
+    try:
+        subtype = sf.info(str(path)).subtype
+    except Exception as exc:
+        raise ValidationError(
+            f"Could not read {Path(path).name} as audio: {exc}", "audio"
+        ) from exc
+    if subtype.startswith(_BOUNDED_SUBTYPE_PREFIXES):
+        return None
+    samples, _ = load_mono(path, start_time=start_time, end_time=end_time)
+    peak = sample_peak(samples)
+    return peak if peak > 1.0 else None
+
+
+def over_range_message(name: str, peak: float) -> str:
+    """Say that a selection was normalised, for a warning list or the console.
+
+    Args:
+        name: What the audio is called, e.g. its filename.
+        peak: Its peak before normalising, from :func:`over_range_peak`.
+
+    Returns:
+        A one-line advisory.
+    """
+    return (
+        f"{name} peaks at {peak:.3g} ({20.0 * np.log10(peak):+.1f} dBFS), beyond "
+        f"full scale; the selection was normalised to peak at "
+        f"{NORMALISED_PEAK_DBFS:g} dBFS."
+    )
+
+
 def write_processed(
     source: str | Path,
     destination: str | Path,
@@ -193,6 +306,10 @@ def write_processed(
 
     Only the requested segment is decoded, so cutting 10 s out of an hour costs
     the 10 s.
+
+    A selection that goes beyond full scale is normalised to peak at
+    :data:`NORMALISED_PEAK_DBFS` (:func:`normalise_over_range`); one within it
+    is written at its own level.
 
     Args:
         source: Recording to read.
@@ -249,6 +366,10 @@ def write_processed(
 
     mono = data.mean(axis=1) if data.shape[1] > 1 else data[:, 0]
     mono = np.ascontiguousarray(mono, dtype=np.float32)
+    # Measured on the cut and downmixed selection, since that is what is stored,
+    # and before the filter: scaling commutes with it, so the gain is the one a
+    # warning computed from the raw selection would report.
+    mono, _ = normalise_over_range(mono)
 
     if low_hz is not None or high_hz is not None:
         # Filtered after the downmix, not per channel and then averaged: one

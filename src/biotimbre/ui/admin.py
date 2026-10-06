@@ -11,6 +11,7 @@ and the button reports progress rather than the page appearing to hang.
 from __future__ import annotations
 
 import asyncio
+import math
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -87,7 +88,9 @@ class AddState:
     the library actually holds.
 
     A multi-channel submission is rewritten even when nothing was asked for:
-    the library stores mono, so the copy is what makes that true.
+    the library stores mono, so the copy is what makes that true. So is a
+    floating-point one whose selection goes beyond full scale, normalised to
+    peak at -1 dBFS so it neither clips on playback nor skews the embeddings.
 
     Attributes:
         upload: The staged file, or ``None``.
@@ -99,7 +102,9 @@ class AddState:
         lowpass: Lowpass cutoff to apply, in Hz, or ``None``.
         filter_order: Butterworth order used when a cutoff is set.
         processed: The prepared copy, or ``None`` when the upload is already
-            what should be stored — mono, whole, unfiltered.
+            what should be stored — mono, whole, unfiltered, within full scale.
+        over_range_peak: The selection's peak when :meth:`apply` found it
+            beyond full scale and normalised it, otherwise ``None``.
     """
 
     upload: Upload | None = None
@@ -112,6 +117,7 @@ class AddState:
     lowpass: float | None = None
     filter_order: int = DEFAULT_FILTER_ORDER
     processed: Path | None = None
+    over_range_peak: float | None = None
 
     @property
     def duration(self) -> float:
@@ -159,10 +165,17 @@ class AddState:
             raise ValidationError("No audio staged.", "audio")
 
         self.drop_processed()
+        start = self.start if self.is_cut else None
+        end = self.end if self.is_cut else None
+        # Of the selection, not the file: what is kept is what has to be in range.
+        self.over_range_peak = audio_io.over_range_peak(
+            self.upload.path, start_time=start, end_time=end
+        )
         if (
             not self.is_cut
             and not self.is_filtered
             and self.upload.properties.channels == 1
+            and self.over_range_peak is None
         ):
             return self.upload.properties
 
@@ -170,8 +183,8 @@ class AddState:
         properties = audio_io.write_processed(
             self.upload.path,
             target,
-            start_time=self.start if self.is_cut else None,
-            end_time=self.end if self.is_cut else None,
+            start_time=start,
+            end_time=end,
             low_hz=self.highpass,
             high_hz=self.lowpass,
             order=self.filter_order,
@@ -251,6 +264,19 @@ class AddState:
         self.upload = None
         self.start = 0.0
         self.end = 0.0
+        self.over_range_peak = None
+
+
+def _over_range_args(peak: float) -> dict[str, str]:
+    """Translation arguments for a selection normalised from ``peak``.
+
+    Shared by the add form and the search page, which warn in the same words.
+    """
+    return {
+        "peak": f"{peak:.3g}",
+        "dbfs": f"{20.0 * math.log10(peak):+.1f}",
+        "target": f"{audio_io.NORMALISED_PEAK_DBFS:g}",
+    }
 
 
 def _fill_metadata_from(t: Translator, form, observation) -> None:
@@ -585,6 +611,13 @@ def _add_card(t: Translator, on_added) -> None:
                     # Only when there is a difference to show: an untouched
                     # submission is already pictured above.
                     with stored:
+                        if add_state.over_range_peak is not None:
+                            ui.label(
+                                t(
+                                    "admin.over_range",
+                                    **_over_range_args(add_state.over_range_peak),
+                                )
+                            ).classes("text-xs text-notice")
                         ui.label(
                             t(
                                 "admin.will_store",

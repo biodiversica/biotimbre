@@ -144,6 +144,7 @@
     "filter_hint": "Filtra o áudio antes de armazená-lo (Butterworth). Deixe ambos em branco para armazenar sem filtro.",
     "segment_of": "Mantendo {start}–{end} s de {duration} s",
     "will_store": "O que será armazenado ({duration} s)",
+    "over_range": "O trecho selecionado atinge pico de {peak} ({dbfs} dBFS), acima da escala cheia, então será armazenado normalizado com pico em {target} dBFS.",
     "model_limits": "As linhas tracejadas marcam o limite de frequência de cada modelo; conteúdo acima delas não é visto por esse modelo.",
     "recompute": "Recalcular embeddings",
     "recomputed": "Embeddings recalculados."
@@ -253,6 +254,7 @@
     "open_item": "Abrir na biblioteca",
     "whole_file": "Arquivo inteiro ({duration} s)",
     "needs_segment": "Mais longo que {seconds} s — escolha um trecho para buscar.",
+    "over_range": "O trecho selecionado atinge pico de {peak} ({dbfs} dBFS), acima da escala cheia, então é buscado e reproduzido normalizado com pico em {target} dBFS.",
     "no_query": "Escolha uma gravação para buscar, ou defina um filtro para buscar por metadados.",
     "chosen": "{name} — {duration} s, {rate} Hz",
     "rank": "#",

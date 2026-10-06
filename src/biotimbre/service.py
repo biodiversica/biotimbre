@@ -487,7 +487,7 @@ class LibraryService:
         else:
             species_warnings = ()
 
-        with self._mono_source(audio_path) as (source, properties):
+        with self._mono_source(audio_path) as (source, properties, level_warnings):
             result = self._ingest(
                 source, validated, properties, compute_embeddings=compute_embeddings
             )
@@ -495,7 +495,7 @@ class LibraryService:
         return replace(
             result,
             joined_species=joined,
-            warnings=result.warnings + species_warnings,
+            warnings=level_warnings + result.warnings + species_warnings,
         )
 
     @contextmanager
@@ -508,6 +508,11 @@ class LibraryService:
         describes the stored file, which is what ``audio_sha256`` means — and
         two copies of the same stereo recording still recognise each other.
 
+        A floating-point file that goes beyond full scale is converted too,
+        normalised to peak at -1 dBFS: stored as it came, it would clip on
+        playback and skew Perch, whose embeddings follow the input level. That
+        is reported, not done silently.
+
         Shared by every path that stores audio, so a sample that arrives in a
         bundle is normalised exactly as one that arrives from a form.
 
@@ -515,9 +520,10 @@ class LibraryService:
             audio_path: The submitted file.
 
         Yields:
-            The path to store and its :class:`~biotimbre.embeddings.audio.AudioProperties`.
-            The path is the original when it is already mono, and a temporary
-            converted file otherwise — removed when the block ends.
+            The path to store, its :class:`~biotimbre.embeddings.audio.AudioProperties`,
+            and any warning about its level. The path is the original when it is
+            already mono and within full scale, and a temporary converted file
+            otherwise — removed when the block ends.
 
         Raises:
             ValidationError: If the file is missing or unreadable as audio.
@@ -527,13 +533,17 @@ class LibraryService:
             raise ValidationError(f"No such audio file: {source}", "audio")
 
         properties = audio_io.read_properties(source)
-        if properties.channels == 1:
-            yield source, properties
+        peak = audio_io.over_range_peak(source)
+        warnings = (
+            () if peak is None else (audio_io.over_range_message(source.name, peak),)
+        )
+        if properties.channels == 1 and peak is None:
+            yield source, properties, warnings
             return
 
         with tempfile.TemporaryDirectory(prefix="biotimbre-mono-") as staging:
             converted = Path(staging) / f"{source.stem}.wav"
-            yield converted, audio_io.write_processed(source, converted)
+            yield converted, audio_io.write_processed(source, converted), warnings
 
     def _join_species_biotimbre(
         self, draft: ItemDraft
@@ -1238,7 +1248,11 @@ class LibraryService:
             )
 
         try:
-            with self._mono_source(plan.entry.audio) as (source, properties):
+            with self._mono_source(plan.entry.audio) as (
+                source,
+                properties,
+                level_warnings,
+            ):
                 result = self._ingest(
                     source,
                     plan.draft,
@@ -1257,7 +1271,7 @@ class LibraryService:
             item=result.item,
             window_counts=result.window_counts,
             action="add",
-            warnings=plan.warnings + result.warnings,
+            warnings=plan.warnings + level_warnings + result.warnings,
         )
 
     def get_item(self, item_id: int) -> LibraryItem:
@@ -1387,6 +1401,10 @@ class LibraryService:
         whichever fragment happens to match. A longer file therefore needs an
         explicit ``start_time``/``end_time``, rather than a segment being guessed.
 
+        A segment that goes beyond full scale is normalised to peak at -1 dBFS
+        before embedding. That is not reported here; callers ask
+        :func:`~biotimbre.embeddings.audio.over_range_peak` to warn about it.
+
         The query is embedded at every speed present in the library, so an item
         indexed at a non-native speed is still findable from a natively-recorded
         query (PLAN.md D2c). Each item is scored against the query embedding
@@ -1452,6 +1470,9 @@ class LibraryService:
             samples, native_rate = audio_io.load_mono(
                 audio_path, start_time=segment[0], end_time=segment[1]
             )
+            # Within the segment, so a loud passage elsewhere in a long file
+            # does not turn down the part being searched with.
+            samples, _ = audio_io.normalise_over_range(samples)
             if band.is_unset:
                 return samples, native_rate
             return (

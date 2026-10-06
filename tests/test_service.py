@@ -11,6 +11,7 @@ import pytest
 from biotimbre.config import Settings
 from biotimbre.domain.errors import NotFoundError, ValidationError
 from biotimbre.domain.item import FilteredBand, ItemDraft, Location, SampleWindow
+from biotimbre.embeddings import audio as audio_io
 from biotimbre.search.filters import SearchFilters
 from biotimbre.service import LibraryService
 from conftest import EXAMPLES_DIR
@@ -125,6 +126,45 @@ class TestIngestWithoutModels:
         assert len(results) == 1
         assert len(failures) == 1
         assert "no sidecar" in failures[0][1]
+
+
+def _hot_copy(path, tmp_path, peak: float):
+    """A float copy of ``path`` scaled to ``peak``, past full scale."""
+    import soundfile as sf
+
+    samples, rate = sf.read(path, dtype="float32")
+    hot = tmp_path / f"hot_{path.name}"
+    sf.write(hot, samples / np.abs(samples).max() * peak, rate, subtype="FLOAT")
+    return hot
+
+
+class TestOverRangeIngest:
+    """A float submission beyond full scale is stored normalised, and says so."""
+
+    def test_is_stored_peaking_at_minus_one_dbfs(
+        self, service, draft_for_guyvir, tmp_path
+    ):
+        hot = _hot_copy(GUYVIR_WAV, tmp_path, 20.0)
+        result = service.add_item(hot, draft_for_guyvir, compute_embeddings=False)
+        stored = service.settings.absolute_audio_path(result.item.audio_path)
+        samples, _ = audio_io.load_mono(stored)
+        assert np.abs(samples).max() == pytest.approx(10 ** (-1 / 20), rel=1e-5)
+        assert any("beyond full scale" in w for w in result.warnings)
+        # The digest is of what is stored, as for a downmixed submission.
+        import hashlib
+
+        assert (
+            result.item.audio_sha256
+            == hashlib.sha256(stored.read_bytes()).hexdigest()
+        )
+
+    def test_audio_within_full_scale_is_stored_as_it_came(
+        self, service, draft_for_guyvir
+    ):
+        result = service.add_item(
+            GUYVIR_WAV, draft_for_guyvir, compute_embeddings=False
+        )
+        assert not any("full scale" in w for w in result.warnings)
 
 
 class TestNyquistAdvisory:
@@ -261,6 +301,17 @@ class TestEndToEnd:
         assert by_name[hits[0].item.item_id] == guyvir_digest
         # Identical audio through the same pipeline: cosine should be ~1.
         assert hits[0].score == pytest.approx(1.0, abs=1e-3)
+
+    def test_a_query_beyond_full_scale_is_searched_normalised(
+        self, service, tmp_path
+    ):
+        service.import_directory(EXAMPLES_DIR)
+        # Perch's embeddings follow the input level: at a peak of 50 the raw
+        # query only reached ~0.88 against its own sample. Normalised, it is
+        # the stored sample again, give or take its 0.897 vs 0.891 peak.
+        hot = _hot_copy(GUYVIR_WAV, tmp_path, 50.0)
+        hit = service.search(hot, k=1)[0]
+        assert hit.per_model["perch_v2"] == pytest.approx(1.0, abs=1e-3)
 
     def test_search_reports_per_model_scores_and_matched_span(self, service):
         service.import_directory(EXAMPLES_DIR)
