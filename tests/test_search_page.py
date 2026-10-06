@@ -412,6 +412,23 @@ class TestSegmentPicker:
         user.find(ui.range).trigger("change")
         assert player._props["src"].endswith("#t=6.00,18.00")
 
+    async def test_the_cap_is_applied_in_the_browser(
+        self, user: User, installed_state, long_wav
+    ):
+        from biotimbre.ui.segment_range import SegmentRange
+
+        await self._stage(user, long_wav)
+
+        # QRange replays the undragged edge on every move, so a cap enforced
+        # only by the server made the selection flicker once it was reached.
+        picker = next(iter(user.find(ui.range).elements))
+        assert isinstance(picker, SegmentRange)
+        assert picker.tag == SegmentRange.component.tag
+        assert (
+            picker._props["max-span"]
+            == installed_state.settings.max_query_duration_s
+        )
+
     async def test_a_short_recording_plays_whole(self, user: User, installed_state):
         await self._stage(user, GUYVIR)
 

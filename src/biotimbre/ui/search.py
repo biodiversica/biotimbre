@@ -27,6 +27,7 @@ from biotimbre.ui.admin import ACCEPTED
 from biotimbre.ui import inat, maps
 from biotimbre.ui.exports import export_button
 from biotimbre.ui.layout import notify_error
+from biotimbre.ui.segment_range import SegmentRange
 from biotimbre.ui.spectrograms import place_span_marker
 from biotimbre.ui.visuals import audio_view, view_toggle
 from biotimbre.ui.state import get_state
@@ -544,18 +545,20 @@ async def render(t: Translator) -> None:
                         "text-xs text-muted"
                     )
 
-                    picker = ui.range(
+                    picker = SegmentRange(
                         min=0.0,
                         max=round(query.duration, 2),
                         step=0.05,
                         value={"min": query.start, "max": query.end},
+                        max_span=cap,
                     ).classes("w-full")
 
                     def on_span(event) -> None:
                         low = float(event.value["min"])
                         high = float(event.value["max"])
-                        # Enforce the cap by moving the edge the user did not
-                        # just drag, so the selection stays where they aimed it.
+                        # The picker already slides the selection at the cap;
+                        # this only guards a value set some other way. The edge
+                        # the user did not just move is the one that gives.
                         if high - low > cap:
                             if abs(low - query.start) > abs(high - query.end):
                                 high = low + cap
