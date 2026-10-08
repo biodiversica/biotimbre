@@ -389,3 +389,88 @@ class TestFocus:
             for layer in location_map.element.layers
             if layer.to_dict()["type"] == "circle"
         ]
+
+
+class TestWrapLongitude:
+    def test_a_longitude_in_range_is_left_alone(self):
+        assert maps.wrap_longitude(-48.85) == pytest.approx(-48.85)
+
+    def test_a_click_on_a_world_copy_comes_back_into_range(self):
+        # worldCopyJump repeats the world sideways; a click one copy east of
+        # Joinville reports 311.15, which validation would refuse.
+        assert maps.wrap_longitude(311.15) == pytest.approx(-48.85)
+        assert maps.wrap_longitude(-408.85) == pytest.approx(-48.85)
+
+
+class TestLocationPicker:
+    async def _picker(self, user: User, path: str) -> dict:
+        from biotimbre.i18n import Translator
+
+        holder: dict = {}
+
+        @ui.page(path)
+        def page() -> None:
+            holder["lat"] = ui.number("lat")
+            holder["lon"] = ui.number("lon")
+            holder["panel"] = maps.location_picker(
+                Translator("en"), holder["lat"], holder["lon"]
+            )
+
+        await user.open(path)
+        return holder
+
+    async def test_no_map_is_built_until_the_panel_opens(
+        self, user: User, installed_state
+    ):
+        holder = await self._picker(user, "/pickclosed")
+        await user.should_not_see(ui.leaflet)
+
+        holder["panel"].value = True
+        assert len(leaflets(user)) == 1
+
+    async def test_clicking_the_map_fills_both_inputs(
+        self, user: User, installed_state
+    ):
+        holder = await self._picker(user, "/pickclick")
+        holder["panel"].value = True
+
+        user.find(ui.leaflet).trigger(
+            "mapClick", {"latlng": {"lat": -26.30441234, "lng": 311.15}}
+        )
+        assert holder["lat"].value == pytest.approx(-26.304412)
+        assert holder["lon"].value == pytest.approx(-48.85)
+
+    async def test_a_click_marks_the_point_without_moving_the_view(
+        self, user: User, installed_state
+    ):
+        holder = await self._picker(user, "/pickstill")
+        holder["panel"].value = True
+        element = leaflets(user)[0]
+
+        user.find(ui.leaflet).trigger(
+            "mapClick", {"latlng": {"lat": -26.3, "lng": -48.85}}
+        )
+        markers = [
+            layer for layer in element.layers
+            if layer.to_dict()["type"] == "circleMarker"
+        ]
+        assert len(markers) == 1
+        # The reader is looking at the spot already, perhaps zoomed in closer
+        # than a refit would go; jumping would undo that.
+        assert element.center == maps.WORLD_VIEW
+
+    async def test_typed_coordinates_are_marked_and_framed(
+        self, user: User, installed_state
+    ):
+        holder = await self._picker(user, "/picktyped")
+        holder["lat"].value = -26.3
+        holder["lon"].value = -48.85
+
+        # Coordinates already there when the map opens are shown at once.
+        holder["panel"].value = True
+        element = leaflets(user)[0]
+        assert element.center == pytest.approx((-26.3, -48.85))
+        assert element.zoom == maps.SINGLE_POINT_ZOOM
+
+        holder["lon"].value = -47.0
+        assert element.center == pytest.approx((-26.3, -47.0))

@@ -59,6 +59,10 @@ SINGLE_POINT_ZOOM = 11
 #: picture than a little surrounding context.
 FIT_MAX_ZOOM = 14
 
+#: Height of the map that picks a recording's coordinates. It sits inside a
+#: form, between fields, so it is smaller than a page's map.
+PICKER_HEIGHT = 300
+
 #: Latitude beyond which Web Mercator stops being defined.
 MERCATOR_LIMIT = 85.05112878
 
@@ -208,6 +212,16 @@ def radius_box(
     ]
 
 
+def wrap_longitude(longitude: float) -> float:
+    """Bring a longitude back into ``[-180, 180)``.
+
+    With ``worldCopyJump`` the world repeats sideways, and a click on one of
+    the copies reports a longitude like 311.5 — the right place, but one the
+    location validation rightly refuses.
+    """
+    return (longitude + 180.0) % 360.0 - 180.0
+
+
 class LocationMap:
     """A single map, redrawable with a new set of points.
 
@@ -267,7 +281,7 @@ class LocationMap:
                 "map-click",
                 lambda event: on_pick(
                     float(event.args["latlng"]["lat"]),
-                    float(event.args["latlng"]["lng"]),
+                    wrap_longitude(float(event.args["latlng"]["lng"])),
                 ),
             )
 
@@ -435,3 +449,69 @@ def map_card(
         if hint:
             ui.label(hint).classes("text-xs text-muted")
         return LocationMap(height=height, on_pick=on_pick)
+
+
+def location_picker(
+    t: Translator,
+    latitude: ui.number,
+    longitude: ui.number,
+    *,
+    height: int = PICKER_HEIGHT,
+) -> ui.expansion:
+    """A collapsed map that fills in a pair of coordinate inputs when clicked.
+
+    An option beside the inputs, not a replacement for them: typing, pasting
+    and an iNaturalist fetch still write the fields, and the map follows.
+
+    The map is built the first time the panel opens. Most additions never need
+    it, so tiles are not fetched for nothing — and Leaflet sizes itself when it
+    is built, which inside a closed panel means sizing itself to nothing.
+
+    Args:
+        t: Active translator.
+        latitude: The latitude input to fill.
+        longitude: The longitude input to fill.
+        height: Map height in pixels.
+
+    Returns:
+        The expansion panel holding the map.
+    """
+    panel = ui.expansion(t("map.pick_location"), icon="place").props(
+        "dense"
+    ).classes("w-full")
+    holder: dict = {"map": None, "clicked": False}
+
+    def show_pick() -> None:
+        """Draw the current coordinates as a dot.
+
+        A typed or fetched location is framed, since it may be anywhere. A
+        clicked one is not: the reader is already looking at it, perhaps
+        zoomed in closer than a refit would go, and is likely to click again
+        to refine it.
+        """
+        picker = holder["map"]
+        if picker is not None:
+            picker.set_focus(
+                latitude.value, longitude.value, None, refit=not holder["clicked"]
+            )
+
+    def pick(lat: float, lon: float) -> None:
+        holder["clicked"] = True
+        try:
+            latitude.value = round(lat, 6)
+            longitude.value = round(lon, 6)
+        finally:
+            holder["clicked"] = False
+
+    def build(event) -> None:
+        if not event.value or holder["map"] is not None:
+            return
+        with panel:
+            ui.label(t("map.pick_location_hint")).classes("text-xs text-muted")
+            holder["map"] = LocationMap(height=height, on_pick=pick)
+        show_pick()
+
+    panel.on_value_change(build)
+    latitude.on_value_change(show_pick)
+    longitude.on_value_change(show_pick)
+    return panel

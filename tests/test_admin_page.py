@@ -9,6 +9,8 @@ Two layers, both browser-free:
 
 from __future__ import annotations
 
+import dataclasses
+
 import pytest
 
 pytest.importorskip("nicegui", reason="needs the 'gui' extra")
@@ -454,6 +456,20 @@ class TestAdminPageRenders:
         await user.should_see("Required")
         await user.should_see("Optional")
         await user.should_see("Add to library")
+
+    async def test_the_add_form_offers_a_map_for_the_location(self, user: User):
+        await user.open("/")
+        await user.should_see("Pick on map")
+
+    async def test_no_map_picker_when_the_map_is_off(
+        self, user: User, installed_state
+    ):
+        installed_state.settings = dataclasses.replace(
+            installed_state.settings, map_enabled=False
+        )
+        await user.open("/")
+        await user.should_see("Add to library")
+        await user.should_not_see("Pick on map")
 
     async def test_lists_an_existing_item(self, user: User, installed_state):
         from biotimbre.io.sidecar import draft_from_sidecar

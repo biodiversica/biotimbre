@@ -726,7 +726,7 @@ def _add_card(t: Translator, on_added) -> None:
                 after=lambda observation: _fill_metadata_from(t, form, observation),
             )
 
-        form = metadata_form(t)
+        form = metadata_form(t, map_picker=maps.enabled())
         results = ui.column().classes("w-full gap-1")
 
         async def save() -> None:

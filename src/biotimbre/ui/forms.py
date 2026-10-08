@@ -25,6 +25,7 @@ from biotimbre.domain.item import (
     SampleWindow,
 )
 from biotimbre.i18n import Translator
+from biotimbre.ui.maps import location_picker
 
 #: Maps a ``ValidationError.field`` onto the input to highlight. Compound fields
 #: report either the whole value or one bound, so both spellings are listed.
@@ -178,6 +179,7 @@ def metadata_form(
     *,
     allow_new_biotimbre: bool = True,
     biotimbre_label: str | None = None,
+    map_picker: bool = False,
 ) -> MetadataForm:
     """Render the metadata inputs and return a handle to them.
 
@@ -189,6 +191,8 @@ def metadata_form(
         biotimbre_label: Current label of the item's biotimbre, to pre-fill the
             label field on edit. Left blank on add, since a freshly allocated
             biotimbre has none yet.
+        map_picker: Whether to offer a map for setting the location by
+            clicking. Off unless asked for, since the map is switchable.
 
     Returns:
         The :class:`MetadataForm` handle.
@@ -227,6 +231,8 @@ def metadata_form(
                 step=0.000001,
             )
         )
+    if map_picker:
+        location_picker(t, inputs["latitude"], inputs["longitude"])
 
     ui.label(t("admin.optional_section")).classes(
         "text-xs uppercase tracking-wide text-muted mt-3"
