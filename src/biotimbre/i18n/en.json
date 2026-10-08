@@ -110,6 +110,7 @@
     "sidecar_found": "Metadata loaded from {name}.",
     "mandatory_section": "Required",
     "optional_section": "Optional",
+    "library_section": "Map and items",
     "save_item": "Add to library",
     "saved": "Added item {item_id} under biotimbre {biotimbre_id}.",
     "updated": "Item {item_id} updated.",

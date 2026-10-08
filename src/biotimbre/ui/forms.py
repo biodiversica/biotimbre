@@ -26,6 +26,7 @@ from biotimbre.domain.item import (
 )
 from biotimbre.i18n import Translator
 from biotimbre.ui.maps import location_picker
+from biotimbre.ui.sections import foldable
 
 #: Maps a ``ValidationError.field`` onto the input to highlight. Compound fields
 #: report either the whole value or one bound, so both spellings are listed.
@@ -56,6 +57,10 @@ _FIELD_TO_INPUT: dict[str, str] = {
 }
 
 
+#: Inputs shown above the fold; every other one lives in the optional panel.
+_REQUIRED_INPUTS = frozenset({"date", "time", "latitude", "longitude"})
+
+
 def _blank_to_none(value: object) -> object | None:
     """Treat an untouched input as absent rather than as an empty value."""
     if value is None:
@@ -75,6 +80,8 @@ class MetadataForm:
     t: Translator
     inputs: dict[str, ui.element]
     allow_new_biotimbre: bool = True
+    #: The foldable holding everything but the required fields.
+    optional_panel: ui.expansion | None = None
 
     def clear_errors(self) -> None:
         """Remove any error state left from a previous attempt."""
@@ -98,6 +105,9 @@ class MetadataForm:
             return False
         message = str(exc).split(": ", 1)[-1].replace('"', "'")
         element.props(f'error error-message="{message}"')
+        if self.optional_panel is not None and name not in _REQUIRED_INPUTS:
+            # A highlighted field nobody can see is no help.
+            self.optional_panel.value = True
         return True
 
     def draft(self) -> ItemDraft:
@@ -234,141 +244,151 @@ def metadata_form(
     if map_picker:
         location_picker(t, inputs["latitude"], inputs["longitude"])
 
-    ui.label(t("admin.optional_section")).classes(
-        "text-xs uppercase tracking-wide text-muted mt-3"
-    )
-    with ui.grid(columns=2).classes("w-full gap-3"):
-        inputs["biotimbre_id"] = dense(
-            ui.input(
-                t("field.biotimbre_id"),
-                value=draft.biotimbre_id if draft else "",
-                placeholder="" if allow_new_biotimbre else None,
-            ).tooltip(
-                t("field.biotimbre_id_help")
-                if allow_new_biotimbre
-                else t("field.biotimbre_id_edit_help")
+    # Folds away, since most additions need few of these and the form is long;
+    # the choice is remembered, and an error in a folded field unfolds it.
+    optional_panel = foldable(
+        "optional_metadata",
+        t("admin.optional_section"),
+        heading_class="text-xs uppercase tracking-wide text-muted",
+    ).classes("mt-3")
+    with optional_panel, ui.column().classes("w-full gap-3 pt-2"):
+        with ui.grid(columns=2).classes("w-full gap-3"):
+            inputs["biotimbre_id"] = dense(
+                ui.input(
+                    t("field.biotimbre_id"),
+                    value=draft.biotimbre_id if draft else "",
+                    placeholder="" if allow_new_biotimbre else None,
+                ).tooltip(
+                    t("field.biotimbre_id_help")
+                    if allow_new_biotimbre
+                    else t("field.biotimbre_id_edit_help")
+                )
             )
-        )
-        inputs["biotimbre_label"] = dense(
-            ui.input(
-                t("field.biotimbre_label"), value=biotimbre_label or ""
-            ).tooltip(t("field.biotimbre_label_help"))
-        )
-        inputs["taxa"] = dense(
-            ui.select(
-                options=[],
-                value=list(draft.taxa) if draft else [],
-                label=t("field.taxa"),
-                multiple=True,
-                new_value_mode="add-unique",
+            inputs["biotimbre_label"] = dense(
+                ui.input(
+                    t("field.biotimbre_label"), value=biotimbre_label or ""
+                ).tooltip(t("field.biotimbre_label_help"))
             )
-            .props("use-chips")
-            .tooltip(t("field.taxa_help"))
-        )
-        inputs["device"] = dense(
-            ui.input(t("field.device"), value=(draft.device if draft else "") or "")
-            .tooltip(t("field.device_help"))
-        )
-        inputs["microphone"] = dense(
-            ui.input(
-                t("field.microphone"),
-                value=(draft.microphone if draft else "") or "",
-            ).tooltip(t("field.microphone_help"))
-        )
-        inputs["recorded_by"] = dense(
-            ui.input(t("field.recorded_by"), value=(draft.recorded_by if draft else "") or "")
-        )
-        inputs["speed"] = dense(
-            ui.number(
-                t("field.speed"),
-                value=draft.speed if draft else DEFAULT_SPEED,
-                step=0.05,
-                min=0.01,
-                max=100.0,
-            ).tooltip(t("field.speed_help"))
-        )
-        inputs["highpass"] = dense(
-            ui.number(
-                t("field.highpass"),
-                value=(draft.filtered_band.low if draft else None),
-                step=100,
-                suffix=t("common.hertz"),
-            ).tooltip(t("field.band_help"))
-        )
-        inputs["lowpass"] = dense(
-            ui.number(
-                t("field.lowpass"),
-                value=(draft.filtered_band.high if draft else None),
-                step=100,
-                suffix=t("common.hertz"),
-            ).tooltip(t("field.band_help"))
-        )
-        inputs["filter_type"] = dense(
-            ui.input(
-                t("field.filter_type"),
-                value=(draft.filter_type if draft else "") or "",
-            ).tooltip(t("field.filter_type_help"))
-        )
-        inputs["filter_order"] = dense(
-            ui.number(
-                t("field.filter_order"),
-                value=(draft.filter_order if draft else None),
-                step=1,
-                min=1,
-            ).tooltip(t("field.filter_order_help"))
-        )
-        inputs["temperature"] = dense(
-            ui.number(
-                t("field.temperature"),
-                value=(draft.temperature if draft else None),
-                step=0.1,
-                suffix="°C",
+            inputs["taxa"] = dense(
+                ui.select(
+                    options=[],
+                    value=list(draft.taxa) if draft else [],
+                    label=t("field.taxa"),
+                    multiple=True,
+                    new_value_mode="add-unique",
+                )
+                .props("use-chips")
+                .tooltip(t("field.taxa_help"))
             )
-        )
-        inputs["humidity"] = dense(
-            ui.number(
-                t("field.humidity"),
-                value=(draft.humidity if draft else None),
-                step=0.1,
-                min=0,
-                max=100,
-                suffix="%",
+            inputs["device"] = dense(
+                ui.input(t("field.device"), value=(draft.device if draft else "") or "")
+                .tooltip(t("field.device_help"))
             )
-        )
-        inputs["link"] = dense(
-            ui.input(
-                t("field.link"),
-                value=(draft.link_to_full_recording if draft else "") or "",
+            inputs["microphone"] = dense(
+                ui.input(
+                    t("field.microphone"),
+                    value=(draft.microphone if draft else "") or "",
+                ).tooltip(t("field.microphone_help"))
             )
-        )
-        inputs["window_start"] = dense(
-            ui.number(
-                t("field.window_start"),
-                value=(
-                    draft.sample_window.start
-                    if draft and draft.sample_window
-                    else None
-                ),
-                step=0.1,
-                suffix=t("common.seconds"),
-            ).tooltip(t("field.window_help"))
-        )
-        inputs["window_end"] = dense(
-            ui.number(
-                t("field.window_end"),
-                value=(
-                    draft.sample_window.end
-                    if draft and draft.sample_window
-                    else None
-                ),
-                step=0.1,
-                suffix=t("common.seconds"),
-            ).tooltip(t("field.window_help"))
+            inputs["recorded_by"] = dense(
+                ui.input(t("field.recorded_by"), value=(draft.recorded_by if draft else "") or "")
+            )
+            inputs["speed"] = dense(
+                ui.number(
+                    t("field.speed"),
+                    value=draft.speed if draft else DEFAULT_SPEED,
+                    step=0.05,
+                    min=0.01,
+                    max=100.0,
+                ).tooltip(t("field.speed_help"))
+            )
+            inputs["highpass"] = dense(
+                ui.number(
+                    t("field.highpass"),
+                    value=(draft.filtered_band.low if draft else None),
+                    step=100,
+                    suffix=t("common.hertz"),
+                ).tooltip(t("field.band_help"))
+            )
+            inputs["lowpass"] = dense(
+                ui.number(
+                    t("field.lowpass"),
+                    value=(draft.filtered_band.high if draft else None),
+                    step=100,
+                    suffix=t("common.hertz"),
+                ).tooltip(t("field.band_help"))
+            )
+            inputs["filter_type"] = dense(
+                ui.input(
+                    t("field.filter_type"),
+                    value=(draft.filter_type if draft else "") or "",
+                ).tooltip(t("field.filter_type_help"))
+            )
+            inputs["filter_order"] = dense(
+                ui.number(
+                    t("field.filter_order"),
+                    value=(draft.filter_order if draft else None),
+                    step=1,
+                    min=1,
+                ).tooltip(t("field.filter_order_help"))
+            )
+            inputs["temperature"] = dense(
+                ui.number(
+                    t("field.temperature"),
+                    value=(draft.temperature if draft else None),
+                    step=0.1,
+                    suffix="°C",
+                )
+            )
+            inputs["humidity"] = dense(
+                ui.number(
+                    t("field.humidity"),
+                    value=(draft.humidity if draft else None),
+                    step=0.1,
+                    min=0,
+                    max=100,
+                    suffix="%",
+                )
+            )
+            inputs["link"] = dense(
+                ui.input(
+                    t("field.link"),
+                    value=(draft.link_to_full_recording if draft else "") or "",
+                )
+            )
+            inputs["window_start"] = dense(
+                ui.number(
+                    t("field.window_start"),
+                    value=(
+                        draft.sample_window.start
+                        if draft and draft.sample_window
+                        else None
+                    ),
+                    step=0.1,
+                    suffix=t("common.seconds"),
+                ).tooltip(t("field.window_help"))
+            )
+            inputs["window_end"] = dense(
+                ui.number(
+                    t("field.window_end"),
+                    value=(
+                        draft.sample_window.end
+                        if draft and draft.sample_window
+                        else None
+                    ),
+                    step=0.1,
+                    suffix=t("common.seconds"),
+                ).tooltip(t("field.window_help"))
+            )
+
+        inputs["notes"] = dense(
+            ui.textarea(t("field.notes"), value=(draft.notes if draft else "") or "")
+            .props("autogrow")
         )
 
-    inputs["notes"] = dense(
-        ui.textarea(t("field.notes"), value=(draft.notes if draft else "") or "")
-        .props("autogrow")
+    return MetadataForm(
+        t=t,
+        inputs=inputs,
+        allow_new_biotimbre=allow_new_biotimbre,
+        optional_panel=optional_panel,
     )
-
-    return MetadataForm(t=t, inputs=inputs, allow_new_biotimbre=allow_new_biotimbre)

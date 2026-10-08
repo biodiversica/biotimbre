@@ -28,6 +28,7 @@ from biotimbre.i18n import Translator
 from biotimbre.io.bundle import BUNDLE_SUFFIX
 from biotimbre.sharing import BundlePreview, EntryPlan, ImportPolicy, ImportReport
 from biotimbre.ui.layout import notify_error
+from biotimbre.ui.sections import foldable_card
 from biotimbre.ui.state import get_state
 
 #: What the upload control accepts. One extension, because a bundle is one
@@ -50,8 +51,7 @@ def import_card(t: Translator, on_imported) -> None:
         t: Active translator.
         on_imported: Called after items are added, to refresh the page.
     """
-    with ui.card().classes("w-full p-4 gap-3 bg-card"):
-        ui.label(t("share.import_heading")).classes("text-lg font-medium")
+    with foldable_card("import", t("share.import_heading")):
         ui.label(t("share.import_hint")).classes("text-sm text-muted")
 
         async def handle_upload(event) -> None:

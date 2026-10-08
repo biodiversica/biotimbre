@@ -376,6 +376,23 @@ class TestMetadataForm:
         # rather than silently vanishing.
         assert form.show_error(ValidationError("boom", "audio")) is False
 
+    async def test_an_error_in_a_folded_field_unfolds_it(self, user: User):
+        form = await self._form(user)
+        form.optional_panel.value = False
+
+        # A highlighted field nobody can see is no help.
+        form.show_error(ValidationError("too fast", "speed"))
+        assert form.optional_panel.value is True
+
+    async def test_an_error_in_a_required_field_leaves_the_fold_alone(
+        self, user: User
+    ):
+        form = await self._form(user)
+        form.optional_panel.value = False
+
+        form.show_error(ValidationError("bad date", "date"))
+        assert form.optional_panel.value is False
+
 
 @pytest.mark.usefixtures("installed_state")
 class TestEditPrefill:
@@ -456,6 +473,27 @@ class TestAdminPageRenders:
         await user.should_see("Required")
         await user.should_see("Optional")
         await user.should_see("Add to library")
+
+    async def test_each_part_of_the_page_folds(self, user: User):
+        await user.open("/")
+        for name in ("add", "import", "library", "optional_metadata"):
+            await user.should_see(marker=f"section-{name}")
+
+    async def test_a_folded_section_stays_folded_on_the_next_visit(
+        self, user: User
+    ):
+        await user.open("/")
+        panel = next(iter(user.find(marker="section-import").elements))
+        assert panel.value is True
+        panel.value = False
+
+        await user.open("/")
+        panel = next(iter(user.find(marker="section-import").elements))
+        assert panel.value is False
+        # Only that one: the others keep their own state.
+        add = next(iter(user.find(marker="section-add").elements))
+        assert add.value is True
+        panel.value = True
 
     async def test_the_add_form_offers_a_map_for_the_location(self, user: User):
         await user.open("/")

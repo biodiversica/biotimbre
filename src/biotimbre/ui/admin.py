@@ -27,6 +27,7 @@ from biotimbre.models_registry import get_spec
 from biotimbre.sources import inaturalist
 from biotimbre.ui import inat, maps
 from biotimbre.ui.exports import export_button
+from biotimbre.ui.sections import foldable_card
 from biotimbre.ui.sharing import import_card
 from biotimbre.ui.forms import _blank_to_none, metadata_form
 from biotimbre.ui.layout import notify_error
@@ -418,8 +419,7 @@ def _add_card(t: Translator, on_added) -> None:
         staged_route = f"/media/staged/{uuid4().hex}"
         return app.add_media_file(local_file=path, url_path=staged_route)
 
-    with ui.card().classes("w-full p-4 gap-3 bg-card"):
-        ui.label(t("admin.add_heading")).classes("text-lg font-medium")
+    with foldable_card("add", t("admin.add_heading")):
 
         preview = ui.column().classes("w-full gap-1")
 
@@ -1192,20 +1192,24 @@ async def render(t: Translator) -> None:
     ui.label(t("admin.heading")).classes("text-xl font-medium")
 
     # Containers are created in display order: totals, the add form, the
-    # bundle importer, then the list.
+    # bundle importer, then the map and the list. Each but the totals folds.
     summary_container = ui.column().classes("w-full")
     add_container = ui.column().classes("w-full")
     import_container = ui.column().classes("w-full")
-    # One map for the whole library, above the list it plots — never one per
-    # row. Created here rather than further down because ``redraw`` closes
-    # over it and ``refresh`` can schedule one from any callback.
-    library_map = None
-    if maps.enabled():
-        with ui.column().classes("w-full"):
-            library_map = maps.map_card(
-                t, heading=t("map.library_heading"), hint=t("map.library_hint")
-            )
-    table_container = ui.column().classes("w-full gap-2")
+    # The map and the list fold together: they are one listing, drawn twice.
+    with foldable_card("library", t("admin.library_section")):
+        # One map for the whole library, above the list it plots — never one
+        # per row. Created here rather than further down because ``redraw``
+        # closes over it and ``refresh`` can schedule one from any callback.
+        # A map folded away when the page loads sizes itself when unfolded:
+        # NiceGUI's Leaflet watches for becoming visible.
+        library_map = None
+        if maps.enabled():
+            with ui.column().classes("w-full gap-1"):
+                ui.label(t("map.library_heading")).classes("text-sm font-medium")
+                ui.label(t("map.library_hint")).classes("text-xs text-muted")
+                library_map = maps.LocationMap()
+        table_container = ui.column().classes("w-full gap-2")
     # Home for the timers ``refresh`` schedules. See below for why they cannot
     # live wherever the caller happens to be.
     schedule_anchor = ui.element("div")
