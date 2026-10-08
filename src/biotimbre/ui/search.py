@@ -234,6 +234,7 @@ async def _result_card(
                     # envelope would be drawn onto the same pixels, and this
                     # markup is sent once per result.
                     columns=RESULT_WIDTH,
+                    sample_rate=item.sample_rate,
                 )
             with ui.column().classes("grow gap-1"):
                 ui.audio(state.audio_url(item.item_id)).classes("w-full")
@@ -576,6 +577,7 @@ async def render(t: Translator) -> None:
                             if query.needs_segment
                             else None,
                             height=QUERY_HEIGHT,
+                            sample_rate=query.properties.sample_rate,
                         )
 
                 await draw_query_view()

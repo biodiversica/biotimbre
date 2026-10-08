@@ -519,6 +519,7 @@ def _add_card(t: Translator, on_added) -> None:
                             if add_state.is_cut
                             else None,
                             height=PREVIEW_VIEW_HEIGHT,
+                            sample_rate=props.sample_rate,
                         )
 
                 async def redraw_views() -> None:
@@ -638,6 +639,7 @@ def _add_card(t: Translator, on_added) -> None:
                             end=result.duration_s,
                             span=None,
                             height=PREVIEW_VIEW_HEIGHT,
+                            sample_rate=result.sample_rate,
                         )
 
                 # Each run unlinks the previous copy and rewrites one at a
@@ -941,6 +943,7 @@ async def _open_detail(t: Translator, item_id: int, on_changed) -> None:
                     end=item.duration_s,
                     span=None,
                     height=DETAIL_VIEW_HEIGHT,
+                    sample_rate=item.sample_rate,
                 )
 
         await draw_view()

@@ -504,6 +504,9 @@ class TestAdminPageRenders:
         )
         await user.should_see("GUYVIR.wav")
         await user.should_see("Remove file")
+        # The preview is where the filter cut-offs get chosen, so it carries a
+        # frequency axis — up to GUYVIR's 16 kHz Nyquist.
+        await user.should_see("14 kHz")
 
         # The staged file is playable before it is added, streamed from a
         # route of its own rather than inlined into the page.

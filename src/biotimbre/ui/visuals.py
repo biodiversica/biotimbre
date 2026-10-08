@@ -202,6 +202,7 @@ async def audio_view(
     span: tuple[float, float] | None,
     height: int,
     columns: int = DEFAULT_COLUMNS,
+    sample_rate: int | None = None,
 ) -> ui.element:
     """Draw the reader's preferred view of one sample.
 
@@ -217,13 +218,23 @@ async def audio_view(
         span: ``(from, to)`` to mark, or ``None``.
         height: Height in CSS pixels, so both views sit the same in the page.
         columns: Columns to reduce a waveform to.
+        sample_rate: The audio's native rate, whose Nyquist is the top of the
+            spectrogram. Given, the spectrogram gets a frequency axis — which
+            is what makes it useful for choosing filter cut-offs.
 
     Returns:
         The span marker, whichever view was drawn.
     """
     available = audio_path is not None and Path(audio_path).is_file()
     if preferred_view() == "spectrogram" or not available:
-        return marked_spectrogram(spectrogram_url, span, start, end)
+        return marked_spectrogram(
+            spectrogram_url,
+            span,
+            start,
+            end,
+            max_frequency=sample_rate / 2.0 if sample_rate else None,
+            height=height,
+        )
 
     wave = await get_state().run(
         envelope_of, audio_path, start_time=start, end_time=end, columns=columns
