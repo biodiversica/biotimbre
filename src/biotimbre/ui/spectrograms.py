@@ -120,6 +120,77 @@ def frequency_axis(max_frequency: float, height: int) -> None:
                 )
 
 
+#: The part of the spectrum a filter will remove is dimmed by this much, not
+#: hidden: what is being thrown away is the thing to check before throwing it.
+SHADE_FILL = "rgba(0, 0, 0, 0.6)"
+
+
+class BandShade:
+    """Dims the parts of a spectrogram that a high- or low-pass will remove.
+
+    Made by the caller and handed to :func:`marked_spectrogram`, which builds
+    it into the picture. It remembers the band, so a spectrogram rebuilt by a
+    change of view comes back shaded without being told again; while the
+    waveform is shown instead there is nothing to shade, and placing a band
+    only records it.
+    """
+
+    def __init__(self) -> None:
+        self._below: ui.element | None = None
+        self._above: ui.element | None = None
+        self._max_frequency = 0.0
+        self._band: tuple[float | None, float | None] = (None, None)
+
+    def attach(self, max_frequency: float) -> None:
+        """Build the shading into the enclosing ``relative`` container."""
+        self._max_frequency = max_frequency
+        # Each dimmed region is edged on the side of its cut-off, so the line
+        # the filter draws is visible, not just the darkness either side of it.
+        self._below = ui.element("div").classes(
+            "absolute left-0 right-0 bottom-0 pointer-events-none rounded-b"
+        ).style(
+            f"background: {SHADE_FILL}; border-top: 2px dashed var(--bt-accent)"
+        ).mark("band-shade-below")
+        self._above = ui.element("div").classes(
+            "absolute left-0 right-0 top-0 pointer-events-none rounded-t"
+        ).style(
+            f"background: {SHADE_FILL}; border-bottom: 2px dashed var(--bt-accent)"
+        ).mark("band-shade-above")
+        self._draw()
+
+    def detach(self) -> None:
+        """Forget the elements, for a view that has no frequency axis."""
+        self._below = self._above = None
+
+    def place(self, low: float | None, high: float | None) -> None:
+        """Shade below ``low`` and above ``high``, in Hz. ``None`` shades neither.
+
+        Args:
+            low: High-pass cut-off, or ``None`` for none.
+            high: Low-pass cut-off, or ``None`` for none.
+        """
+        self._band = (low, high)
+        self._draw()
+
+    def _draw(self) -> None:
+        if self._below is None or self._above is None or self._max_frequency <= 0:
+            return
+        low, high = self._band
+        below = (
+            max(0.0, min(1.0, float(low) / self._max_frequency)) if low else 0.0
+        )
+        # A low-pass at or above Nyquist removes nothing that is pictured.
+        above = (
+            max(0.0, min(1.0, 1.0 - float(high) / self._max_frequency))
+            if high
+            else 0.0
+        )
+        self._below.style(f"height: {below * 100:.2f}%")
+        self._below.set_visibility(below > 0.0)
+        self._above.style(f"height: {above * 100:.2f}%")
+        self._above.set_visibility(above > 0.0)
+
+
 def marked_spectrogram(
     url: str,
     span: tuple[float, float] | None,
@@ -128,6 +199,7 @@ def marked_spectrogram(
     *,
     max_frequency: float | None = None,
     height: int | None = None,
+    band_shade: BandShade | None = None,
 ) -> ui.element:
     """Show a spectrogram with an optional highlighted time span.
 
@@ -144,6 +216,9 @@ def marked_spectrogram(
             frequency axis with. ``None`` draws no axis.
         height: Height the image is shown at, which sets how many frequencies
             are labelled. Needed only with ``max_frequency``.
+        band_shade: Shading for a filter's cut-offs, built in here. Needs
+            ``max_frequency``, since without it there is no knowing where a
+            frequency falls.
 
     Returns:
         The marker overlay. A caller that changes the span moves it with
@@ -155,6 +230,11 @@ def marked_spectrogram(
     # squeeze an image that has no intrinsic height down to nothing.
     with ui.element("div").classes("relative w-full shrink-0"):
         ui.image(url).classes("w-full rounded shrink-0").props("no-spinner")
+        if band_shade is not None:
+            if max_frequency:
+                band_shade.attach(max_frequency)
+            else:
+                band_shade.detach()
         marker = ui.element("div").classes(
             "absolute top-0 bottom-0 border-x-2 pointer-events-none rounded"
         ).style(

@@ -20,7 +20,11 @@ from pathlib import Path
 from nicegui import app, ui
 
 from biotimbre.i18n import Translator
-from biotimbre.ui.spectrograms import marked_spectrogram, place_span_marker
+from biotimbre.ui.spectrograms import (
+    BandShade,
+    marked_spectrogram,
+    place_span_marker,
+)
 from biotimbre.ui.state import get_state
 from biotimbre.viz import Waveform, waveform_envelope
 
@@ -203,6 +207,7 @@ async def audio_view(
     height: int,
     columns: int = DEFAULT_COLUMNS,
     sample_rate: int | None = None,
+    band_shade: BandShade | None = None,
 ) -> ui.element:
     """Draw the reader's preferred view of one sample.
 
@@ -221,6 +226,9 @@ async def audio_view(
         sample_rate: The audio's native rate, whose Nyquist is the top of the
             spectrogram. Given, the spectrogram gets a frequency axis — which
             is what makes it useful for choosing filter cut-offs.
+        band_shade: Shading for a filter's cut-offs, drawn over the
+            spectrogram. The waveform has no frequency axis to shade, so it
+            sits idle there until the spectrogram comes back.
 
     Returns:
         The span marker, whichever view was drawn.
@@ -234,7 +242,11 @@ async def audio_view(
             end,
             max_frequency=sample_rate / 2.0 if sample_rate else None,
             height=height,
+            band_shade=band_shade,
         )
+
+    if band_shade is not None:
+        band_shade.detach()
 
     wave = await get_state().run(
         envelope_of, audio_path, start_time=start, end_time=end, columns=columns

@@ -30,7 +30,7 @@ from biotimbre.ui.exports import export_button
 from biotimbre.ui.sharing import import_card
 from biotimbre.ui.forms import _blank_to_none, metadata_form
 from biotimbre.ui.layout import notify_error
-from biotimbre.ui.spectrograms import place_span_marker
+from biotimbre.ui.spectrograms import BandShade, place_span_marker
 from biotimbre.ui.visuals import audio_view, view_toggle
 from biotimbre.ui.state import get_state
 from biotimbre.viz import render_spectrogram
@@ -504,6 +504,10 @@ def _add_card(t: Translator, on_added) -> None:
                     view_toggle(t, lambda: redraw_views())
                 source_view = ui.column().classes("w-full gap-0")
                 marker: ui.element | None = None
+                # Shows what the high- and low-pass will take away, on the
+                # picture of what was submitted — the stored preview below
+                # shows the result, this shows the decision.
+                shade = BandShade()
 
                 async def draw_source_view() -> None:
                     """Picture the upload, in whichever view is preferred."""
@@ -520,6 +524,7 @@ def _add_card(t: Translator, on_added) -> None:
                             else None,
                             height=PREVIEW_VIEW_HEIGHT,
                             sample_rate=props.sample_rate,
+                            band_shade=shade,
                         )
 
                 async def redraw_views() -> None:
@@ -540,10 +545,12 @@ def _add_card(t: Translator, on_added) -> None:
                 ).classes("w-full")
 
                 with ui.row().classes("w-full gap-3 items-start"):
+                    # Marked because the metadata form below carries inputs
+                    # of the same name, recording a filter applied elsewhere.
                     highpass = ui.number(
                         t("field.highpass"), value=None, step=100,
                         suffix=t("common.hertz"),
-                    ).props("dense outlined").classes("grow")
+                    ).props("dense outlined").classes("grow").mark("apply-highpass")
                     lowpass = ui.number(
                         t("field.lowpass"), value=None, step=100,
                         suffix=t("common.hertz"),
@@ -553,6 +560,20 @@ def _add_card(t: Translator, on_added) -> None:
                         value=DEFAULT_FILTER_ORDER, step=1, min=1,
                     ).props("dense outlined").classes("grow")
                 ui.label(t("admin.filter_hint")).classes("text-xs text-muted")
+
+                def shade_band() -> None:
+                    """Dim what the cut-offs remove, as they are typed.
+
+                    On every keystroke rather than on change: it only restyles
+                    two overlays, and seeing the line move while typing is the
+                    point of drawing it.
+                    """
+                    shade.place(
+                        _blank_to_none(highpass.value), _blank_to_none(lowpass.value)
+                    )
+
+                highpass.on_value_change(shade_band)
+                lowpass.on_value_change(shade_band)
 
                 stored = ui.column().classes("w-full gap-1")
 

@@ -141,7 +141,7 @@
     "no_file": "No file chosen yet.",
     "file_chosen": "{name} — {duration} s, {rate} Hz, {channels} ch",
     "trim_hint": "Drag to keep only part of the recording.",
-    "filter_hint": "Filters the audio before it is stored (Butterworth). Leave both blank to store it unfiltered.",
+    "filter_hint": "Filters the audio before it is stored (Butterworth). Leave both blank to store it unfiltered. On the spectrogram, the dimmed areas are what the filter removes.",
     "segment_of": "Keeping {start}–{end} s of {duration} s",
     "will_store": "What will be stored ({duration} s)",
     "over_range": "The selection peaks at {peak} ({dbfs} dBFS), beyond full scale, so it will be stored normalised to peak at {target} dBFS.",

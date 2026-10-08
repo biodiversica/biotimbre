@@ -73,3 +73,67 @@ class TestAxis:
         await user.open("/noaxis")
         await user.should_not_see(marker="frequency-axis")
 
+
+class TestBandShade:
+    async def _shaded(self, user: User, path: str, max_frequency=16_000):
+        holder: dict = {}
+
+        @ui.page(path)
+        def page() -> None:
+            holder["shade"] = spectrograms.BandShade()
+            marked_spectrogram(
+                "data:,",
+                None,
+                0.0,
+                5.0,
+                max_frequency=max_frequency,
+                height=170,
+                band_shade=holder["shade"],
+            )
+
+        await user.open(path)
+        return holder["shade"]
+
+    async def test_nothing_is_shaded_without_a_filter(self, user: User):
+        shade = await self._shaded(user, "/shadenone")
+        assert not shade._below.visible
+        assert not shade._above.visible
+
+    async def test_a_high_pass_dims_what_lies_below_it(self, user: User):
+        shade = await self._shaded(user, "/shadelow")
+        shade.place(4_000, None)
+        assert shade._below.visible
+        assert shade._below._style["height"] == "25.00%"
+        assert not shade._above.visible
+
+    async def test_a_low_pass_dims_what_lies_above_it(self, user: User):
+        shade = await self._shaded(user, "/shadehigh")
+        shade.place(None, 12_000)
+        assert shade._above.visible
+        assert shade._above._style["height"] == "25.00%"
+        assert not shade._below.visible
+
+    async def test_a_low_pass_beyond_nyquist_dims_nothing(self, user: User):
+        shade = await self._shaded(user, "/shadebeyond")
+        shade.place(None, 20_000)
+        assert not shade._above.visible
+
+    async def test_the_band_survives_a_rebuilt_picture(self, user: User):
+        holder: dict = {"shade": spectrograms.BandShade()}
+
+        @ui.page("/shaderebuild")
+        def page() -> None:
+            holder["box"] = ui.column()
+
+        await user.open("/shaderebuild")
+        shade = holder["shade"]
+        shade.place(4_000, 12_000)
+        # As a change of view does: the picture is built again from scratch,
+        # and the cut-offs already typed must not have to be typed again.
+        with user.client, holder["box"]:
+            marked_spectrogram(
+                "data:,", None, 0.0, 5.0,
+                max_frequency=16_000, height=170, band_shade=shade,
+            )
+        assert shade._below._style["height"] == "25.00%"
+        assert shade._above._style["height"] == "25.00%"

@@ -548,6 +548,21 @@ class TestAdminPageRenders:
         # than for the hint above.
         await user.should_see("Keeping 0.00–5.00 s of 5.00 s", retries=60)
 
+        # Typing a cut-off dims what it will remove on the preview, at once.
+        # From the element tree rather than user.find, which skips the hidden.
+        below = next(
+            element
+            for element in user.client.layout.descendants()
+            if "band-shade-below" in element._markers
+        )
+        assert not below.visible
+        highpass = next(iter(user.find(marker="apply-highpass").elements))
+        highpass.value = 4000
+        assert below.visible
+        assert below._style["height"] == "25.00%"
+        highpass.value = None
+        assert not below.visible
+
         picker = next(iter(user.find(ui.range).elements))
         picker.value = {"min": 1.0, "max": 3.0}
         user.find(ui.range).trigger("change", args={"min": 1.0, "max": 3.0})
