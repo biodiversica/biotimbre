@@ -65,7 +65,7 @@ def foldable(
 
 
 @contextmanager
-def foldable_card(name: str, heading: str, *, default: bool = True) -> Iterator[ui.expansion]:
+def foldable_card(name: str, heading: str, *, default: bool = False) -> Iterator[ui.expansion]:
     """A page card whose body folds away under its heading.
 
     Used in place of a card with a heading label: content entered here is laid
@@ -75,7 +75,9 @@ def foldable_card(name: str, heading: str, *, default: bool = True) -> Iterator[
     Args:
         name: Storage key for this section.
         heading: Translated heading.
-        default: Whether it starts open the first time.
+        default: Whether it starts open the first time. Closed unless asked:
+            a first visit shows the page's headings, and the reader opens the
+            one they came for.
 
     Yields:
         The expansion, for a caller that needs to react to it opening.

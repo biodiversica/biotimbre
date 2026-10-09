@@ -479,21 +479,26 @@ class TestAdminPageRenders:
         for name in ("add", "import", "library", "optional_metadata"):
             await user.should_see(marker=f"section-{name}")
 
-    async def test_a_folded_section_stays_folded_on_the_next_visit(
+    async def test_the_page_s_sections_start_folded(self, user: User):
+        await user.open("/")
+        for name in ("add", "import", "library"):
+            panel = next(iter(user.find(marker=f"section-{name}").elements))
+            assert panel.value is False
+
+    async def test_an_opened_section_stays_open_on_the_next_visit(
         self, user: User
     ):
         await user.open("/")
         panel = next(iter(user.find(marker="section-import").elements))
-        assert panel.value is True
-        panel.value = False
+        panel.value = True
 
         await user.open("/")
         panel = next(iter(user.find(marker="section-import").elements))
-        assert panel.value is False
+        assert panel.value is True
         # Only that one: the others keep their own state.
         add = next(iter(user.find(marker="section-add").elements))
-        assert add.value is True
-        panel.value = True
+        assert add.value is False
+        panel.value = False
 
     async def test_the_add_form_offers_a_map_for_the_location(self, user: User):
         await user.open("/")
