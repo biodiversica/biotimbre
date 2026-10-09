@@ -285,6 +285,31 @@ class TestPoints:
         assert "emitEvent" not in content
 
 
+    async def test_only_ctrl_wheel_zooms_the_map(
+        self, user: User, installed_state, monkeypatch
+    ):
+        from nicegui.testing.user_interaction import UserInteraction
+
+        holder, sent = {}, []
+
+        @ui.page("/wheel")
+        def page() -> None:
+            holder["map"] = maps.LocationMap()
+
+        await user.open("/wheel")
+        element = holder["map"].element
+        # Leaflet's wheel zoom is on, for the filter to hand ctrl+wheel to.
+        assert element._props["options"]["scrollWheelZoom"] is True
+
+        monkeypatch.setattr(
+            element.client, "run_javascript", lambda code, **_: sent.append(code)
+        )
+        UserInteraction(user, {element}, None).trigger("init")
+        script = next(code for code in sent if "ctrlKey" in code)
+        assert f"getHtmlElement({element.id})" in script
+        assert "capture: true, passive: false" in script
+
+
 class TestFocus:
     async def test_a_centre_and_radius_draw_a_dot_and_a_circle(
         self, user: User, installed_state

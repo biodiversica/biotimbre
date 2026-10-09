@@ -270,11 +270,11 @@
   },
   "map": {
     "heading": "De onde vêm os resultados",
-    "pick_hint": "Um ponto por resultado; clique em um ponto para ver qual. Clicar em qualquer outro lugar define o centro do filtro de localização e aproxima o mapa no raio.",
-    "library_hint": "Um ponto por item. Clique em um ponto para ver qual e abri-lo a partir dali.",
+    "pick_hint": "Um ponto por resultado; clique em um ponto para ver qual. Clicar em qualquer outro lugar define o centro do filtro de localização e aproxima o mapa no raio. Ctrl+scroll aplica zoom no mapa.",
+    "library_hint": "Um ponto por item. Clique em um ponto para ver qual e abri-lo a partir dali. Ctrl+scroll aplica zoom no mapa.",
     "open_item": "Abrir detalhes",
     "pick_location": "Escolher no mapa",
-    "pick_location_hint": "Clique onde a gravação foi feita para preencher a latitude e a longitude. Ctrl+roda do mouse ou os botões +/− aplicam zoom."
+    "pick_location_hint": "Clique onde a gravação foi feita para preencher a latitude e a longitude. Ctrl+scroll ou os botões +/− aplicam zoom."
   },
   "inat": {
     "observation": "ID ou link de observação no iNaturalist",

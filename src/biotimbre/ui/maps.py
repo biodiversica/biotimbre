@@ -106,6 +106,25 @@ _MAP_CSS = """
 """
 
 
+#: Lets the map have ctrl+wheel and the page have every other wheel. A map in a
+#: scrolling page that eats the wheel is a nuisance, but with Leaflet's wheel
+#: zoom simply off, ctrl+wheel went to the browser and zoomed the whole page.
+#: Captured on the container, ahead of Leaflet's own listener: a plain wheel is
+#: stopped before Leaflet sees it and left to scroll the page, and a ctrl+wheel
+#: — which is also what a trackpad pinch sends — is kept from the browser and
+#: let through to zoom the map. ``{id}`` is the leaflet element's id.
+CTRL_WHEEL_ONLY = """
+const el = getHtmlElement({id});
+if (el && !el.dataset.ctrlWheel) {{
+    el.dataset.ctrlWheel = "1";
+    el.addEventListener("wheel", (event) => {{
+        if (event.ctrlKey) event.preventDefault();
+        else event.stopImmediatePropagation();
+    }}, {{ capture: true, passive: false }});
+}}
+"""
+
+
 @dataclass(frozen=True)
 class MapPoint:
     """One plotted recording.
@@ -261,9 +280,8 @@ class LocationMap:
             center=WORLD_VIEW,
             zoom=WORLD_ZOOM,
             options={
-                # A map inside a scrolling page that eats the wheel is a
-                # nuisance; ctrl+wheel and the +/- buttons still zoom.
-                "scrollWheelZoom": False,
+                # On, but only for ctrl+wheel: see CTRL_WHEEL_ONLY.
+                "scrollWheelZoom": True,
                 "worldCopyJump": True,
             },
         ).classes("w-full rounded").style(f"height: {height}px")
@@ -303,6 +321,9 @@ class LocationMap:
     def _on_init(self) -> None:
         """Bind the popups queued while the map was still coming up."""
         self._ready = True
+        self.element.client.run_javascript(
+            CTRL_WHEEL_ONLY.format(id=self.element.id)
+        )
         for layer, html in self._pending_popups:
             layer.run_method("bindPopup", html)
         self._pending_popups.clear()
