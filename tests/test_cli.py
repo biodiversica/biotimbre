@@ -23,6 +23,22 @@ def data_dir(tmp_path):
 
 
 @pytest.fixture(autouse=True)
+def _no_local_config(monkeypatch, tmp_path):
+    """Run every invocation on the built-in defaults.
+
+    Without ``--config`` the CLI falls back to ``$BIOTIMBRE_CONFIG`` and then to
+    ``./biotimbre.toml`` — and pytest runs from the checkout, where a developer's
+    own config sits. A ``fusion = "perch_v2"`` there once made the workflow test
+    lose its BirdNET scores. Nothing in the paths these tests use is relative,
+    so moving out of the checkout costs nothing.
+    """
+    from biotimbre.config import ENV_CONFIG
+
+    monkeypatch.delenv(ENV_CONFIG, raising=False)
+    monkeypatch.chdir(tmp_path)
+
+
+@pytest.fixture(autouse=True)
 def _share_sessions(monkeypatch, request):
     """Give CLI invocations the session-scoped ONNX pool.
 
