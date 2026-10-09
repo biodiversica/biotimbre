@@ -820,6 +820,29 @@ class TestAdminPageRenders:
         form_speed.value = 0.01
         await user.should_see("Playing at 0.0625")
 
+    async def test_the_speed_is_offered_beside_the_filters(self, user: User):
+        from nicegui.elements.upload_files import SmallFileUpload
+
+        await user.open("/")
+        uploader = next(iter(user.find(marker="upload-audio").elements))
+        await uploader.handle_uploads(
+            [SmallFileUpload("GUYVIR.wav", "audio/wav", GUYVIR.read_bytes())]
+        )
+        await user.should_see("Keeping 0.00–5.00 s of 5.00 s", retries=60)
+        beside = next(iter(user.find(marker="apply-speed").elements))
+        form_speed = next(
+            el
+            for el in user.find(ui.number).elements
+            if el.label == "Speed" and el is not beside
+        )
+        # One value, wherever it is typed, and the player follows it.
+        assert beside.value == form_speed.value == 1.0
+        beside.value = 0.5
+        assert form_speed.value == 0.5
+        await user.should_see("Playing at speed 0.5")
+        form_speed.value = 0.25
+        assert beside.value == 0.25
+
     async def test_list_columns_identify_rather_than_describe(
         self, user: User, installed_state
     ):

@@ -20,7 +20,7 @@ from uuid import uuid4
 from nicegui import app, ui
 
 from biotimbre.domain.errors import BiotimbreError, ValidationError
-from biotimbre.domain.item import LibraryItem
+from biotimbre.domain.item import MAX_SPEED, MIN_SPEED, LibraryItem
 from biotimbre.embeddings import audio as audio_io
 from biotimbre.i18n import Translator
 from biotimbre.models_registry import get_spec
@@ -557,6 +557,18 @@ def _add_card(t: Translator, on_added) -> None:
                 ).classes("w-full")
 
                 with ui.row().classes("w-full gap-3 items-start"):
+                    # The form's own Speed field, offered here as well: it is
+                    # decided while listening, beside the filters, not later
+                    # among the metadata. Bound both ways, so it is one value
+                    # wherever it is typed, and the player follows either.
+                    ui.number(
+                        t("field.speed"),
+                        step=0.05,
+                        min=MIN_SPEED,
+                        max=MAX_SPEED,
+                    ).props("dense outlined").classes("grow").tooltip(
+                        t("field.speed_help")
+                    ).bind_value(form.inputs["speed"]).mark("apply-speed")
                     # Marked because the metadata form below carries inputs
                     # of the same name, recording a filter applied elsewhere.
                     highpass = ui.number(
