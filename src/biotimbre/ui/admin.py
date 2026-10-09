@@ -44,6 +44,10 @@ ACCEPTED = ".wav,.flac,.ogg,.aiff,.aif,.w64"
 #: the search page's default, so a query and a sample are shaped alike.
 DEFAULT_FILTER_ORDER = 4
 
+#: Rates a browser will play at. Chromium refuses anything outside this, so a
+#: speed beyond it is heard at the nearest end rather than not at all.
+PLAYABLE_SPEEDS = (0.0625, 16.0)
+
 #: Slack when deciding whether a chosen segment is the whole file. The slider
 #: works in hundredths of a second; a rounding difference is not a cut.
 _SEGMENT_EPSILON = 0.01
@@ -344,6 +348,51 @@ def _fill_processing_fields(form, add_state: "AddState") -> None:
             form.inputs["filter_type"].value = "Butterworth"
 
 
+def _play_at_speed(player: ui.audio, speed: float) -> float:
+    """Play the preview the way the model hears it at ``speed``.
+
+    The model reinterprets the samples at ``speed`` times their rate, so time
+    and pitch move together — ultrasound slowed to 0.25 drops two octaves into
+    hearing. A browser preserves pitch by default when the rate changes, which
+    is the opposite, so that is switched off. The default rate is set as well:
+    loading a new source resets the rate to it.
+
+    Returns:
+        The rate actually played at, which differs from ``speed`` only when
+        the browser cannot go that far.
+    """
+    low, high = PLAYABLE_SPEEDS
+    rate = min(max(speed, low), high)
+    ui.run_javascript(
+        f"""
+        const el = getHtmlElement({player.id});
+        if (el) {{
+            el.preservesPitch = false;
+            el.mozPreservesPitch = false;
+            el.webkitPreservesPitch = false;
+            el.defaultPlaybackRate = {rate};
+            el.playbackRate = {rate};
+        }}
+        """
+    )
+    return rate
+
+
+def _play_described(
+    t: Translator, player: ui.audio, note: ui.label, speed: float
+) -> None:
+    """Play at ``speed`` and say so, or say how far short the browser falls."""
+    rate = _play_at_speed(player, speed)
+    if rate != speed:
+        note.set_text(
+            t("admin.playback_clamped", rate=f"{rate:g}", speed=f"{speed:g}")
+        )
+    elif speed != 1.0:
+        note.set_text(t("admin.playback_speed", speed=f"{speed:g}"))
+    else:
+        note.set_text("")
+
+
 def _nyquist_lines(t: Translator) -> str:
     """Describe where each model's limit falls, for a spectrogram caption."""
     limits = ", ".join(
@@ -445,6 +494,18 @@ def _add_card(t: Translator, on_added) -> None:
 
         show_no_file()
 
+        #: The player of the file now staged, and its caption, for the Speed
+        #: field to steer. One field outlives many uploads, so it is listened
+        #: to once and told which player is current, not once per upload.
+        listening: dict[str, ui.element | None] = {"player": None, "note": None}
+
+        def follow_speed() -> None:
+            """Play the staged file at the speed it will be embedded at."""
+            player, note = listening["player"], listening["note"]
+            if player is None or player.is_deleted:
+                return
+            _play_described(t, player, note, form.speed)
+
         async def handle_upload(event) -> None:
             # event.file is a NiceGUI FileUpload: .name plus async read()/save().
             # Streamed to disk rather than read into memory, since a sample can be
@@ -488,9 +549,15 @@ def _add_card(t: Translator, on_added) -> None:
                     ui.button(
                         t("common.clear_file"), icon="close", on_click=clear_file
                     ).props("flat dense no-caps color=negative")
+                # The browser's own speed menu is hidden: the Speed field is
+                # what the player follows, so there is one speed, not two.
                 player = ui.audio(serve_staged(upload.path)).classes(
                     "w-full shrink-0"
-                )
+                ).props('controlslist="noplaybackrate"')
+                playback_note = ui.label().classes("text-xs text-muted")
+                listening["player"] = player
+                listening["note"] = playback_note
+                player.on("loadedmetadata", lambda _: follow_speed())
                 # What the player is currently serving, so a redraw that
                 # changes nothing does not retire a URL the browser is using.
                 published = {"path": upload.path}
@@ -765,6 +832,7 @@ def _add_card(t: Translator, on_added) -> None:
             )
 
         form = metadata_form(t, map_picker=maps.enabled(), suggest=library_suggestions)
+        form.inputs["speed"].on_value_change(lambda _: follow_speed())
         results = ui.column().classes("w-full gap-1")
 
         async def save() -> None:
@@ -983,7 +1051,29 @@ async def _open_detail(t: Translator, item_id: int, on_changed) -> None:
                 )
 
         await draw_view()
-        ui.audio(state.audio_url(item.item_id)).classes("w-full shrink-0")
+        # Heard at the speed it was embedded at, as on the add form, unless
+        # asked for as recorded: a slowed item can be listened to either way.
+        player = ui.audio(state.audio_url(item.item_id)).classes(
+            "w-full shrink-0"
+        ).props('controlslist="noplaybackrate"')
+        heard_at = None
+        if item.is_speed_shifted:
+            heard_at = ui.toggle(
+                {
+                    item.speed: t("admin.play_embedded", speed=f"{item.speed:g}"),
+                    1.0: t("admin.play_original"),
+                },
+                value=item.speed,
+            ).props("dense no-caps")
+        playback_note = ui.label().classes("text-xs text-muted")
+
+        def play_as_chosen() -> None:
+            speed = heard_at.value if heard_at is not None else item.speed
+            _play_described(t, player, playback_note, speed)
+
+        player.on("loadedmetadata", lambda _: play_as_chosen())
+        if heard_at is not None:
+            heard_at.on_value_change(lambda _: play_as_chosen())
         _metadata_rows(t, item, counts, label)
 
         with ui.row().classes("items-center justify-end gap-2 w-full"):

@@ -773,6 +773,29 @@ class TestAdminPageRenders:
         # playing the previous window.
         assert player._props["src"] != first
 
+    async def test_the_player_follows_the_speed_field(self, user: User):
+        from nicegui.elements.upload_files import SmallFileUpload
+
+        await user.open("/")
+        uploader = next(iter(user.find(marker="upload-audio").elements))
+        await uploader.handle_uploads(
+            [SmallFileUpload("GUYVIR.wav", "audio/wav", GUYVIR.read_bytes())]
+        )
+        await user.should_see("Keeping 0.00–5.00 s of 5.00 s", retries=60)
+        player = next(iter(user.find(ui.audio).elements))
+        # One speed, the field's: the browser's own menu keeps the pitch.
+        assert player._props["controlslist"] == "noplaybackrate"
+
+        form_speed = next(
+            el for el in user.find(ui.number).elements if el.label == "Speed"
+        )
+        form_speed.value = 0.25
+        await user.should_see("Playing at speed 0.25")
+
+        # Beyond what a browser will play, it says so rather than pretending.
+        form_speed.value = 0.01
+        await user.should_see("Playing at 0.0625")
+
     async def test_list_columns_identify_rather_than_describe(
         self, user: User, installed_state
     ):
@@ -819,6 +842,32 @@ class TestAdminPageRenders:
 
         await user.should_see("Speed")
         await user.should_see("0.25")
+        # Both of those are on the add form too; this is the dialog's own.
+        await user.should_see("Sample rate")
+
+        # And it is played the way the models heard it.
+        from nicegui.testing.user_interaction import UserInteraction
+
+        player = next(
+            element
+            for element in user.client.elements.values()
+            if isinstance(element, ui.audio)
+        )
+        assert player._props["controlslist"] == "noplaybackrate"
+        # The rate is applied once the browser has the audio.
+        UserInteraction(user, {player}, None).trigger("loadedmetadata")
+        await user.should_see("Playing at speed 0.25")
+
+        # Or as it was recorded, at the press of a button.
+        heard_at = next(
+            element
+            for element in user.client.elements.values()
+            if isinstance(element, ui.toggle)
+        )
+        heard_at.value = 1.0
+        await user.should_not_see("Playing at speed 0.25")
+        heard_at.value = 0.25
+        await user.should_see("Playing at speed 0.25")
 
     async def test_translates_to_portuguese(self, user: User):
         installed = get_state()
