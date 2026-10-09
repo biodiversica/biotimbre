@@ -1189,6 +1189,28 @@ class TestLibraryMap:
         }
         assert maps.enabled()
 
+    async def test_a_dot_s_link_opens_the_item(self, user: User, installed_state):
+        from nicegui.testing.user_interaction import UserInteraction
+
+        from biotimbre.io.sidecar import draft_from_sidecar
+
+        # A real recording: the dialog draws and plays the audio itself.
+        item = installed_state.call(
+            installed_state.service.add_item,
+            GUYVIR,
+            draft_from_sidecar(EXAMPLES_DIR / "GUYVIR.txt"),
+            compute_embeddings=False,
+        ).item
+        await user.open("/")
+        await user.should_see("1 item(s)")
+
+        leaflet = next(iter(user.find(ui.leaflet).elements))
+        UserInteraction(user, {user.client.layout}, None).trigger(
+            f"btMapOpen{leaflet.id}", args=item.item_id
+        )
+        # The same dialog a click on the table row opens.
+        await user.should_see("Sample rate")
+
     async def test_an_empty_library_still_renders_a_map(
         self, user: User, installed_state
     ):

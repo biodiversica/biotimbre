@@ -239,6 +239,52 @@ class TestPoints:
         assert "&lt;img" in content
 
 
+    async def test_a_point_with_an_item_offers_a_link_to_open_it(
+        self, user: User, installed_state
+    ):
+        from nicegui.testing.user_interaction import UserInteraction
+
+        holder, opened = {}, []
+
+        @ui.page("/open")
+        def page() -> None:
+            holder["map"] = maps.LocationMap(
+                on_open=opened.append, open_label="Open <it>"
+            )
+
+        await user.open("/open")
+        location_map = holder["map"]
+        location_map._ready = False
+        location_map.show([maps.MapPoint(0.0, 0.0, "#7", item_id=7)])
+
+        _, content = location_map._pending_popups[0]
+        event = f"btMapOpen{location_map.element.id}"
+        assert f"emitEvent('{event}', 7)" in content
+        # The link text is escaped like the label.
+        assert "Open &lt;it&gt;" in content
+
+        # Following it reaches the handler with the item, as an integer.
+        UserInteraction(user, {user.client.layout}, None).trigger(event, args=7)
+        assert opened == [7]
+
+    async def test_without_a_handler_there_is_no_link(
+        self, user: User, installed_state
+    ):
+        holder = {}
+
+        @ui.page("/no-open")
+        def page() -> None:
+            holder["map"] = maps.LocationMap()
+
+        await user.open("/no-open")
+        location_map = holder["map"]
+        location_map._ready = False
+        location_map.show([maps.MapPoint(0.0, 0.0, "#7", item_id=7)])
+
+        _, content = location_map._pending_popups[0]
+        assert "emitEvent" not in content
+
+
 class TestFocus:
     async def test_a_centre_and_radius_draw_a_dot_and_a_circle(
         self, user: User, installed_state

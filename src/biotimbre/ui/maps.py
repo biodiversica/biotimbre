@@ -114,11 +114,13 @@ class MapPoint:
         latitude: Degrees north.
         longitude: Degrees east.
         label: Popup text. Plain text, escaped before it reaches the browser.
+        item_id: The library item plotted, for a map that can open it.
     """
 
     latitude: float
     longitude: float
     label: str = ""
+    item_id: int | None = None
 
 
 def enabled() -> bool:
@@ -228,6 +230,9 @@ class LocationMap:
     Args:
         on_pick: Called with ``(latitude, longitude)`` when the map is clicked.
             ``None`` leaves the map read-only.
+        on_open: Called with a point's ``item_id`` when the link in its popup
+            is followed. ``None`` leaves popups as labels alone.
+        open_label: Translated text of that link.
     """
 
     def __init__(
@@ -235,6 +240,8 @@ class LocationMap:
         *,
         height: int = DEFAULT_HEIGHT,
         on_pick: Callable[[float, float], None] | None = None,
+        on_open: Callable[[int], object] | None = None,
+        open_label: str = "",
     ) -> None:
         settings = get_state().settings
         ui.add_css(_MAP_CSS)
@@ -273,6 +280,14 @@ class LocationMap:
             },
         )
 
+        # Popup content is HTML handed to Leaflet, not a NiceGUI element, so a
+        # link in it cannot carry a Python handler. It emits a page event
+        # instead, named after this map so two maps never answer each other.
+        self._open_label = open_label
+        self._open_event = f"btMapOpen{self.element.id}" if on_open else None
+        if on_open is not None:
+            ui.on(self._open_event, lambda event: on_open(int(event.args)))
+
         # Registered after the element's own handler, so by the time this runs
         # the map counts as initialised and the calls go through.
         self.element.on("init", self._on_init)
@@ -292,16 +307,24 @@ class LocationMap:
             layer.run_method("bindPopup", html)
         self._pending_popups.clear()
 
-    def _popup(self, layer, text: str) -> None:
+    def _popup(self, layer, point: MapPoint) -> None:
         """Attach a popup, now or once the map is up.
 
         Leaflet takes popup content as HTML, and a label is assembled from
         library metadata — taxon names, filenames, whatever a curator typed.
-        It is escaped rather than trusted.
+        It is escaped rather than trusted. The link to open the item is built
+        from an integer and the map's own event name, never from metadata.
         """
-        if not text:
+        content = html.escape(point.label)
+        if self._open_event is not None and point.item_id is not None:
+            link = (
+                f'<a href="#" class="text-link" onclick="emitEvent('
+                f"'{self._open_event}', {int(point.item_id)}); return false;\">"
+                f"{html.escape(self._open_label)}</a>"
+            )
+            content = f"{content}<br>{link}" if content else link
+        if not content:
             return
-        content = html.escape(text)
         if self._ready:
             layer.run_method("bindPopup", content)
         else:
@@ -346,7 +369,7 @@ class LocationMap:
                     ],
                 )
                 self._points.append(layer)
-                self._popup(layer, point.label)
+                self._popup(layer, point)
 
         if refit:
             # The focus goes into the fit as well: a search narrowed to a

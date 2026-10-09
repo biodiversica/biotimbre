@@ -1149,6 +1149,7 @@ def _item_points(items) -> list[maps.MapPoint]:
             latitude=item.location.latitude,
             longitude=item.location.longitude,
             label=f"#{item.item_id} · {item.taxa_display} · {item.date}",
+            item_id=item.item_id,
         )
         for item in items
     ]
@@ -1241,7 +1242,11 @@ async def render(t: Translator) -> None:
         if maps.enabled():
             with ui.column().classes("w-full gap-1"):
                 ui.label(t("map.library_hint")).classes("text-xs text-muted")
-                library_map = maps.LocationMap()
+                # Opens the same dialog as clicking the item's table row.
+                library_map = maps.LocationMap(
+                    on_open=lambda item_id: _open_detail(t, item_id, refresh),
+                    open_label=t("map.open_item"),
+                )
         table_container = ui.column().classes("w-full gap-2")
     add_container = ui.column().classes("w-full")
     import_container = ui.column().classes("w-full")

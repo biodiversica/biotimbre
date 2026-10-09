@@ -271,7 +271,8 @@
   "map": {
     "heading": "Where the results are from",
     "pick_hint": "One dot per result; click a dot to see which. Clicking anywhere else sets the location filter's centre and zooms to its radius.",
-    "library_hint": "One dot per item. Click a dot to see which.",
+    "library_hint": "One dot per item. Click a dot to see which, and open it from there.",
+    "open_item": "Open details",
     "pick_location": "Pick on map",
     "pick_location_hint": "Click where the recording was made to fill in latitude and longitude. Ctrl+scroll or the +/− buttons zoom."
   },
