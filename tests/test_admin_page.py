@@ -479,6 +479,14 @@ class TestAdminPageRenders:
         for name in ("add", "import", "library", "optional_metadata"):
             await user.should_see(marker=f"section-{name}")
 
+    async def test_ends_with_the_biodiversica_footnote(self, user: User):
+        await user.open("/")
+        await user.should_see(marker="footnote")
+        link = next(iter(user.find(marker="footnote").elements))
+        assert link.text == "~/biodiversica"
+        assert link.props["href"] == "https://biodiversica.xyz/"
+        assert link.props["target"] == "_blank"
+
     async def test_the_page_s_sections_start_folded(self, user: User):
         await user.open("/")
         for name in ("add", "import", "library"):

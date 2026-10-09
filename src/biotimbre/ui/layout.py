@@ -27,6 +27,17 @@ from biotimbre.ui.theming import (
 
 _LANGUAGE_KEY = "language"
 
+#: The footnote at the bottom of every page. Not translated: it is a name.
+FOOTNOTE_TEXT = "~/biodiversica"
+FOOTNOTE_URL = "https://biodiversica.xyz/"
+
+#: The footnote link takes the header's text colours, as its bar takes the
+#: header's background: dimmed like an unselected tab, full on hover.
+_FOOTNOTE_CSS = """
+.bt-footnote { color: var(--bt-header-inactive-text); }
+.bt-footnote:hover { color: var(--bt-header-text); }
+"""
+
 
 def translator() -> Translator:
     """Translator for the current browser session."""
@@ -231,6 +242,19 @@ def page(active: str):
 
     with ui.column().classes("w-full max-w-6xl mx-auto p-4 gap-4"):
         yield t
+
+    # Pinned to the window rather than following the content, which jumps
+    # whenever a section folds or unfolds. Quasar reserves the footer's height
+    # below the page, so nothing is hidden behind it. In the header's colours,
+    # so the page is framed top and bottom alike.
+    # A class rather than an inline colour, which could not change on hover.
+    ui.add_css(_FOOTNOTE_CSS)
+    with ui.footer().classes("justify-center py-1").style(
+        "background: var(--bt-header-bg)"
+    ):
+        ui.link(FOOTNOTE_TEXT, FOOTNOTE_URL, new_tab=True).classes(
+            "bt-footnote text-xs font-mono no-underline hover:underline"
+        ).mark("footnote")
 
 
 def notify_error(t: Translator, exc: Exception) -> None:
