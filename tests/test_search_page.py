@@ -460,6 +460,22 @@ class TestSegmentPicker:
         user.find(ui.range).trigger("change")
         assert player._props["src"].endswith("#t=6.00,18.00")
 
+    async def test_the_player_follows_the_query_speed(
+        self, user: User, installed_state, long_wav
+    ):
+        await self._stage(user, long_wav)
+
+        player = next(iter(user.find(ui.audio).elements))
+        # One speed, the option's: the browser's own menu keeps the pitch.
+        assert player._props["controlslist"] == "noplaybackrate"
+        speed = next(
+            element
+            for element in user.find(ui.number).elements
+            if element._props.get("label") == "Query speed"
+        )
+        speed.value = 0.25
+        await user.should_see("Playing at speed 0.25")
+
     async def test_the_cap_is_applied_in_the_browser(
         self, user: User, installed_state, long_wav
     ):
@@ -550,6 +566,40 @@ class TestMetadataOnlySearch:
         await user.should_see("1 match(es)")
         # Nothing was compared, so the results say so instead of ranking.
         await user.should_see("not ranked")
+
+    async def test_a_slowed_result_plays_either_way(
+        self, user: User, installed_state
+    ):
+        import dataclasses
+
+        from nicegui.testing.user_interaction import UserInteraction
+
+        from biotimbre.io.sidecar import draft_from_sidecar
+
+        draft = dataclasses.replace(
+            draft_from_sidecar(EXAMPLES_DIR / "ZAMTYM.txt"), speed=0.25
+        ).validated()
+        installed_state.call(
+            installed_state.service.add_item,
+            EXAMPLES_DIR / "ZAMTYM.wav",
+            draft,
+            compute_embeddings=False,
+        )
+        await user.open("/search")
+        await user.should_see("Query recording")
+        self._taxa_input(user).value = ["cicadidae"]
+        self._run_search(user)
+        await user.should_see("1 match(es)")
+
+        player = next(iter(user.find(ui.audio).elements))
+        # The rate is applied once the browser has the audio.
+        UserInteraction(user, {player}, None).trigger("loadedmetadata")
+        await user.should_see("Playing at speed 0.25")
+
+        # Or as it was recorded.
+        heard_at = next(iter(user.find(ui.toggle).elements))
+        heard_at.value = 1.0
+        await user.should_not_see("Playing at speed 0.25")
 
     async def test_nothing_at_all_asks_for_a_file_or_a_filter(
         self, user: User, installed_state

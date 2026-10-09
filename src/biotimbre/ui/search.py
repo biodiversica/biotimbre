@@ -27,6 +27,7 @@ from biotimbre.ui.admin import ACCEPTED, _over_range_args
 from biotimbre.ui import inat, maps
 from biotimbre.ui.exports import export_button
 from biotimbre.ui.layout import notify_error
+from biotimbre.ui.playback import item_player, play_described, speed_audio
 from biotimbre.ui.segment_range import SegmentRange
 from biotimbre.ui.spectrograms import place_span_marker
 from biotimbre.ui.visuals import audio_view, view_toggle
@@ -237,8 +238,15 @@ async def _result_card(
                     columns=RESULT_WIDTH,
                     sample_rate=item.sample_rate,
                 )
-            with ui.column().classes("grow gap-1"):
-                ui.audio(state.audio_url(item.item_id)).classes("w-full")
+            # Sized from nothing rather than from its content: the row wraps,
+            # and the playback caption on one line is wide enough to push the
+            # whole column below the picture. It still wraps on a narrow
+            # screen, where there is no room for a player beside it.
+            with ui.column().classes("grow basis-0 min-w-64 gap-1"):
+                # As the models heard it, with the recording itself a click away.
+                item_player(t, state.audio_url(item.item_id), item.speed).classes(
+                    "w-full"
+                )
                 with ui.row().classes("items-center gap-3"):
                     export_button(t, item.item_id, counts)
                     if item.link_to_full_recording:
@@ -465,6 +473,20 @@ async def render(t: Translator) -> None:
 
         query_area = ui.column().classes("w-full gap-2")
 
+        #: The query's player and its caption, for the speed option to steer.
+        #: The option outlives every redraw of the query, so it is listened to
+        #: once and told which player is current.
+        listening: dict[str, ui.element | None] = {"player": None, "note": None}
+
+        def follow_speed() -> None:
+            """Play the query at the speed it will be embedded at."""
+            player, note = listening["player"], listening["note"]
+            if player is None or player.is_deleted:
+                return
+            play_described(
+                t, player, note, float(options["speed"].value or DEFAULT_SPEED)
+            )
+
         async def clear_query() -> None:
             """Drop the staged recording, the same way the library page does.
 
@@ -668,9 +690,13 @@ async def render(t: Translator) -> None:
                     ui.label(t("search.play_query")).classes(
                         "text-xs text-muted"
                     )
-                    player = ui.audio(state.query_audio_url(query.token)).classes(
+                    # Follows the query speed, so it is heard as it is embedded.
+                    player = speed_audio(state.query_audio_url(query.token)).classes(
                         "grow"
                     )
+                playback_note = ui.label().classes("text-xs text-muted")
+                listening.update(player=player, note=playback_note)
+                player.on("loadedmetadata", lambda _: follow_speed())
                 # Not yet known for this file; the check corrects it if need be.
                 query.over_range_peak = None
                 play_segment()
@@ -741,6 +767,7 @@ async def render(t: Translator) -> None:
 
     filters = _filters_panel(t)
     options = _options_panel(t)
+    options["speed"].on_value_change(lambda _: follow_speed())
 
     with ui.row().classes("items-center gap-3"):
         run_button = ui.button(

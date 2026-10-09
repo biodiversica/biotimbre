@@ -145,14 +145,16 @@
     "filter_hint": "Filters the audio before it is stored (Butterworth). Leave both blank to store it unfiltered. On the spectrogram, the dimmed areas are what the filter removes.",
     "segment_of": "Keeping {start}–{end} s of {duration} s",
     "will_store": "What will be stored ({duration} s)",
-    "playback_speed": "Playing at speed {speed}, as the models will hear it: pitch shifts with it, so ultrasound slowed down becomes audible.",
-    "playback_clamped": "Playing at {rate}, the furthest the browser can go; the models will hear it at speed {speed}.",
-    "play_embedded": "Embedded speed ({speed})",
-    "play_original": "Original speed",
     "over_range": "The selection peaks at {peak} ({dbfs} dBFS), beyond full scale, so it will be stored normalised to peak at {target} dBFS.",
     "model_limits": "Dashed lines mark each model's frequency limit; content above them is not seen by that model.",
     "recompute": "Recompute embeddings",
     "recomputed": "Embeddings recomputed."
+  },
+  "playback": {
+    "speed": "Playing at speed {speed}, as the models hear it: pitch shifts with it, so ultrasound slowed down becomes audible.",
+    "clamped": "Playing at {rate}, the furthest the browser can go; the models hear it at speed {speed}.",
+    "embedded": "Embedded speed ({speed})",
+    "original": "Original speed"
   },
   "export": {
     "label": "Export",
