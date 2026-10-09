@@ -485,6 +485,17 @@ class TestAdminPageRenders:
             panel = next(iter(user.find(marker=f"section-{name}").elements))
             assert panel.value is False
 
+    async def test_the_totals_fold_with_the_map_and_items(self, user: User):
+        await user.open("/")
+        await user.should_see("Library items")
+        section = next(iter(user.find(marker="section-library").elements))
+        heading = next(
+            element
+            for element in user.find("Library items").elements
+            if isinstance(element, ui.label)
+        )
+        assert section in heading.ancestors()
+
     async def test_an_opened_section_stays_open_on_the_next_visit(
         self, user: User
     ):

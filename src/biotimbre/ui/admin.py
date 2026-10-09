@@ -377,20 +377,13 @@ def _stat_tile(label: str, value: str) -> None:
 
 
 async def _summary_row(t: Translator) -> None:
-    """Library totals: item and biotimbre counts, vectors per model, speeds used."""
+    """Library totals: how many items, and how many biotimbres they form."""
     state = get_state()
     stats = await state.run(state.service.stats)
 
     with ui.row().classes("gap-3 flex-wrap"):
         _stat_tile(t("admin.column.id"), str(stats["items"]))
         _stat_tile(t("field.biotimbre_id"), str(stats["biotimbres"]))
-        for model in stats["models"]:
-            _stat_tile(model["model_id"], str(model["embedding_count"]))
-        if stats["speeds"]:
-            _stat_tile(
-                t("field.speed"),
-                ", ".join(f"{speed:g}" for speed in stats["speeds"]),
-            )
 
 
 # ── add ───────────────────────────────────────────────────────────────────────
@@ -1231,15 +1224,14 @@ async def render(t: Translator) -> None:
     Args:
         t: Active translator.
     """
-    ui.label(t("admin.heading")).classes("text-xl font-medium")
-
-    # Containers are created in display order: totals, the add form, the
-    # bundle importer, then the map and the list. Each but the totals folds.
-    summary_container = ui.column().classes("w-full")
-    add_container = ui.column().classes("w-full")
-    import_container = ui.column().classes("w-full")
-    # The map and the list fold together: they are one listing, drawn twice.
+    # Containers are created in display order: the totals, the map and the
+    # list, then the add form and the bundle importer. Each section folds.
+    # The totals, the map and the list fold together: they all describe what
+    # the library holds, and the totals are no use apart from the listing.
     with foldable_card("library", t("admin.library_section")):
+        with ui.column().classes("w-full gap-1"):
+            ui.label(t("admin.heading")).classes("text-sm font-medium")
+            summary_container = ui.column().classes("w-full")
         # One map for the whole library, above the list it plots — never one
         # per row. Created here rather than further down because ``redraw``
         # closes over it and ``refresh`` can schedule one from any callback.
@@ -1248,10 +1240,11 @@ async def render(t: Translator) -> None:
         library_map = None
         if maps.enabled():
             with ui.column().classes("w-full gap-1"):
-                ui.label(t("map.library_heading")).classes("text-sm font-medium")
                 ui.label(t("map.library_hint")).classes("text-xs text-muted")
                 library_map = maps.LocationMap()
         table_container = ui.column().classes("w-full gap-2")
+    add_container = ui.column().classes("w-full")
+    import_container = ui.column().classes("w-full")
     # Home for the timers ``refresh`` schedules. See below for why they cannot
     # live wherever the caller happens to be.
     schedule_anchor = ui.element("div")
