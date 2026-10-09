@@ -31,6 +31,7 @@ from biotimbre.ui.segment_range import SegmentRange
 from biotimbre.ui.spectrograms import place_span_marker
 from biotimbre.ui.visuals import audio_view, view_toggle
 from biotimbre.ui.state import get_state
+from biotimbre.ui.suggestions import library_suggestions, suggest_tags
 
 #: Spectrogram size for the query, where the segment is chosen.
 QUERY_WIDTH = 860
@@ -271,7 +272,12 @@ def _filters_panel(t: Translator) -> dict[str, ui.element]:
                     label=t("search.filter.taxa"),
                     multiple=True,
                     new_value_mode="add-unique",
-                ).props("use-chips")
+                ).props("use-chips").mark("filter-taxa")
+            )
+            # The tags the library holds, as on the add form: a filter on a
+            # tag spelt differently from the items' finds nothing.
+            suggest_tags(
+                inputs["taxa"], lambda text: library_suggestions("taxa", text)
             )
             with ui.column().classes("justify-center"):
                 inputs["taxa_all"] = ui.switch(t("search.filter.taxa_all"))

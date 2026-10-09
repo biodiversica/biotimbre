@@ -456,3 +456,86 @@ class TestEmbeddingStreaming:
             for key in batch_keys
         ]
         assert set(got) == set(ids)
+
+
+class TestSuggest:
+    @pytest.fixture
+    def stocked(self, repo, draft):
+        """Items recorded with a handful of devices and tagged a few ways."""
+        devices = [
+            "Zoom H5",
+            "AudioMoth 1.2",
+            "Song Meter SM4",
+            "zoom h5",  # the same device, typed differently
+            None,
+            "100%_gain rig",
+        ]
+        taxa = [("cicadidae",), ("boana faber", "anura"), ("anura",), (), (), ()]
+        for index, (device, tags) in enumerate(zip(devices, taxa, strict=True)):
+            add_item(
+                repo,
+                dataclasses.replace(draft, device=device, taxa=tags),
+                sha256=f"{index:064x}",
+            )
+        return repo
+
+    def test_blank_lists_values_alphabetically(self, stocked):
+        assert stocked.suggest("device") == [
+            "100%_gain rig",
+            "AudioMoth 1.2",
+            "Song Meter SM4",
+            "Zoom H5",
+        ]
+
+    def test_case_is_ignored_and_case_variants_are_offered_once(self, stocked):
+        found = stocked.suggest("device", "ZOO")
+        assert len(found) == 1
+        assert found[0].casefold() == "zoom h5"
+
+    def test_prefix_matches_come_before_matches_inside(self, stocked):
+        # "an" starts "anura" and sits inside "boana faber".
+        assert stocked.suggest("taxa", "an") == ["anura", "boana faber"]
+
+    def test_a_match_inside_a_value_is_found(self, stocked):
+        assert stocked.suggest("device", "moth") == ["AudioMoth 1.2"]
+
+    def test_wildcards_in_the_text_are_taken_literally(self, stocked):
+        assert stocked.suggest("device", "%") == ["100%_gain rig"]
+        assert stocked.suggest("device", "_") == ["100%_gain rig"]
+
+    def test_no_match_gives_nothing(self, stocked):
+        assert stocked.suggest("microphone", "anything") == []
+        assert stocked.suggest("device", "nothing like it") == []
+
+    def test_the_limit_is_kept(self, stocked):
+        assert len(stocked.suggest("device", "", limit=2)) == 2
+        assert len(stocked.suggest("taxa", "a", limit=1)) == 1
+
+    def test_an_unknown_field_is_refused(self, stocked):
+        # Table and column names go into the SQL, so only known ones may.
+        with pytest.raises(ValueError):
+            stocked.suggest("notes; DROP TABLE items", "")
+
+    @pytest.mark.parametrize(
+        "field", ["taxa", "device", "microphone", "recorded_by"]
+    )
+    def test_lookups_seek_an_index_rather_than_scan_the_table(
+        self, repo, field
+    ):
+        # The whole point on a large library: one seek per distinct value.
+        from biotimbre.db.repository import _SUGGEST_SQL, SUGGESTIBLE_FIELDS
+
+        table, column = SUGGESTIBLE_FIELDS[field]
+        plan = repo.connection.execute(
+            "EXPLAIN QUERY PLAN "
+            + _SUGGEST_SQL.format(table=table, column=column),
+            {"start": "a", "within": "a%", "match": "a%", "limit": 20},
+        ).fetchall()
+        details = [row["detail"] for row in plan]
+        index = f"idx_{'taxa_tag' if field == 'taxa' else 'items_' + column}_nocase"
+        assert any(
+            line.startswith(f"SEARCH {table} USING COVERING INDEX {index}")
+            for line in details
+        ), details
+        # Not even a scan of the index: that reads one entry per item.
+        assert not any(line.startswith(f"SCAN {table}") for line in details)

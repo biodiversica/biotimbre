@@ -44,6 +44,13 @@ CREATE INDEX IF NOT EXISTS idx_items_date      ON items(date);
 CREATE INDEX IF NOT EXISTS idx_items_latlon    ON items(latitude, longitude);
 CREATE INDEX IF NOT EXISTS idx_items_speed     ON items(speed);
 CREATE INDEX IF NOT EXISTS idx_items_sha256    ON items(audio_sha256);
+-- Case-insensitive, for offering earlier values back while one is typed
+-- (Repository.suggest). An index rather than a scan: libraries can be large.
+-- Added without a version bump: an index changes no data, and this script
+-- runs on every open, so existing libraries gain them on their next one.
+CREATE INDEX IF NOT EXISTS idx_items_device_nocase      ON items(device COLLATE NOCASE);
+CREATE INDEX IF NOT EXISTS idx_items_microphone_nocase  ON items(microphone COLLATE NOCASE);
+CREATE INDEX IF NOT EXISTS idx_items_recorded_by_nocase ON items(recorded_by COLLATE NOCASE);
 
 CREATE TABLE IF NOT EXISTS item_taxa (
     item_id INTEGER NOT NULL REFERENCES items(item_id) ON DELETE CASCADE,
@@ -52,6 +59,7 @@ CREATE TABLE IF NOT EXISTS item_taxa (
 );
 
 CREATE INDEX IF NOT EXISTS idx_taxa_tag ON item_taxa(tag);
+CREATE INDEX IF NOT EXISTS idx_taxa_tag_nocase ON item_taxa(tag COLLATE NOCASE);
 
 CREATE TABLE IF NOT EXISTS models (
     model_id          TEXT PRIMARY KEY,      -- 'perch_v2', 'birdnet_v2.4'

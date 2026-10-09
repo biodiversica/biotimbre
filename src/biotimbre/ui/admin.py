@@ -29,6 +29,7 @@ from biotimbre.ui import inat, maps
 from biotimbre.ui.exports import export_button
 from biotimbre.ui.sections import foldable_card
 from biotimbre.ui.sharing import import_card
+from biotimbre.ui.suggestions import library_suggestions
 from biotimbre.ui.forms import _blank_to_none, metadata_form
 from biotimbre.ui.layout import notify_error
 from biotimbre.ui.spectrograms import BandShade, place_span_marker
@@ -763,7 +764,7 @@ def _add_card(t: Translator, on_added) -> None:
                 after=lambda observation: _fill_metadata_from(t, form, observation),
             )
 
-        form = metadata_form(t, map_picker=maps.enabled())
+        form = metadata_form(t, map_picker=maps.enabled(), suggest=library_suggestions)
         results = ui.column().classes("w-full gap-1")
 
         async def save() -> None:
@@ -1041,7 +1042,11 @@ async def _open_edit(t: Translator, item: LibraryItem, parent, on_changed) -> No
             "text-lg font-medium"
         )
         form = metadata_form(
-            t, item, allow_new_biotimbre=False, biotimbre_label=label
+            t,
+            item,
+            allow_new_biotimbre=False,
+            biotimbre_label=label,
+            suggest=library_suggestions,
         )
 
         warning = ui.row().classes("items-center gap-2 text-notice")

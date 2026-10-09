@@ -37,6 +37,40 @@ from biotimbre.models_registry import ModelSpec
 #: platforms. Stored little-endian; SQLite BLOBs are byte-exact round trips.
 VECTOR_DTYPE = np.float32
 
+#: Fields whose earlier values are offered back while a new one is typed, and
+#: the table and column each is stored in. Each has a ``COLLATE NOCASE`` index
+#: in schema.sql, which :meth:`Repository.suggest` depends on to stay fast.
+SUGGESTIBLE_FIELDS: dict[str, tuple[str, str]] = {
+    "taxa": ("item_taxa", "tag"),
+    "device": ("items", "device"),
+    "microphone": ("items", "microphone"),
+    "recorded_by": ("items", "recorded_by"),
+}
+
+#: Walks the distinct values of one column in case-insensitive order, one
+#: index seek per value, rather than reading every row: a library of a million
+#: items recorded with four devices is four seeks, not a million rows. The walk
+#: starts at ``:start`` and continues while values match ``:within``, so a
+#: prefix walk stops as soon as it leaves the prefix; the outer LIMIT stops it
+#: once enough have matched ``:match``. Table and column come from
+#: SUGGESTIBLE_FIELDS, never from the caller.
+_SUGGEST_SQL = """
+WITH RECURSIVE walk(value) AS (
+    SELECT (SELECT {column} FROM {table}
+            WHERE {column} >= :start COLLATE NOCASE AND {column} <> ''
+            ORDER BY {column} COLLATE NOCASE LIMIT 1)
+    UNION ALL
+    SELECT (SELECT {column} FROM {table}
+            WHERE {column} > walk.value COLLATE NOCASE
+            ORDER BY {column} COLLATE NOCASE LIMIT 1)
+    FROM walk
+    WHERE walk.value IS NOT NULL AND walk.value LIKE :within ESCAPE '\\'
+)
+SELECT value FROM walk
+WHERE value IS NOT NULL AND value LIKE :match ESCAPE '\\'
+LIMIT :limit
+"""
+
 _ITEM_COLUMNS = """
     item_id, biotimbre_id, date, time, latitude, longitude,
     sample_window_start, sample_window_end, device, microphone, recorded_by,
@@ -497,6 +531,69 @@ class Repository:
             "SELECT DISTINCT speed FROM items ORDER BY speed"
         ).fetchall()
         return [float(row["speed"]) for row in rows]
+
+    # ── suggestions ───────────────────────────────────────────────────────────
+
+    def suggest(self, field: str, text: str = "", limit: int = 20) -> list[str]:
+        """Values already in the library for a field, matching what is typed.
+
+        Values that start with the text come first, then those containing it
+        elsewhere — "moth" finds "AudioMoth". Matching ignores case, and values
+        differing only in case are offered once, so a library holding both
+        "Zoom H5" and "zoom h5" does not offer the choice between them.
+
+        Args:
+            field: A key of :data:`SUGGESTIBLE_FIELDS`.
+            text: What has been typed so far. Blank lists values from the start
+                of the alphabet.
+            limit: Most values to return.
+
+        Returns:
+            Up to ``limit`` distinct values, prefix matches first, each group
+            in case-insensitive alphabetical order.
+
+        Raises:
+            ValueError: If ``field`` is not suggestible.
+        """
+        if field not in SUGGESTIBLE_FIELDS:
+            raise ValueError(f"No suggestions for {field!r}.")
+        table, column = SUGGESTIBLE_FIELDS[field]
+        sql = _SUGGEST_SQL.format(table=table, column=column)
+        needle = text.strip()
+        escaped = (
+            needle.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        )
+
+        found = [
+            row["value"]
+            for row in self._conn.execute(
+                sql,
+                {
+                    "start": needle,
+                    "within": escaped + "%",
+                    "match": escaped + "%",
+                    "limit": limit,
+                },
+            )
+        ]
+        if needle and len(found) < limit:
+            # Containing it elsewhere: every distinct value has to be looked
+            # at, though still one seek per value rather than one per row.
+            seen = {value.casefold() for value in found}
+            for row in self._conn.execute(
+                sql,
+                {
+                    "start": "",
+                    "within": "%",
+                    "match": "%" + escaped + "%",
+                    "limit": limit + len(found),
+                },
+            ):
+                if row["value"].casefold() not in seen:
+                    found.append(row["value"])
+                    if len(found) == limit:
+                        break
+        return found
 
     # ── taxa ──────────────────────────────────────────────────────────────────
 

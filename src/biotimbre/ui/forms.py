@@ -11,6 +11,7 @@ input that caused it, which is why the domain records a ``field`` name at all.
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
 from nicegui import ui
@@ -27,6 +28,7 @@ from biotimbre.domain.item import (
 from biotimbre.i18n import Translator
 from biotimbre.ui.maps import location_picker
 from biotimbre.ui.sections import foldable
+from biotimbre.ui.suggestions import suggest_tags, suggest_text
 
 #: Maps a ``ValidationError.field`` onto the input to highlight. Compound fields
 #: report either the whole value or one bound, so both spellings are listed.
@@ -190,6 +192,7 @@ def metadata_form(
     allow_new_biotimbre: bool = True,
     biotimbre_label: str | None = None,
     map_picker: bool = False,
+    suggest: Callable[[str, str], Awaitable[list[str]]] | None = None,
 ) -> MetadataForm:
     """Render the metadata inputs and return a handle to them.
 
@@ -203,6 +206,9 @@ def metadata_form(
             biotimbre has none yet.
         map_picker: Whether to offer a map for setting the location by
             clicking. Off unless asked for, since the map is switchable.
+        suggest: Looks up values already in the library, as
+            ``suggest(field, typed)``, to offer back while taxa, device,
+            microphone and recorded-by are typed. ``None`` offers nothing.
 
     Returns:
         The :class:`MetadataForm` handle.
@@ -385,6 +391,13 @@ def metadata_form(
             ui.textarea(t("field.notes"), value=(draft.notes if draft else "") or "")
             .props("autogrow")
         )
+
+    if suggest is not None:
+        suggest_tags(inputs["taxa"], lambda text: suggest("taxa", text))
+        for name in ("device", "microphone", "recorded_by"):
+            suggest_text(
+                inputs[name], lambda text, name=name: suggest(name, text)
+            )
 
     return MetadataForm(
         t=t,

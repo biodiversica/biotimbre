@@ -228,6 +228,31 @@ class TestFilterPanel:
         # The tags typed in are still offered, only unchosen.
         assert inputs["taxa"].options == ["cicadidae"]
 
+    async def test_the_taxa_filter_offers_the_library_s_tags(
+        self, user: User, installed_state
+    ):
+        import asyncio
+        import dataclasses
+
+        from biotimbre.io.sidecar import draft_from_sidecar
+
+        draft = draft_from_sidecar(EXAMPLES_DIR / "GUYVIR.txt")
+        installed_state.call(
+            installed_state.service.add_item,
+            GUYVIR,
+            dataclasses.replace(draft, taxa=("boana faber", "anura")),
+            compute_embeddings=False,
+        )
+        inputs = await self._panel(user)
+
+        # NiceGUI files the listener under the camel-cased event name.
+        user.find(marker="filter-taxa").trigger("inputValue", "fab")
+        for _ in range(100):
+            if inputs["taxa"].options:
+                break
+            await asyncio.sleep(0.02)
+        assert inputs["taxa"].options == ["boana faber"]
+
     async def test_clearing_an_empty_panel_changes_nothing(self, user: User):
         from biotimbre.ui.search import clear_filters
 

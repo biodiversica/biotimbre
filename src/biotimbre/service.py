@@ -1332,6 +1332,23 @@ class LibraryService:
         }.get(path.suffix.lower(), "application/octet-stream")
         return path, mime
 
+    def suggest(self, field: str, text: str = "") -> list[str]:
+        """Earlier values of a metadata field that match what is being typed.
+
+        So a tag, a device or a recordist entered once can be picked rather
+        than typed again — and typed the same way each time, which is what
+        lets a filter on it find them all.
+
+        Args:
+            field: ``taxa``, ``device``, ``microphone`` or ``recorded_by``.
+            text: What has been typed so far.
+
+        Returns:
+            Matching values, best first. See
+            :meth:`~biotimbre.db.repository.Repository.suggest`.
+        """
+        return self.repo.suggest(field, text)
+
     def stats(self) -> dict:
         """Summary counts for a dashboard or CLI status line."""
         return {
