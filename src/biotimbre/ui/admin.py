@@ -604,8 +604,19 @@ def _add_card(t: Translator, on_added) -> None:
                             add_state.duration,
                         )
 
+                def superseded() -> bool:
+                    """Whether this file has been removed or replaced since.
+
+                    "Remove file" can be clicked while a restage is still
+                    decoding; carrying on would serve a file that is gone and
+                    draw into a preview that has been cleared.
+                    """
+                    return add_state.upload is not upload
+
                 async def _restage_once() -> None:
                     """Re-apply the choice and show what would be stored."""
+                    if superseded():
+                        return
                     add_state.highpass = _blank_to_none(highpass.value)
                     add_state.lowpass = _blank_to_none(lowpass.value)
                     add_state.filter_order = int(order.value or DEFAULT_FILTER_ORDER)
@@ -613,7 +624,10 @@ def _add_card(t: Translator, on_added) -> None:
                     try:
                         result = await state.run(add_state.apply)
                     except BiotimbreError as exc:
-                        notify_error(t, exc)
+                        if not superseded():
+                            notify_error(t, exc)
+                        return
+                    if superseded():
                         return
                     _fill_processing_fields(form, add_state)
                     # The player plays the copy itself, so what is heard is the
