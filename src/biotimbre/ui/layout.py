@@ -158,8 +158,11 @@ def page(active: str):
     ui.colors(dark_page="var(--bt-page-bg)", **theme_variables())
     ui.query("body").style("background: var(--bt-page-bg); color: var(--bt-text)")
 
+    # Pinned to the window like the footer. No ``relative`` class: Quasar
+    # already positions the header (fixed), which is what the centred name
+    # below anchors to, and ``relative`` would undo the pinning.
     with ui.header().classes(
-        "relative items-center justify-between px-4 py-2 shadow-sm"
+        "items-center justify-between px-4 py-2 shadow-sm"
     ).style("background: var(--bt-header-bg)"):
         state = get_state()
         identity = state.service.identity() if state.is_open else None
