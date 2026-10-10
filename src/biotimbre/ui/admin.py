@@ -108,6 +108,12 @@ class AddState:
             what should be stored — mono, whole, unfiltered, within full scale.
         over_range_peak: The selection's peak when :meth:`apply` found it
             beyond full scale and normalised it, otherwise ``None``.
+        normalise: Whether to bring the stored copy's peak to -1 dBFS,
+            whatever its level, as asked for on the form.
+        normalised_gain_db: The gain that took, when :meth:`apply` normalised
+            the copy, otherwise ``None``.
+        normalise_note: The line last written into the notes about it, so a
+            later change replaces that line rather than adding another.
     """
 
     upload: Upload | None = None
@@ -121,6 +127,9 @@ class AddState:
     filter_order: int = DEFAULT_FILTER_ORDER
     processed: Path | None = None
     over_range_peak: float | None = None
+    normalise: bool = False
+    normalised_gain_db: float | None = None
+    normalise_note: str | None = None
 
     @property
     def duration(self) -> float:
@@ -168,6 +177,7 @@ class AddState:
             raise ValidationError("No audio staged.", "audio")
 
         self.drop_processed()
+        self.normalised_gain_db = None
         start = self.start if self.is_cut else None
         end = self.end if self.is_cut else None
         # Of the selection, not the file: what is kept is what has to be in range.
@@ -179,6 +189,7 @@ class AddState:
             and not self.is_filtered
             and self.upload.properties.channels == 1
             and self.over_range_peak is None
+            and not self.normalise
         ):
             return self.upload.properties
 
@@ -193,6 +204,9 @@ class AddState:
             order=self.filter_order,
         )
         self.processed = target
+        if self.normalise:
+            # Last, on what is stored: the filter has moved the peak.
+            self.normalised_gain_db = audio_io.normalise_file(target)
         return properties
 
     def drop_processed(self) -> None:
@@ -343,6 +357,32 @@ def _fill_processing_fields(form, add_state: "AddState") -> None:
         form.inputs["filter_order"].value = add_state.filter_order
         if not (form.inputs["filter_type"].value or "").strip():
             form.inputs["filter_type"].value = "Butterworth"
+
+
+def _note_normalisation(t: Translator, form, add_state: "AddState") -> None:
+    """Keep one line in the notes saying the stored copy was normalised.
+
+    Notes are free text the submitter also writes in, so only the line this
+    wrote is touched: replaced when the gain changes, removed when the box is
+    unticked, and left out of any line the submitter typed themselves.
+    """
+    notes = form.inputs["notes"].value or ""
+    previous = add_state.normalise_note
+    lines = [
+        line for line in notes.splitlines() if previous is None or line != previous
+    ]
+    note = None
+    if add_state.normalised_gain_db is not None:
+        note = t(
+            "admin.normalised_note",
+            target=f"{audio_io.NORMALISED_PEAK_DBFS:g}",
+            gain=f"{add_state.normalised_gain_db:+.1f}",
+        )
+        lines.append(note)
+    add_state.normalise_note = note
+    updated = "\n".join(lines).strip()
+    if updated != notes.strip():
+        form.inputs["notes"].value = updated
 
 
 def _nyquist_lines(t: Translator) -> str:
@@ -583,6 +623,11 @@ def _add_card(t: Translator, on_added) -> None:
                         t("field.filter_order"),
                         value=DEFAULT_FILTER_ORDER, step=1, min=1,
                     ).props("dense outlined").classes("grow")
+                    normalise = ui.checkbox(
+                        t("admin.normalise", target=f"{audio_io.NORMALISED_PEAK_DBFS:g}")
+                    ).props("dense").classes("self-center").tooltip(
+                        t("admin.normalise_help")
+                    ).mark("apply-normalise")
                 ui.label(t("admin.filter_hint")).classes("text-xs text-muted")
 
                 def shade_band() -> None:
@@ -644,6 +689,7 @@ def _add_card(t: Translator, on_added) -> None:
                     add_state.highpass = _blank_to_none(highpass.value)
                     add_state.lowpass = _blank_to_none(lowpass.value)
                     add_state.filter_order = int(order.value or DEFAULT_FILTER_ORDER)
+                    add_state.normalise = bool(normalise.value)
                     stored.clear()
                     try:
                         result = await state.run(add_state.apply)
@@ -654,6 +700,7 @@ def _add_card(t: Translator, on_added) -> None:
                     if superseded():
                         return
                     _fill_processing_fields(form, add_state)
+                    _note_normalisation(t, form, add_state)
                     # The player plays the copy itself, so what is heard is the
                     # cut, the filter *and* the downmix — a media fragment
                     # could only ever convey the cut.
@@ -740,6 +787,7 @@ def _add_card(t: Translator, on_added) -> None:
                 picker.on("change", on_span_settled)
                 for element in (highpass, lowpass, order):
                     element.on("change", lambda _: restage())
+                normalise.on_value_change(lambda _: restage())
 
                 # Wired up and labelled before the first restage rather than
                 # after it: the picker is on the page as soon as it is built,

@@ -16,6 +16,7 @@ speed-shifted item.
 from __future__ import annotations
 
 import hashlib
+import math
 from dataclasses import dataclass
 from fractions import Fraction
 from pathlib import Path
@@ -226,6 +227,44 @@ def normalise_over_range(samples: np.ndarray) -> tuple[np.ndarray, float]:
         return samples, peak
     gain = 10.0 ** (NORMALISED_PEAK_DBFS / 20.0) / peak
     return np.ascontiguousarray(samples * gain, dtype=np.float32), peak
+
+
+def normalise_file(path: str | Path) -> float | None:
+    """Scale a written file so its peak sits at :data:`NORMALISED_PEAK_DBFS`.
+
+    Up or down, unlike :func:`normalise_over_range`, which only ever brings an
+    over-range selection down: this is the submitter asking for a standard
+    level, not a repair. One gain for the whole file, so its dynamics are
+    kept. Done on the file as written, after any cut and filter, since a
+    filter moves the peak and what is stored is what has to peak at the mark.
+
+    Args:
+        path: A file written by :func:`write_processed`, rewritten in place at
+            its own rate and sample format.
+
+    Returns:
+        The gain applied, in dB, or ``None`` for silence, which has no peak to
+        bring anywhere and is left as it is.
+
+    Raises:
+        ValidationError: If the file cannot be decoded or holds non-finite samples.
+    """
+    import soundfile as sf
+
+    try:
+        samples, rate = sf.read(str(path), dtype="float32")
+        subtype = sf.info(str(path)).subtype
+    except Exception as exc:
+        raise ValidationError(
+            f"Could not read {Path(path).name} as audio: {exc}", "audio"
+        ) from exc
+    peak = sample_peak(samples)
+    if peak == 0.0:
+        return None
+    gain = 10.0 ** (NORMALISED_PEAK_DBFS / 20.0) / peak
+    scaled = np.ascontiguousarray(samples * gain, dtype=np.float32)
+    sf.write(str(path), scaled, int(rate), subtype=subtype)
+    return 20.0 * math.log10(gain)
 
 
 def over_range_peak(

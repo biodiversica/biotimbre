@@ -820,6 +820,48 @@ class TestAdminPageRenders:
         form_speed.value = 0.01
         await user.should_see("Playing at 0.0625")
 
+    async def test_normalising_is_stored_and_noted(self, user: User, monkeypatch):
+        import numpy as np
+        import soundfile as sf
+        from nicegui.elements.upload_files import SmallFileUpload
+
+        from biotimbre.embeddings import audio as audio_io
+
+        normalised = []
+        real = audio_io.normalise_file
+
+        def recording(path):
+            gain = real(path)
+            normalised.append(np.abs(sf.read(path, dtype="float32")[0]).max())
+            return gain
+
+        monkeypatch.setattr(audio_io, "normalise_file", recording)
+
+        await user.open("/")
+        uploader = next(iter(user.find(marker="upload-audio").elements))
+        await uploader.handle_uploads(
+            [SmallFileUpload("GUYVIR.wav", "audio/wav", GUYVIR.read_bytes())]
+        )
+        await user.should_see("Keeping 0.00–5.00 s of 5.00 s", retries=60)
+        notes = next(
+            el for el in user.find(ui.textarea).elements if el.label == "Notes"
+        )
+        notes.value = "Typed by hand."
+
+        user.find(marker="apply-normalise").click()
+        await user.should_see("What will be stored", retries=60)
+        # The copy that would be stored peaks at the mark...
+        assert normalised[-1] == pytest.approx(10 ** (-1 / 20), rel=1e-4)
+        # ...and the notes say so, below what was typed, not instead of it.
+        lines = notes.value.splitlines()
+        assert lines[0] == "Typed by hand."
+        assert lines[1].startswith("Normalised to peak at -1 dBFS (gain ")
+
+        # Unticked, the line it wrote goes, and only that line.
+        user.find(marker="apply-normalise").click()
+        await user.should_not_see("What will be stored", retries=60)
+        assert notes.value == "Typed by hand."
+
     async def test_the_speed_is_offered_beside_the_filters(self, user: User):
         from nicegui.elements.upload_files import SmallFileUpload
 

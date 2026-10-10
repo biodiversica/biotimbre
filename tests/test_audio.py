@@ -263,6 +263,40 @@ def _write_float(path, samples, rate=16_000, subtype="FLOAT"):
 _TARGET = 10 ** (-1 / 20)
 
 
+class TestNormaliseFile:
+    """Bringing a stored copy's peak to -1 dBFS, louder or quieter."""
+
+    @staticmethod
+    def _write(path, samples, rate=16_000):
+        import soundfile as sf
+
+        sf.write(path, np.asarray(samples, dtype=np.float32), rate, subtype="FLOAT")
+        return path
+
+    def test_a_quiet_file_is_brought_up(self, tmp_path):
+        import soundfile as sf
+
+        path = self._write(tmp_path / "quiet.wav", [0.1, -0.05, 0.025])
+        gain = audio_io.normalise_file(path)
+        out, rate = sf.read(path, dtype="float32")
+        assert rate == 16_000
+        assert np.abs(out).max() == pytest.approx(_TARGET, rel=1e-5)
+        assert gain == pytest.approx(20 * np.log10(_TARGET / 0.1), abs=1e-3)
+        # One gain for the whole file, so its dynamics survive.
+        np.testing.assert_allclose(out / out[0], [1.0, -0.5, 0.25], rtol=1e-5)
+
+    def test_a_full_scale_file_is_brought_down(self, tmp_path):
+        path = self._write(tmp_path / "loud.wav", [1.0, -0.5])
+        assert audio_io.normalise_file(path) == pytest.approx(-1.0, abs=1e-3)
+
+    def test_silence_is_left_alone(self, tmp_path):
+        import soundfile as sf
+
+        path = self._write(tmp_path / "silent.wav", [0.0, 0.0, 0.0])
+        assert audio_io.normalise_file(path) is None
+        assert not sf.read(path, dtype="float32")[0].any()
+
+
 class TestOverRange:
     """Float audio beyond full scale, normalised to peak at -1 dBFS."""
 
