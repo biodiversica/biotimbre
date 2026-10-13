@@ -231,6 +231,20 @@ class TestPages:
         await user.open("/search")
         await user.should_see("Search only")
 
+    async def test_a_query_cannot_be_taken_to_the_library(
+        self, user: User, installed_state
+    ):
+        from nicegui.elements.upload_files import SmallFileUpload
+
+        await user.open("/search")
+        uploader = next(iter(user.find(ui.upload).elements))
+        await uploader.handle_uploads(
+            [SmallFileUpload("GUYVIR.wav", "audio/wav", GUYVIR_WAV.read_bytes())]
+        )
+        await user.should_see("Query speed", retries=60)
+        # There is no add form to take it to.
+        await user.should_not_see("Add to library…")
+
     async def test_a_normal_run_still_has_both_pages(
         self, user: User, settings, shared_pool
     ):

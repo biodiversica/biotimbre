@@ -5,38 +5,42 @@ to check by ear (PLAN.md D8). So the query stays playable at the top of the page
 while every result carries its own player, and each result's spectrogram marks the
 window that actually produced the score rather than leaving it to be hunted for.
 
-The 15 s query cap (D10) is why the segment picker exists. For a longer recording
-the selection is explicit and visible rather than a silent truncation.
+The query is prepared with the same editor the library page uses for a sample
+(:mod:`biotimbre.ui.clip_editor`) — cut, filtered, normalised, heard at its speed
+— and the prepared copy is what is searched with. The one difference is the 15 s
+query cap (D10), which the segment picker enforces: for a longer recording the
+selection is explicit and visible rather than a silent truncation.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-
-from nicegui import ui
+from nicegui import app, ui
 
 from biotimbre.domain.errors import BiotimbreError, ValidationError
-from biotimbre.domain.item import DEFAULT_SPEED, MAX_SPEED, MIN_SPEED, FilteredBand
-from biotimbre.embeddings import audio as audio_io
+from biotimbre.domain.item import DEFAULT_SPEED
 from biotimbre.i18n import Translator
 from biotimbre.search.filters import SearchFilters
 from biotimbre.search.vector_search import FUSIONS, METRICS
 from biotimbre.service import SearchHit
 from biotimbre.sources import inaturalist
-from biotimbre.ui.admin import ACCEPTED, _over_range_args
+from biotimbre.ui.clip_editor import (
+    ACCEPTED,
+    HANDOFF_KEY,
+    SEARCH_WORDING,
+    ClipControls,
+    ClipState,
+    StagedMedia,
+    Upload,
+    clip_editor,
+    hand_over,
+)
 from biotimbre.ui import inat, maps
 from biotimbre.ui.exports import export_button
 from biotimbre.ui.layout import notify_error
-from biotimbre.ui.playback import item_player, play_described, speed_audio
-from biotimbre.ui.segment_range import SegmentRange
-from biotimbre.ui.spectrograms import place_span_marker
+from biotimbre.ui.playback import item_player
 from biotimbre.ui.visuals import audio_view, view_toggle
 from biotimbre.ui.state import get_state
 from biotimbre.ui.suggestions import library_suggestions, suggest_tags
-
-#: Spectrogram size for the query, where the segment is chosen.
-QUERY_WIDTH = 860
-QUERY_HEIGHT = 180
 
 #: Spectrogram size in a result row.
 RESULT_WIDTH = 560
@@ -46,49 +50,6 @@ RESULT_WIDTH = 560
 #: for anyone who wants it tighter.
 OBSERVATION_RADIUS_KM = 25.0
 RESULT_HEIGHT = 110
-
-
-@dataclass
-class QueryState:
-    """The recording currently staged for searching.
-
-    Attributes:
-        token: Registry token for the staged file.
-        name: Original filename.
-        properties: Decoded audio properties.
-        start: Selected segment start in seconds.
-        end: Selected segment end in seconds.
-        over_range_peak: The searched audio's peak when it goes beyond full
-            scale, and so is normalised before searching and playing.
-    """
-
-    token: str | None = None
-    name: str = ""
-    properties: audio_io.AudioProperties | None = None
-    start: float = 0.0
-    end: float = 0.0
-    over_range_peak: float | None = None
-
-    @property
-    def duration(self) -> float:
-        """Full duration of the staged file."""
-        return self.properties.duration_s if self.properties else 0.0
-
-    @property
-    def needs_segment(self) -> bool:
-        """Whether the file exceeds the cap and so requires an explicit segment."""
-        return self.duration > get_state().settings.max_query_duration_s
-
-    def segment(self) -> tuple[float | None, float | None]:
-        """Arguments to pass to the service.
-
-        A file within the cap is searched whole, which keeps the cache key and the
-        behaviour identical to the command line. Only a longer file sends explicit
-        bounds.
-        """
-        if not self.needs_segment:
-            return None, None
-        return round(self.start, 3), round(self.end, 3)
 
 
 def _fill_filters_from(t: Translator, inputs: dict, observation) -> None:
@@ -358,15 +319,6 @@ def _options_panel(t: Translator) -> dict[str, ui.element]:
         "dense"
     ):
         with ui.grid(columns=2).classes("w-full gap-3"):
-            inputs["speed"] = dense(
-                ui.number(
-                    t("search.speed"),
-                    value=DEFAULT_SPEED,
-                    step=0.05,
-                    min=MIN_SPEED,
-                    max=MAX_SPEED,
-                ).tooltip(t("search.speed_help"))
-            )
             inputs["top_k"] = dense(
                 ui.number(
                     t("search.top_k"), value=settings.default_top_k, min=1, step=1
@@ -398,21 +350,6 @@ def _options_panel(t: Translator) -> dict[str, ui.element]:
                     value=default_fusion,
                     label=t("search.fusion"),
                 )
-            )
-            inputs["highpass"] = dense(
-                ui.number(
-                    t("search.highpass"), step=100, suffix=t("common.hertz")
-                ).tooltip(t("search.filter_help"))
-            )
-            inputs["lowpass"] = dense(
-                ui.number(
-                    t("search.lowpass"), step=100, suffix=t("common.hertz")
-                ).tooltip(t("search.filter_help"))
-            )
-            inputs["filter_order"] = dense(
-                ui.number(
-                    t("search.filter_order"), value=4, step=1, min=1
-                ).tooltip(t("search.filter_order_help"))
             )
     return inputs
 
@@ -460,7 +397,18 @@ async def render(t: Translator) -> None:
     """
     state = get_state()
     cap = state.settings.max_query_duration_s
-    query = QueryState()
+    # Prepared the way the library page prepares a sample, so what is heard
+    # — cut, filtered, normalised — is exactly what is searched with.
+    query = ClipState()
+    media = StagedMedia()
+    #: The editor of the staged query, for a search to settle and read.
+    editor: dict[str, ClipControls | None] = {"controls": None}
+    #: The query speed, kept from one recording to the next: it says which
+    #: speed of the library to search, not anything about one file.
+    query_speed = {"value": DEFAULT_SPEED}
+    #: The iNaturalist observation the query was fetched from, if it was, for
+    #: the library's add form to take the metadata from.
+    origin: dict = {"observation": None}
 
     ui.label(t("search.heading")).classes("text-xl font-medium")
 
@@ -471,245 +419,94 @@ async def render(t: Translator) -> None:
         )
         ui.label(t("search.query_optional")).classes("text-xs text-muted")
 
-        query_area = ui.column().classes("w-full gap-2")
+        query_area = ui.column().classes("w-full gap-1")
 
-        #: The query's player and its caption, for the speed option to steer.
-        #: The option outlives every redraw of the query, so it is listened to
-        #: once and told which player is current.
-        listening: dict[str, ui.element | None] = {"player": None, "note": None}
-
-        def follow_speed() -> None:
-            """Play the query at the speed it will be embedded at."""
-            player, note = listening["player"], listening["note"]
-            if player is None or player.is_deleted:
-                return
-            play_described(
-                t, player, note, float(options["speed"].value or DEFAULT_SPEED)
-            )
-
-        async def clear_query() -> None:
+        def clear_query() -> None:
             """Drop the staged recording, the same way the library page does.
 
             Results are cleared with it: they answer a query that is gone.
             """
-            if query.token is not None:
-                state.queries.discard(query.token)
-            query.token = None
-            query.name = ""
-            query.properties = None
-            query.start = 0.0
-            query.end = 0.0
-            query.over_range_peak = None
+            query.discard()
+            media.stop()
+            editor["controls"] = None
+            origin["observation"] = None
             uploader.reset()
+            query_area.clear()
             results_area.clear()
+            shown.update(hits=None, counts={}, scored=True)
             if result_map is not None:
                 # The dots answered the query that just went away.
                 result_map.show(())
-            await draw_query()
 
-        async def draw_query() -> None:
-            """Redraw the query preview, player and segment picker."""
+        async def show_query(upload: Upload) -> None:
+            """Draw the editor for a staged recording, however it was staged."""
+            def ready(controls: ClipControls) -> None:
+                editor["controls"] = controls
+                controls.speed.on_value_change(
+                    lambda event: query_speed.update(value=event.value)
+                )
+                # Here, with the controls, rather than after the editor has
+                # returned: that waits on the first restage, and the button
+                # should not arrive a moment after everything else.
+                if not state.settings.search_only:
+                    with ui.row().classes("items-center gap-2"):
+                        ui.button(
+                            t("search.to_library"),
+                            icon="library_add",
+                            on_click=to_library,
+                        ).props("flat dense no-caps").mark("to-library")
+                        ui.label(t("search.to_library_hint")).classes(
+                            "text-xs text-muted"
+                        )
+
+            editor["controls"] = None
             query_area.clear()
-            if query.token is None or query.properties is None:
-                return
-
             with query_area:
-                with ui.row().classes("items-center gap-2"):
-                    ui.label(
-                        t(
-                            "search.chosen",
-                            name=query.name,
-                            duration=f"{query.duration:.2f}",
-                            rate=query.properties.sample_rate,
-                        )
-                    ).classes("text-sm")
-                    ui.button(
-                        t("common.clear_file"), icon="close", on_click=clear_query
-                    ).props("flat dense no-caps color=negative")
+                await clip_editor(
+                    t,
+                    query,
+                    upload,
+                    media=media,
+                    wording=SEARCH_WORDING,
+                    on_clear=clear_query,
+                    max_span=cap,
+                    speed=query_speed["value"],
+                    on_view_change=redraw_results,
+                    on_ready=ready,
+                )
 
-                with ui.row().classes("items-center justify-between w-full"):
-                    span_label = ui.label().classes("text-xs text-muted")
-                    view_toggle(t, lambda: redraw_views())
+        async def to_library() -> None:
+            """Take the query, as prepared, to the library page's add form.
 
-                def play_segment() -> None:
-                    """Point the player at the chosen segment.
-
-                    A media fragment, not a trimmed file: the browser seeks to
-                    the start and stops at the end by itself, and one cached
-                    file still serves every segment. A browser that ignores the
-                    end simply plays on, which is what it did before.
-                    """
-                    source = state.query_audio_url(query.token)
-                    if query.over_range_peak is not None:
-                        # The browser would clip it, so it hears the selection
-                        # as the search uses it: normalised, and only that.
-                        source += "/normalised"
-                        if query.needs_segment:
-                            source += f"?start={query.start:.3f}&end={query.end:.3f}"
-                    elif query.needs_segment:
-                        source += f"#t={query.start:.2f},{query.end:.2f}"
-                    player.set_source(source)
-
-                async def refresh_level() -> None:
-                    """Check the selection's level, and warn and switch the player if it is over.
-
-                    Only the selection counts: a loud passage outside it is not
-                    searched with, so it should not turn the searched part down.
-                    """
-                    segment = query.segment()
-                    try:
-                        peak = await state.run(
-                            audio_io.over_range_peak,
-                            state.queries.path(query.token),
-                            start_time=segment[0],
-                            end_time=segment[1],
-                        )
-                    except BiotimbreError as exc:
-                        notify_error(t, exc)
-                        return
-                    if query.segment() != segment:
-                        # A newer drag settled while this one decoded.
-                        return
-                    was_over = query.over_range_peak is not None
-                    query.over_range_peak = peak
-                    level_label.set_visibility(peak is not None)
-                    if peak is not None:
-                        level_label.set_text(
-                            t("search.over_range", **_over_range_args(peak))
-                        )
-                    # The player already follows the segment; it only needs a
-                    # new source when the level decides a different one, so a
-                    # drag still reloads the media once rather than twice.
-                    if was_over != (peak is not None):
-                        play_segment()
-
-                # Rebuilt only when the view changes. Within a view, the
-                # marker moves rather than the picture being redrawn.
-                query_view = ui.column().classes("w-full gap-0")
-                marker: ui.element | None = None
-
-                async def draw_query_view() -> None:
-                    nonlocal marker
-                    staged = state.queries.path(query.token)
-                    query_view.clear()
-                    with query_view:
-                        marker = await audio_view(
-                            spectrogram_url=(
-                                f"/media/query/{query.token}/spectrogram"
-                                f"?w={QUERY_WIDTH}&h={QUERY_HEIGHT}"
-                            ),
-                            audio_path=staged,
-                            start=0.0,
-                            end=query.duration,
-                            span=(query.start, query.end)
-                            if query.needs_segment
-                            else None,
-                            height=QUERY_HEIGHT,
-                            sample_rate=query.properties.sample_rate,
-                        )
-
-                await draw_query_view()
-
-                if query.needs_segment:
-                    ui.label(
-                        t("search.needs_segment", seconds=f"{cap:g}")
-                    ).classes("text-xs text-notice")
-                    ui.label(t("search.segment_hint", seconds=f"{cap:g}")).classes(
-                        "text-xs text-muted"
-                    )
-
-                    picker = SegmentRange(
-                        min=0.0,
-                        max=round(query.duration, 2),
-                        step=0.05,
-                        value={"min": query.start, "max": query.end},
-                        max_span=cap,
-                    ).classes("w-full")
-
-                    def on_span(event) -> None:
-                        low = float(event.value["min"])
-                        high = float(event.value["max"])
-                        # The picker already slides the selection at the cap;
-                        # this only guards a value set some other way. The edge
-                        # the user did not just move is the one that gives.
-                        if high - low > cap:
-                            if abs(low - query.start) > abs(high - query.end):
-                                high = low + cap
-                            else:
-                                low = max(0.0, high - cap)
-                            picker.set_value({"min": low, "max": high})
-                        query.start, query.end = low, high
-                        span_label.set_text(
-                            t(
-                                "search.segment_of",
-                                start=f"{low:.2f}",
-                                end=f"{high:.2f}",
-                                duration=f"{query.duration:.2f}",
-                            )
-                        )
-                        if marker is not None:
-                            place_span_marker(
-                                marker, (low, high), 0.0, query.duration
-                            )
-
-                    def on_span_settled(event):
-                        # The settled value comes with the event: it and the
-                        # drag's own updates arrive separately, so reading the
-                        # last one to have landed can lag a step behind.
-                        span = event.args
-                        if isinstance(span, dict) and "min" in span:
-                            query.start = float(span["min"])
-                            query.end = float(span["max"])
-                        play_segment()
-                        # Returned rather than awaited: the player follows the
-                        # release at once, and NiceGUI runs the level check
-                        # after it, in this element's context.
-                        return refresh_level()
-
-                    picker.on_value_change(on_span)
-                    # Only once the drag settles: changing the source reloads
-                    # the media, which would stutter on every step.
-                    picker.on("change", on_span_settled)
-                    span_label.set_text(
-                        t(
-                            "search.segment_of",
-                            start=f"{query.start:.2f}",
-                            end=f"{query.end:.2f}",
-                            duration=f"{query.duration:.2f}",
-                        )
-                    )
-                else:
-                    span_label.set_text(
-                        t("search.whole_file", duration=f"{query.duration:.2f}")
-                    )
-
-                level_label = ui.label().classes("text-xs text-notice")
-                level_label.set_visibility(False)
-
-                with ui.row().classes("items-center gap-2 w-full"):
-                    ui.label(t("search.play_query")).classes(
-                        "text-xs text-muted"
-                    )
-                    # Follows the query speed, so it is heard as it is embedded.
-                    player = speed_audio(state.query_audio_url(query.token)).classes(
-                        "grow"
-                    )
-                playback_note = ui.label().classes("text-xs text-muted")
-                listening.update(player=player, note=playback_note)
-                player.on("loadedmetadata", lambda _: follow_speed())
-                # Not yet known for this file; the check corrects it if need be.
-                query.over_range_peak = None
-                play_segment()
-                await refresh_level()
+            Not added: the form opens with everything chosen here, still
+            editable, and with the metadata still to give.
+            """
+            controls = editor["controls"]
+            if query.upload is None or controls is None:
+                return
+            # So the settings carried over are those in the fields, including
+            # a cut-off typed and not yet committed.
+            await controls.settle()
+            try:
+                token = await hand_over(
+                    query,
+                    speed=float(controls.speed.value or DEFAULT_SPEED),
+                    observation=origin["observation"],
+                )
+            except BiotimbreError as exc:
+                notify_error(t, exc)
+                return
+            app.storage.user[HANDOFF_KEY] = token
+            ui.navigate.to("/")
 
         async def handle_upload(event) -> None:
             # event.file is a NiceGUI FileUpload: .name plus async read()/save().
             # Streamed to disk, since a query may be a long recording from which
             # only a 15 s segment is searched.
             try:
-                token, target = state.queries.reserve(event.file.name)
+                target = query.begin(event.file.name)
                 await event.file.save(target)
-                properties = await state.run(audio_io.read_properties, target)
+                upload = await state.run(query.finish, target, event.file.name)
             except BiotimbreError as exc:
                 notify_error(t, exc)
                 return
@@ -718,13 +515,8 @@ async def render(t: Translator) -> None:
                 # event.content/event.file API change went unnoticed.
                 notify_error(t, exc)
                 raise
-
-            query.token = token
-            query.name = event.file.name
-            query.properties = properties
-            query.start = 0.0
-            query.end = min(properties.duration_s, cap)
-            await draw_query()
+            origin["observation"] = None
+            await show_query(upload)
 
         def handle_rejected(_event) -> None:
             """Report a file the browser refused, e.g. wrong type or too large."""
@@ -732,23 +524,17 @@ async def render(t: Translator) -> None:
 
         async def stage_observation_sound(observation, sound, on_progress) -> None:
             """Make one of an observation's recordings the query."""
-            token, target = state.queries.reserve(f"inat-{observation.id}.wav")
+            target = query.begin(f"inat-{observation.id}.wav")
             path = await state.run(
                 inaturalist.download_sound, sound, target, on_progress=on_progress
             )
-            properties = await state.run(audio_io.read_properties, path)
-            # download_sound may have written a .wav beside the name it was
-            # given, so the store is told where the file actually is.
-            state.queries.replace_path(token, path)
-
-            query.token = token
-            # The observation names it, not the staging directory: the token
-            # prefix is an implementation detail of where the file sits.
-            query.name = f"inat-{observation.id}{path.suffix}"
-            query.properties = properties
-            query.start = 0.0
-            query.end = min(properties.duration_s, cap)
-            await draw_query()
+            # Named by the observation, and by where download_sound actually
+            # wrote it, which may be a .wav beside the name it was given.
+            upload = await state.run(
+                query.finish, path, f"inat-{observation.id}{path.suffix}"
+            )
+            origin["observation"] = observation
+            await show_query(upload)
 
         uploader = ui.upload(
             label=t("search.upload"),
@@ -767,7 +553,6 @@ async def render(t: Translator) -> None:
 
     filters = _filters_panel(t)
     options = _options_panel(t)
-    options["speed"].on_value_change(lambda _: follow_speed())
 
     with ui.row().classes("items-center gap-3"):
         run_button = ui.button(
@@ -835,34 +620,42 @@ async def render(t: Translator) -> None:
     #: it without running the search again.
     shown: dict = {"hits": None, "counts": {}, "scored": True}
 
+    async def redraw_results() -> None:
+        """Redraw the results in the chosen view, if there are any."""
+        if shown["hits"] is not None:
+            await draw_results(
+                shown["hits"], shown["counts"], scored=shown["scored"]
+            )
+
     async def redraw_views() -> None:
         """Redraw every picture on the page in the chosen view.
 
         Both toggles do the same thing: one preference, so leaving the other
         half of the page in the old view would just look broken.
         """
-        if query.token is not None:
-            await draw_query()
-        if shown["hits"] is not None:
-            await draw_results(
-                shown["hits"], shown["counts"], scored=shown["scored"]
-            )
+        controls = editor["controls"]
+        if controls is not None and query.upload is not None:
+            await controls.redraw_views()
+        await redraw_results()
 
     async def run_search() -> None:
-        path = (
-            None if query.token is None else state.queries.path(query.token)
-        )
+        path = None
+        speed = DEFAULT_SPEED
+        if query.upload is not None:
+            controls = editor["controls"]
+            # A cut-off typed but not yet committed would otherwise be left
+            # out of what is searched with. A failure has already said why.
+            if controls is None or not await controls.settle():
+                return
+            # The prepared copy, cut to the cap: it is searched whole.
+            path = query.source
+            speed = float(controls.speed.value or DEFAULT_SPEED)
 
-        query_speed = float(options["speed"].value or DEFAULT_SPEED)
         try:
-            search_filters = _build_filters(filters, query_speed=query_speed)
-            filter_band = FilteredBand.parse(
-                (options["highpass"].value, options["lowpass"].value)
-            )
+            search_filters = _build_filters(filters, query_speed=speed)
         except ValidationError as exc:
             notify_error(t, exc)
             return
-        filter_order = int(options["filter_order"].value or 4)
         top_k = int(options["top_k"].value or state.settings.default_top_k)
 
         if path is None:
@@ -873,7 +666,6 @@ async def render(t: Translator) -> None:
                 ui.notify(t("search.no_query"), type="warning", position="top")
                 return
 
-        start, end = query.segment()
         run_button.disable()
         spinner.set_visibility(True)
         results_area.clear()
@@ -891,11 +683,7 @@ async def render(t: Translator) -> None:
                     metric=options["metric"].value,
                     fusion=options["fusion"].value,
                     min_score=options["min_score"].value,
-                    query_speed=query_speed,
-                    start_time=start,
-                    end_time=end,
-                    filter_band=filter_band,
-                    filter_order=filter_order,
+                    query_speed=speed,
                 )
         except BiotimbreError as exc:
             notify_error(t, exc)

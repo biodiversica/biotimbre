@@ -22,7 +22,7 @@ from nicegui.testing import User  # noqa: E402
 from biotimbre.domain.errors import ValidationError  # noqa: E402
 from biotimbre.domain.item import ItemDraft, LibraryItem  # noqa: E402
 from biotimbre.i18n import LANGUAGE_NAMES, Translator  # noqa: E402
-from biotimbre.ui.admin import AddState  # noqa: E402
+from biotimbre.ui.clip_editor import ClipState  # noqa: E402
 from biotimbre.ui.forms import metadata_form  # noqa: E402
 from biotimbre.ui.state import AppState, get_state, set_state  # noqa: E402
 from conftest import EXAMPLES_DIR  # noqa: E402
@@ -50,9 +50,9 @@ def installed_state(settings, shared_pool):
         set_state(previous)
 
 
-class TestAddState:
+class TestClipState:
     def test_stages_an_upload_and_reads_properties(self, tmp_path):
-        add_state = AddState()
+        add_state = ClipState()
         upload = add_state.replace("GUYVIR.wav", GUYVIR.read_bytes())
         assert upload.path.is_file()
         assert upload.properties.sample_rate == 32_000
@@ -60,13 +60,13 @@ class TestAddState:
         add_state.discard()
 
     def test_rejects_undecodable_bytes_at_upload_time(self):
-        add_state = AddState()
+        add_state = ClipState()
         # Better to fail here than after the user has filled in the whole form.
         with pytest.raises(ValidationError):
             add_state.replace("bad.wav", b"not audio")
 
     def test_replacing_discards_the_previous_file(self):
-        add_state = AddState()
+        add_state = ClipState()
         first = add_state.replace("a.wav", GUYVIR.read_bytes())
         first_path = first.path
         add_state.replace("b.wav", GUYVIR.read_bytes())
@@ -74,7 +74,7 @@ class TestAddState:
         add_state.discard()
 
     def test_discard_removes_the_file(self):
-        add_state = AddState()
+        add_state = ClipState()
         upload = add_state.replace("a.wav", GUYVIR.read_bytes())
         path = upload.path
         add_state.discard()
@@ -82,7 +82,7 @@ class TestAddState:
         assert add_state.upload is None
 
     def test_an_untouched_upload_is_stored_as_it_arrived(self):
-        add_state = AddState()
+        add_state = ClipState()
         upload = add_state.replace("a.wav", GUYVIR.read_bytes())
         # Nothing asked for, nothing rewritten: the file itself is the source.
         assert add_state.apply().duration_s == pytest.approx(5.0)
@@ -103,7 +103,7 @@ class TestAddState:
         path = tmp_path / "stereo.wav"
         sf.write(path, stereo, rate, subtype="FLOAT")
 
-        add_state = AddState()
+        add_state = ClipState()
         add_state.replace("stereo.wav", path.read_bytes())
         # Nothing was asked for, but the library stores mono, so a copy is
         # still what gets added.
@@ -122,7 +122,7 @@ class TestAddState:
         path = tmp_path / "hot.wav"
         sf.write(path, np.full(16_000, 3.0, dtype=np.float32), 16_000, subtype="FLOAT")
 
-        add_state = AddState()
+        add_state = ClipState()
         add_state.replace("hot.wav", path.read_bytes())
         # Mono, whole and unfiltered, but it would clip: a copy is stored.
         add_state.apply()
@@ -142,7 +142,7 @@ class TestAddState:
         path = tmp_path / "half_hot.wav"
         sf.write(path, samples, 16_000, subtype="FLOAT")
 
-        add_state = AddState()
+        add_state = ClipState()
         add_state.replace("half_hot.wav", path.read_bytes())
         add_state.start, add_state.end = 0.0, 1.0
         add_state.apply()
@@ -151,7 +151,7 @@ class TestAddState:
         add_state.discard()
 
     def test_a_chosen_segment_is_cut_before_storing(self):
-        add_state = AddState()
+        add_state = ClipState()
         add_state.replace("a.wav", GUYVIR.read_bytes())
         add_state.start, add_state.end = 1.0, 3.0
 
@@ -168,7 +168,7 @@ class TestAddState:
 
         from biotimbre.embeddings import audio as audio_io
 
-        add_state = AddState()
+        add_state = ClipState()
         add_state.replace("a.wav", GUYVIR.read_bytes())
         add_state.highpass = 4000.0
 
@@ -185,7 +185,7 @@ class TestAddState:
         add_state.discard()
 
     def test_changing_the_choice_replaces_the_copy(self):
-        add_state = AddState()
+        add_state = ClipState()
         add_state.replace("a.wav", GUYVIR.read_bytes())
         add_state.start, add_state.end = 0.0, 2.0
         add_state.apply()
@@ -199,7 +199,7 @@ class TestAddState:
         add_state.discard()
 
     def test_discard_takes_the_processed_copy_with_it(self):
-        add_state = AddState()
+        add_state = ClipState()
         add_state.replace("a.wav", GUYVIR.read_bytes())
         add_state.start, add_state.end = 1.0, 2.0
         add_state.apply()
@@ -212,7 +212,7 @@ class TestAddState:
     def test_only_the_basename_is_used(self):
         # An upload name is attacker-controlled in a public deployment; a path
         # must not escape the staging directory.
-        add_state = AddState()
+        add_state = ClipState()
         upload = add_state.replace("../../escape.wav", GUYVIR.read_bytes())
         assert upload.path.parent == add_state.directory
         assert upload.path.name == "escape.wav"
@@ -757,8 +757,6 @@ class TestAdminPageRenders:
 
     async def test_the_player_follows_the_processed_copy(self, user: User):
         from nicegui.elements.upload_files import SmallFileUpload
-
-        from biotimbre.ui.admin import AddState  # noqa: F401
 
         await user.open("/")
         uploader = next(iter(user.find(marker="upload-audio").elements))

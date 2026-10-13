@@ -67,8 +67,15 @@ anything from the network on its own.
   changed `speed`, since that recomputes embeddings.
 - **Search** — query recording in, ranked matches out. Each result has its own
   player and marks the window that produced its score, plus the per-model
-  breakdown. The query stays playable at the top for A/B comparison. For a file
-  over 15 s, a slider over the spectrogram picks the segment.
+  breakdown. The query stays playable at the top for A/B comparison. The query
+  is prepared with the same controls as the Library page's add form — trim,
+  filter, normalise, speed — and the prepared copy is what is searched with.
+  The selection is capped at 15 s; for a longer file, the slider picks which
+  15 s.
+  A query that turns out to be new can be taken to the Library page with
+  **Add to library…**: the add form opens with the recording and every
+  setting chosen here — and, for a recording fetched from iNaturalist, the
+  observation's metadata — still editable, and nothing is stored until Save.
 
 ### Search-only runs
 
@@ -423,7 +430,8 @@ The Library page's add form works on the recording you upload before it is
 stored: drag over the spectrogram to keep only part of it, and give a highpass
 and/or lowpass cutoff to filter it (Butterworth, zero-phase). A second
 spectrogram shows exactly what will be stored, and the player follows the
-chosen segment.
+chosen segment. The Search page offers the same controls for the query, with
+its selection capped at 15 s.
 
 What the library keeps is the processed audio, so the metadata is filled in to
 match: the segment becomes `sample_window` — where the sample sits in the

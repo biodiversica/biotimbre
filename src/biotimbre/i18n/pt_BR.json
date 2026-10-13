@@ -151,7 +151,9 @@
     "over_range": "O trecho selecionado atinge pico de {peak} ({dbfs} dBFS), acima da escala cheia, então será armazenado normalizado com pico em {target} dBFS.",
     "model_limits": "As linhas tracejadas marcam o limite de frequência de cada modelo; conteúdo acima delas não é visto por esse modelo.",
     "recompute": "Recalcular embeddings",
-    "recomputed": "Embeddings recalculados."
+    "recomputed": "Embeddings recalculados.",
+    "handoff_taken": "Trazida da Ferramenta de busca com suas configurações. Revise-as, preencha os detalhes e salve.",
+    "handoff_gone": "Essa gravação não está mais disponível aqui. Escolha-a novamente."
   },
   "playback": {
     "speed": "Tocando na velocidade {speed}, como os modelos ouvem: a altura muda junto, então ultrassom desacelerado fica audível.",
@@ -218,6 +220,9 @@
     "query_optional": "Opcional: sem uma gravação, os filtros abaixo buscam na biblioteca sozinhos.",
     "segment": "Segmento utilizado na ferramenta de busca",
     "segment_hint": "Arraste para escolher no máximo {seconds} s. O espectrograma mostra o arquivo inteiro, incluindo conteúdo acima da faixa audível.",
+    "filter_hint": "Filtra o áudio de busca antes da comparação (Butterworth). Deixe ambos em branco para buscar sem filtro. No espectrograma, as áreas escurecidas são o que o filtro remove.",
+    "will_search": "O que será usado na busca ({duration} s)",
+    "normalise_help": "Ajusta o áudio de busca para que a amostra mais alta atinja esse nível, aumentando ou diminuindo o volume, depois do corte e do filtro.",
     "segment_of": "{start}–{end} s de {duration} s",
     "run": "Buscar",
     "running": "Buscando…",
@@ -243,11 +248,6 @@
     "fusion": "Combinar modelos por",
     "fusion_max": "melhor modelo",
     "fusion_mean": "média",
-    "highpass": "Corte passa-alta",
-    "lowpass": "Corte passa-baixa",
-    "filter_help": "Filtra o áudio de busca antes da comparação (Butterworth). Deixe ambos vazios para não filtrar.",
-    "filter_order": "Ordem do filtro",
-    "filter_order_help": "Ordem do filtro Butterworth aplicado aos cortes acima.",
     "results": "Resultados",
     "result_count": "{count} correspondência(s)",
     "no_matches": "Nenhuma correspondência. Tente relaxar os filtros.",
@@ -259,17 +259,16 @@
     "distance": "{km} km do centro da busca",
     "indexed_at_speed": "Indexado na velocidade {speed}",
     "query_speed_note": "Correspondência usando a busca calculada na velocidade {speed}.",
-    "play_query": "Busca",
     "min_score": "Pontuação mínima",
     "open_item": "Abrir na biblioteca",
-    "whole_file": "Arquivo inteiro ({duration} s)",
     "needs_segment": "Mais longo que {seconds} s — escolha um trecho para buscar.",
     "over_range": "O trecho selecionado atinge pico de {peak} ({dbfs} dBFS), acima da escala cheia, então é buscado e reproduzido normalizado com pico em {target} dBFS.",
     "no_query": "Escolha uma gravação para buscar, ou defina um filtro para buscar por metadados.",
-    "chosen": "{name} — {duration} s, {rate} Hz",
     "rank": "#",
     "compare_hint": "Reproduza a busca e depois cada resultado para julgar a correspondência de ouvido.",
-    "marker_hint": "A faixa mais clara marca a janela que gerou a pontuação."
+    "marker_hint": "A faixa mais clara marca a janela que gerou a pontuação.",
+    "to_library": "Adicionar à biblioteca…",
+    "to_library_hint": "Ainda não está na biblioteca? Abre o formulário de adição da página Biblioteca com esta gravação e estas configurações, para revisar e salvar."
   },
   "map": {
     "heading": "De onde vêm os resultados",

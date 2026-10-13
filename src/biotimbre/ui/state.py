@@ -192,6 +192,10 @@ class AppState:
         )
         self.models = ModelStatus()
         self.queries = QueryStore()
+        #: Queries handed from the search page to the add form, by the token
+        #: their file is staged under in :attr:`queries`. See
+        #: :func:`biotimbre.ui.clip_editor.hand_over`.
+        self.handoffs: dict[str, Any] = {}
 
         self._connection = None
         self._service: LibraryService | None = None
@@ -408,6 +412,7 @@ class AppState:
         """Release models, staged queries and the database connection."""
         with self._lock:
             self.queries.clear()
+            self.handoffs.clear()
             if self._service is not None:
                 self._service.close()
             self.pool.close()

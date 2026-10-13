@@ -10,44 +10,34 @@ and the button reports progress rather than the page appearing to hang.
 
 from __future__ import annotations
 
-import asyncio
-import math
-import tempfile
-from dataclasses import dataclass, field
-from pathlib import Path
-from uuid import uuid4
-
 from nicegui import app, ui
 
 from biotimbre.domain.errors import BiotimbreError, ValidationError
-from biotimbre.domain.item import MAX_SPEED, MIN_SPEED, LibraryItem
+from biotimbre.domain.item import LibraryItem
 from biotimbre.embeddings import audio as audio_io
 from biotimbre.i18n import Translator
-from biotimbre.models_registry import get_spec
 from biotimbre.sources import inaturalist
 from biotimbre.ui import inat, maps
 from biotimbre.ui.exports import export_button
 from biotimbre.ui.sections import foldable_card
 from biotimbre.ui.sharing import import_card
 from biotimbre.ui.suggestions import library_suggestions
-from biotimbre.ui.forms import _blank_to_none, metadata_form
+from biotimbre.ui.clip_editor import (
+    ACCEPTED,
+    HANDOFF_KEY,
+    LIBRARY_WORDING,
+    ClipControls,
+    ClipState,
+    StagedMedia,
+    Upload,
+    clip_editor,
+    take_over,
+)
+from biotimbre.ui.forms import metadata_form
 from biotimbre.ui.layout import notify_error
-from biotimbre.ui.playback import item_player, play_described, speed_audio
-from biotimbre.ui.spectrograms import BandShade, place_span_marker
+from biotimbre.ui.playback import item_player
 from biotimbre.ui.visuals import audio_view, view_toggle
 from biotimbre.ui.state import get_state
-from biotimbre.viz import render_spectrogram
-
-#: Accepted upload extensions, matching what soundfile can decode.
-ACCEPTED = ".wav,.flac,.ogg,.aiff,.aif,.w64"
-
-#: Butterworth order used when a submission is filtered on the way in. Matches
-#: the search page's default, so a query and a sample are shaped alike.
-DEFAULT_FILTER_ORDER = 4
-
-#: Slack when deciding whether a chosen segment is the whole file. The slider
-#: works in hundredths of a second; a rounding difference is not a cut.
-_SEGMENT_EPSILON = 0.01
 
 #: Spectrogram render size for the detail dialog. Taller than a list thumbnail:
 #: this is the one place a sample is meant to be read, not just recognised. The
@@ -59,241 +49,6 @@ DETAIL_HEIGHT = 360
 #: On-screen height of the detail view, so a waveform and a spectrogram of the
 #: same item occupy the same place in the dialog.
 DETAIL_VIEW_HEIGHT = 290
-
-#: On-screen height of the add form's pictures, matching what a spectrogram
-#: rendered at 860x170 comes out as across the card.
-PREVIEW_VIEW_HEIGHT = 170
-
-
-@dataclass
-class Upload:
-    """The file currently staged for adding.
-
-    Attributes:
-        path: Temporary copy on disk.
-        name: Original filename, shown to the user.
-        properties: Decoded audio properties.
-    """
-
-    path: Path
-    name: str
-    properties: audio_io.AudioProperties
-
-
-@dataclass
-class AddState:
-    """Mutable state of the add form.
-
-    Besides the staged file, this holds what the submitter chose to do to it
-    before it is stored: which segment to keep, and what to filter out. Those
-    are applied to a copy — :meth:`apply` — and it is the copy that is added,
-    so the item's ``sample_window`` and ``filtered_band`` describe the audio
-    the library actually holds.
-
-    A multi-channel submission is rewritten even when nothing was asked for:
-    the library stores mono, so the copy is what makes that true. So is a
-    floating-point one whose selection goes beyond full scale, normalised to
-    peak at -1 dBFS so it neither clips on playback nor skews the embeddings.
-
-    Attributes:
-        upload: The staged file, or ``None``.
-        directory: Staging directory for this form.
-        start: Segment start in seconds within the upload.
-        end: Segment end in seconds. Equal to the upload's duration means
-            "keep it all".
-        highpass: Highpass cutoff to apply, in Hz, or ``None``.
-        lowpass: Lowpass cutoff to apply, in Hz, or ``None``.
-        filter_order: Butterworth order used when a cutoff is set.
-        processed: The prepared copy, or ``None`` when the upload is already
-            what should be stored — mono, whole, unfiltered, within full scale.
-        over_range_peak: The selection's peak when :meth:`apply` found it
-            beyond full scale and normalised it, otherwise ``None``.
-        normalise: Whether to bring the stored copy's peak to -1 dBFS,
-            whatever its level, as asked for on the form.
-        normalised_gain_db: The gain that took, when :meth:`apply` normalised
-            the copy, otherwise ``None``.
-        normalise_note: The line last written into the notes about it, so a
-            later change replaces that line rather than adding another.
-    """
-
-    upload: Upload | None = None
-    directory: Path = field(
-        default_factory=lambda: Path(tempfile.mkdtemp(prefix="biotimbre-upload-"))
-    )
-    start: float = 0.0
-    end: float = 0.0
-    highpass: float | None = None
-    lowpass: float | None = None
-    filter_order: int = DEFAULT_FILTER_ORDER
-    processed: Path | None = None
-    over_range_peak: float | None = None
-    normalise: bool = False
-    normalised_gain_db: float | None = None
-    normalise_note: str | None = None
-
-    @property
-    def duration(self) -> float:
-        """Full duration of the staged upload."""
-        return self.upload.properties.duration_s if self.upload else 0.0
-
-    @property
-    def is_cut(self) -> bool:
-        """Whether the chosen segment is shorter than the upload."""
-        if self.upload is None:
-            return False
-        return (
-            self.start > _SEGMENT_EPSILON
-            or self.end < self.duration - _SEGMENT_EPSILON
-        )
-
-    @property
-    def is_filtered(self) -> bool:
-        """Whether a cutoff has been asked for."""
-        return self.highpass is not None or self.lowpass is not None
-
-    @property
-    def source(self) -> Path | None:
-        """The file that would be stored: the processed copy, or the upload."""
-        if self.processed is not None:
-            return self.processed
-        return self.upload.path if self.upload else None
-
-    def apply(self) -> audio_io.AudioProperties:
-        """Write the cut/filtered copy, and return what it turned out to be.
-
-        Doing the work up front rather than at save time is what lets the form
-        preview exactly what will be stored, and it puts any complaint about an
-        impossible cutoff in front of the submitter while they can still change
-        it.
-
-        Returns:
-            Properties of the file that would be stored.
-
-        Raises:
-            ValidationError: If there is no upload, the segment is empty, or a
-                cutoff is unusable at this sample rate.
-        """
-        if self.upload is None:
-            raise ValidationError("No audio staged.", "audio")
-
-        self.drop_processed()
-        self.normalised_gain_db = None
-        start = self.start if self.is_cut else None
-        end = self.end if self.is_cut else None
-        # Of the selection, not the file: what is kept is what has to be in range.
-        self.over_range_peak = audio_io.over_range_peak(
-            self.upload.path, start_time=start, end_time=end
-        )
-        if (
-            not self.is_cut
-            and not self.is_filtered
-            and self.upload.properties.channels == 1
-            and self.over_range_peak is None
-            and not self.normalise
-        ):
-            return self.upload.properties
-
-        target = self.directory / f"processed_{self.upload.path.name}"
-        properties = audio_io.write_processed(
-            self.upload.path,
-            target,
-            start_time=start,
-            end_time=end,
-            low_hz=self.highpass,
-            high_hz=self.lowpass,
-            order=self.filter_order,
-        )
-        self.processed = target
-        if self.normalise:
-            # Last, on what is stored: the filter has moved the peak.
-            self.normalised_gain_db = audio_io.normalise_file(target)
-        return properties
-
-    def drop_processed(self) -> None:
-        """Delete the processed copy, if one has been written."""
-        if self.processed is not None:
-            self.processed.unlink(missing_ok=True)
-            self.processed = None
-
-    def begin(self, name: str) -> Path:
-        """Discard any previous upload and return where the new one should go.
-
-        Split from :meth:`finish` so the caller can stream the file to disk rather
-        than holding it in memory — a query or sample can be a long recording, and
-        an hour at 96 kHz is hundreds of megabytes.
-
-        Args:
-            name: Original filename. Only its basename is used, so an upload name
-                cannot escape the staging directory.
-
-        Returns:
-            The path to write to.
-        """
-        self.discard()
-        return self.directory / Path(name).name
-
-    def finish(self, path: Path, name: str) -> Upload:
-        """Record a staged file after it has been written.
-
-        Args:
-            path: Where the file was written, from :meth:`begin`.
-            name: Original filename, for display.
-
-        Returns:
-            The staged :class:`Upload`.
-
-        Raises:
-            ValidationError: If the file is not decodable audio.
-        """
-        # Read properties now so an unusable file is rejected at upload time
-        # rather than after the user has filled in the whole form.
-        properties = audio_io.read_properties(path)
-        self.upload = Upload(path=path, name=name, properties=properties)
-        self.start = 0.0
-        self.end = properties.duration_s
-        self.highpass = None
-        self.lowpass = None
-        self.filter_order = DEFAULT_FILTER_ORDER
-        return self.upload
-
-    def replace(self, name: str, data: bytes) -> Upload:
-        """Stage a file from bytes. Convenience for callers holding the content.
-
-        Args:
-            name: Original filename.
-            data: File bytes.
-
-        Returns:
-            The staged :class:`Upload`.
-
-        Raises:
-            ValidationError: If the bytes are not decodable audio.
-        """
-        target = self.begin(name)
-        target.write_bytes(data)
-        return self.finish(target, name)
-
-    def discard(self) -> None:
-        """Delete the staged file and any processed copy of it."""
-        self.drop_processed()
-        if self.upload is not None and self.upload.path.exists():
-            self.upload.path.unlink()
-        self.upload = None
-        self.start = 0.0
-        self.end = 0.0
-        self.over_range_peak = None
-
-
-def _over_range_args(peak: float) -> dict[str, str]:
-    """Translation arguments for a selection normalised from ``peak``.
-
-    Shared by the add form and the search page, which warn in the same words.
-    """
-    return {
-        "peak": f"{peak:.3g}",
-        "dbfs": f"{20.0 * math.log10(peak):+.1f}",
-        "target": f"{audio_io.NORMALISED_PEAK_DBFS:g}",
-    }
 
 
 def _fill_metadata_from(t: Translator, form, observation) -> None:
@@ -338,7 +93,7 @@ def _fill_metadata_from(t: Translator, form, observation) -> None:
         form.inputs["notes"].value = f"{notes}\n{credit}".strip()
 
 
-def _fill_processing_fields(form, add_state: "AddState") -> None:
+def _fill_processing_fields(form, add_state: ClipState) -> None:
     """Describe the processing in the metadata fields it belongs in.
 
     A cut is what ``sample_window`` means — where this sample sits in the
@@ -359,7 +114,7 @@ def _fill_processing_fields(form, add_state: "AddState") -> None:
             form.inputs["filter_type"].value = "Butterworth"
 
 
-def _note_normalisation(t: Translator, form, add_state: "AddState") -> None:
+def _note_normalisation(t: Translator, form, add_state: ClipState) -> None:
     """Keep one line in the notes saying the stored copy was normalised.
 
     Notes are free text the submitter also writes in, so only the line this
@@ -383,32 +138,6 @@ def _note_normalisation(t: Translator, form, add_state: "AddState") -> None:
     updated = "\n".join(lines).strip()
     if updated != notes.strip():
         form.inputs["notes"].value = updated
-
-
-def _nyquist_lines(t: Translator) -> str:
-    """Describe where each model's limit falls, for a spectrogram caption."""
-    limits = ", ".join(
-        f"{model_id} {get_spec(model_id).nyquist_hz / 1000:g} kHz"
-        for model_id in get_state().settings.active_models
-    )
-    return f"{t('admin.model_limits')} ({limits})"
-
-
-def _spectrogram_of(path: Path, *, width: int = 860, height: int = 170) -> str:
-    """Render a staged upload as an inline data URI.
-
-    Inline rather than a route: a staged file has no item ID, and exposing a
-    path-addressable endpoint for arbitrary temp files would undo the property
-    that requests can only name items.
-    """
-    settings = get_state().settings
-    return render_spectrogram(
-        path,
-        width=width,
-        height=height,
-        colors=settings.theme.spectrogram_colors,
-        mark_dominant=settings.dominant_frequency,
-    ).data_uri()
 
 
 def _stat_tile(label: str, value: str) -> None:
@@ -436,29 +165,14 @@ async def _summary_row(t: Translator) -> None:
 def _add_card(t: Translator, on_added) -> None:
     """The add-a-sample form."""
     state = get_state()
-    add_state = AddState()
+    add_state = ClipState()
 
-    #: Route currently serving the staged file, so it can be played before it
-    #: is added. Streamed rather than inlined: a sample can be a long recording,
-    #: and a data URI would carry the whole thing into the page.
-    staged_route: str | None = None
+    #: Publishes the staged file, so it can be played before it is added.
+    media = StagedMedia()
+    #: The editor of the file now staged, for Save to settle first.
+    editor: dict[str, ClipControls | None] = {"controls": None}
 
-    def stop_serving_staged() -> None:
-        nonlocal staged_route
-        if staged_route is not None:
-            app.remove_route(staged_route)
-            staged_route = None
-
-    def serve_staged(path: Path) -> str:
-        """Publish the staged file at a fresh URL and return it."""
-        nonlocal staged_route
-        stop_serving_staged()
-        # A new path each time: the browser caches by URL, and two uploads in
-        # a row can land on the same filename.
-        staged_route = f"/media/staged/{uuid4().hex}"
-        return app.add_media_file(local_file=path, url_path=staged_route)
-
-    with foldable_card("add", t("admin.add_heading")):
+    with foldable_card("add", t("admin.add_heading")) as add_panel:
 
         preview = ui.column().classes("w-full gap-1")
 
@@ -476,24 +190,12 @@ def _add_card(t: Translator, on_added) -> None:
             was reloading the page.
             """
             add_state.discard()
-            stop_serving_staged()
+            media.stop()
             uploader.reset()
             results.clear()
             show_no_file()
 
         show_no_file()
-
-        #: The player of the file now staged, and its caption, for the Speed
-        #: field to steer. One field outlives many uploads, so it is listened
-        #: to once and told which player is current, not once per upload.
-        listening: dict[str, ui.element | None] = {"player": None, "note": None}
-
-        def follow_speed() -> None:
-            """Play the staged file at the speed it will be embedded at."""
-            player, note = listening["player"], listening["note"]
-            if player is None or player.is_deleted:
-                return
-            play_described(t, player, note, form.speed)
 
         async def handle_upload(event) -> None:
             # event.file is a NiceGUI FileUpload: .name plus async read()/save().
@@ -522,287 +224,25 @@ def _add_card(t: Translator, on_added) -> None:
             elsewhere arrives at exactly the same form: whatever staged it,
             what follows is one path.
             """
-            props = upload.properties
             preview.clear()
             with preview:
-                with ui.row().classes("items-center gap-2"):
-                    ui.label(
-                        t(
-                            "admin.file_chosen",
-                            name=upload.name,
-                            duration=f"{props.duration_s:.2f}",
-                            rate=props.sample_rate,
-                            channels=props.channels,
-                        )
-                    ).classes("text-sm")
-                    ui.button(
-                        t("common.clear_file"), icon="close", on_click=clear_file
-                    ).props("flat dense no-caps color=negative")
-                # Follows the Speed field below, so it is heard as embedded.
-                player = speed_audio(serve_staged(upload.path)).classes(
-                    "w-full shrink-0"
+
+                def applied(clip: ClipState) -> None:
+                    _fill_processing_fields(form, clip)
+                    _note_normalisation(t, form, clip)
+
+                editor["controls"] = None
+                await clip_editor(
+                    t,
+                    add_state,
+                    upload,
+                    media=media,
+                    wording=LIBRARY_WORDING,
+                    on_clear=clear_file,
+                    bind_speed=form.inputs["speed"],
+                    on_applied=applied,
+                    on_ready=lambda controls: editor.update(controls=controls),
                 )
-                playback_note = ui.label().classes("text-xs text-muted")
-                listening["player"] = player
-                listening["note"] = playback_note
-                player.on("loadedmetadata", lambda _: follow_speed())
-                # What the player is currently serving, so a redraw that
-                # changes nothing does not retire a URL the browser is using.
-                published = {"path": upload.path}
-                try:
-                    uri = await state.run(_spectrogram_of, upload.path)
-                except BiotimbreError as exc:
-                    notify_error(t, exc)
-                    return
-
-                with ui.row().classes("items-center justify-between w-full"):
-                    span_label = ui.label().classes("text-xs text-muted")
-                    view_toggle(t, lambda: redraw_views())
-                source_view = ui.column().classes("w-full gap-0")
-                marker: ui.element | None = None
-                # Shows what the high- and low-pass will take away, on the
-                # picture of what was submitted — the stored preview below
-                # shows the result, this shows the decision.
-                shade = BandShade()
-
-                async def draw_source_view() -> None:
-                    """Picture the upload, in whichever view is preferred."""
-                    nonlocal marker
-                    source_view.clear()
-                    with source_view:
-                        marker = await audio_view(
-                            spectrogram_url=uri,
-                            audio_path=upload.path,
-                            start=0.0,
-                            end=props.duration_s,
-                            span=(add_state.start, add_state.end)
-                            if add_state.is_cut
-                            else None,
-                            height=PREVIEW_VIEW_HEIGHT,
-                            sample_rate=props.sample_rate,
-                            band_shade=shade,
-                        )
-
-                async def redraw_views() -> None:
-                    """Both pictures follow the chosen view, not just one."""
-                    await draw_source_view()
-                    describe_span()
-                    await restage()
-
-                await draw_source_view()
-                ui.label(_nyquist_lines(t)).classes("text-xs text-muted")
-
-                ui.label(t("admin.trim_hint")).classes("text-xs text-muted")
-                picker = ui.range(
-                    min=0.0,
-                    max=round(props.duration_s, 2),
-                    step=0.01,
-                    value={"min": 0.0, "max": round(props.duration_s, 2)},
-                ).classes("w-full")
-
-                with ui.row().classes("w-full gap-3 items-start"):
-                    # The form's own Speed field, offered here as well: it is
-                    # decided while listening, beside the filters, not later
-                    # among the metadata. Bound both ways, so it is one value
-                    # wherever it is typed, and the player follows either.
-                    ui.number(
-                        t("field.speed"),
-                        step=0.05,
-                        min=MIN_SPEED,
-                        max=MAX_SPEED,
-                    ).props("dense outlined").classes("grow").tooltip(
-                        t("field.speed_help")
-                    ).bind_value(form.inputs["speed"]).mark("apply-speed")
-                    # Marked because the metadata form below carries inputs
-                    # of the same name, recording a filter applied elsewhere.
-                    highpass = ui.number(
-                        t("field.highpass"), value=None, step=100,
-                        suffix=t("common.hertz"),
-                    ).props("dense outlined").classes("grow").mark("apply-highpass")
-                    lowpass = ui.number(
-                        t("field.lowpass"), value=None, step=100,
-                        suffix=t("common.hertz"),
-                    ).props("dense outlined").classes("grow")
-                    order = ui.number(
-                        t("field.filter_order"),
-                        value=DEFAULT_FILTER_ORDER, step=1, min=1,
-                    ).props("dense outlined").classes("grow")
-                    normalise = ui.checkbox(
-                        t("admin.normalise", target=f"{audio_io.NORMALISED_PEAK_DBFS:g}")
-                    ).props("dense").classes("self-center").tooltip(
-                        t("admin.normalise_help")
-                    ).mark("apply-normalise")
-                ui.label(t("admin.filter_hint")).classes("text-xs text-muted")
-
-                def shade_band() -> None:
-                    """Dim what the cut-offs remove, as they are typed.
-
-                    On every keystroke rather than on change: it only restyles
-                    two overlays, and seeing the line move while typing is the
-                    point of drawing it.
-                    """
-                    shade.place(
-                        _blank_to_none(highpass.value), _blank_to_none(lowpass.value)
-                    )
-
-                highpass.on_value_change(shade_band)
-                lowpass.on_value_change(shade_band)
-
-                stored = ui.column().classes("w-full gap-1")
-
-                def describe_span() -> None:
-                    """Say where the segment sits, and mark it on the image.
-
-                    Called on every step of a drag, so it does nothing but move
-                    a marker and rewrite a label: publishing the audio here
-                    retired and re-registered a route per step, which left the
-                    browser fetching URLs that had just stopped existing.
-                    """
-                    span_label.set_text(
-                        t(
-                            "admin.segment_of",
-                            start=f"{add_state.start:.2f}",
-                            end=f"{add_state.end:.2f}",
-                            duration=f"{add_state.duration:.2f}",
-                        )
-                    )
-                    # Rebuilt whenever the view changes, so never assume one.
-                    if marker is not None:
-                        place_span_marker(
-                            marker,
-                            (add_state.start, add_state.end)
-                            if add_state.is_cut
-                            else None,
-                            0.0,
-                            add_state.duration,
-                        )
-
-                def superseded() -> bool:
-                    """Whether this file has been removed or replaced since.
-
-                    "Remove file" can be clicked while a restage is still
-                    decoding; carrying on would serve a file that is gone and
-                    draw into a preview that has been cleared.
-                    """
-                    return add_state.upload is not upload
-
-                async def _restage_once() -> None:
-                    """Re-apply the choice and show what would be stored."""
-                    if superseded():
-                        return
-                    add_state.highpass = _blank_to_none(highpass.value)
-                    add_state.lowpass = _blank_to_none(lowpass.value)
-                    add_state.filter_order = int(order.value or DEFAULT_FILTER_ORDER)
-                    add_state.normalise = bool(normalise.value)
-                    stored.clear()
-                    try:
-                        result = await state.run(add_state.apply)
-                    except BiotimbreError as exc:
-                        if not superseded():
-                            notify_error(t, exc)
-                        return
-                    if superseded():
-                        return
-                    _fill_processing_fields(form, add_state)
-                    _note_normalisation(t, form, add_state)
-                    # The player plays the copy itself, so what is heard is the
-                    # cut, the filter *and* the downmix — a media fragment
-                    # could only ever convey the cut.
-                    # A rewritten copy keeps its path, so the path alone
-                    # cannot say whether the audio changed: republish whenever
-                    # there is a copy, and the fresh URL gets past the cache.
-                    # Only an untouched upload, already published, is left be.
-                    if add_state.processed is not None or (
-                        published["path"] != add_state.source
-                    ):
-                        published["path"] = add_state.source
-                        player.set_source(serve_staged(add_state.source))
-                    if add_state.processed is None:
-                        return
-                    # Only when there is a difference to show: an untouched
-                    # submission is already pictured above.
-                    with stored:
-                        if add_state.over_range_peak is not None:
-                            ui.label(
-                                t(
-                                    "admin.over_range",
-                                    **_over_range_args(add_state.over_range_peak),
-                                )
-                            ).classes("text-xs text-notice")
-                        ui.label(
-                            t(
-                                "admin.will_store",
-                                duration=f"{result.duration_s:.2f}",
-                            )
-                        ).classes("text-xs text-muted")
-                        try:
-                            stored_uri = await state.run(
-                                _spectrogram_of, add_state.processed
-                            )
-                        except BiotimbreError as exc:
-                            notify_error(t, exc)
-                            return
-                        await audio_view(
-                            spectrogram_url=stored_uri,
-                            audio_path=add_state.processed,
-                            start=0.0,
-                            end=result.duration_s,
-                            span=None,
-                            height=PREVIEW_VIEW_HEIGHT,
-                            sample_rate=result.sample_rate,
-                        )
-
-                # Each run unlinks the previous copy and rewrites one at a
-                # fixed path, so two overlapping runs would have one deleting
-                # the file the other is still writing. Serialised, and a run a
-                # newer choice has already overtaken is dropped rather than
-                # spending a decode on a preview nobody will see.
-                staging = {"latest": 0}
-                staging_lock = asyncio.Lock()
-
-                async def restage() -> None:
-                    """Re-apply the choice, where the newest choice wins."""
-                    staging["latest"] += 1
-                    mine = staging["latest"]
-                    async with staging_lock:
-                        if mine == staging["latest"]:
-                            await _restage_once()
-
-                def on_span(event) -> None:
-                    add_state.start = float(event.value["min"])
-                    add_state.end = float(event.value["max"])
-                    describe_span()
-
-                async def on_span_settled(event) -> None:
-                    # The settled value comes from the event, not from what the
-                    # drag has managed to report so far: the two arrive
-                    # separately, and cutting to a stale span was a real bug.
-                    span = event.args
-                    if isinstance(span, dict) and "min" in span:
-                        add_state.start = float(span["min"])
-                        add_state.end = float(span["max"])
-                        describe_span()
-                    await restage()
-
-                picker.on_value_change(on_span)
-                # Cutting and filtering are done on the settled value: each one
-                # decodes and rewrites the segment, which is not something to
-                # do on every step of a drag.
-                picker.on("change", on_span_settled)
-                for element in (highpass, lowpass, order):
-                    element.on("change", lambda _: restage())
-                normalise.on_value_change(lambda _: restage())
-
-                # Wired up and labelled before the first restage rather than
-                # after it: the picker is on the page as soon as it is built,
-                # and a drag landing during that first decode used to reach an
-                # unwired picker and be dropped with nothing to show for it.
-                describe_span()
-
-                # Once up front: a stereo submission is already destined for a
-                # mono copy, and the preview should be of that copy rather than
-                # of something the library will not keep.
-                await restage()
 
         def handle_rejected(_event) -> None:
             """Report a file the browser refused, e.g. wrong type or too large."""
@@ -840,7 +280,6 @@ def _add_card(t: Translator, on_added) -> None:
             )
 
         form = metadata_form(t, map_picker=maps.enabled(), suggest=library_suggestions)
-        form.inputs["speed"].on_value_change(lambda _: follow_speed())
         results = ui.column().classes("w-full gap-1")
 
         async def save() -> None:
@@ -848,6 +287,11 @@ def _add_card(t: Translator, on_added) -> None:
             results.clear()
             if add_state.upload is None:
                 ui.notify(t("error.no_audio"), type="warning", position="top")
+                return
+            # A cut-off typed but not yet committed would otherwise be left
+            # out of what is stored.
+            controls = editor["controls"]
+            if controls is not None and not await controls.settle():
                 return
 
             try:
@@ -895,7 +339,7 @@ def _add_card(t: Translator, on_added) -> None:
             with results:
                 _ingest_report(t, result)
             add_state.discard()
-            stop_serving_staged()
+            media.stop()
             uploader.reset()
             show_no_file()
             on_added()
@@ -909,6 +353,44 @@ def _add_card(t: Translator, on_added) -> None:
                 ui.spinner(size="1.2rem")
                 ui.label(t("admin.adding")).classes("text-sm text-muted")
             spinner.set_visibility(False)
+
+        async def adopt(token: str) -> None:
+            """Stage a query brought over from the search page.
+
+            Staged, not added: the form opens with the recording prepared as
+            it was searched with, every choice still open to change, and the
+            metadata still to give before Save.
+            """
+            add_panel.value = True
+            results.clear()
+            try:
+                taken = await take_over(token, add_state)
+            except BiotimbreError as exc:
+                notify_error(t, exc)
+                return
+            if taken is None:
+                ui.notify(t("admin.handoff_gone"), type="warning", position="top")
+                return
+            upload, handoff = taken
+            form.inputs["speed"].value = handoff.speed
+            if handoff.observation is not None:
+                _fill_metadata_from(t, form, handoff.observation)
+            ui.notify(t("admin.handoff_taken"), type="info", position="top")
+            await show_staged(upload)
+
+        token = _pending_handoff()
+        if token is not None:
+            # After the page is up, rather than holding it back while the
+            # recording is decoded and pictured.
+            ui.timer(0, lambda: adopt(token), once=True)
+
+
+def _pending_handoff() -> str | None:
+    """The query the search page left for the add form, taken once."""
+    try:
+        return app.storage.user.pop(HANDOFF_KEY, None)
+    except RuntimeError:
+        return None
 
 
 def _ingest_report(t: Translator, result) -> None:

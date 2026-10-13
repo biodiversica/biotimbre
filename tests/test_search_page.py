@@ -10,6 +10,7 @@ pytest.importorskip("nicegui", reason="needs the 'gui' extra")
 
 from fastapi import FastAPI  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
+from nicegui import app as nicegui_app  # noqa: E402
 from nicegui import ui  # noqa: E402
 from nicegui.testing import User  # noqa: E402
 
@@ -17,7 +18,6 @@ from biotimbre.i18n import Translator  # noqa: E402
 from biotimbre.ui import maps, routes  # noqa: E402
 from biotimbre.ui.search import (  # noqa: E402
     OBSERVATION_RADIUS_KM,
-    QueryState,
     _build_filters,
     _filters_panel,
 )
@@ -104,39 +104,6 @@ class TestQueryStore:
         path = store.path(token)
         store.clear()
         assert not path.exists()
-
-
-class TestQueryStateSegment:
-    def _state(self, path, installed_state) -> QueryState:
-        from biotimbre.embeddings.audio import read_properties
-
-        query = QueryState()
-        query.properties = read_properties(path)
-        cap = installed_state.settings.max_query_duration_s
-        query.start = 0.0
-        query.end = min(query.properties.duration_s, cap)
-        return query
-
-    def test_short_file_is_searched_whole(self, installed_state):
-        query = self._state(GUYVIR, installed_state)
-        assert query.needs_segment is False
-        # None/None keeps behaviour and the cache key identical to the CLI.
-        assert query.segment() == (None, None)
-
-    def test_long_file_requires_a_segment(self, installed_state, long_wav):
-        query = self._state(long_wav, installed_state)
-        assert query.needs_segment is True
-        start, end = query.segment()
-        assert (start, end) == (0.0, 15.0)
-
-    def test_segment_defaults_to_the_cap(self, installed_state, long_wav):
-        query = self._state(long_wav, installed_state)
-        assert query.end - query.start == pytest.approx(15.0)
-
-    def test_moved_segment_is_reported(self, installed_state, long_wav):
-        query = self._state(long_wav, installed_state)
-        query.start, query.end = 20.0, 32.0
-        assert query.segment() == (20.0, 32.0)
 
 
 @pytest.mark.usefixtures("installed_state")
@@ -354,12 +321,21 @@ class TestSearchPageRenders:
         await user.should_see("Filters")
         await user.should_see("Options")
 
-    async def test_shows_the_dsp_filter_controls(self, user: User):
+    async def test_shows_the_dsp_filter_controls_with_the_query(self, user: User):
+        from nicegui.elements.upload_files import SmallFileUpload
+
         await user.open("/search")
-        await user.should_see("Query speed")
+        # They shape the query, so they arrive with it, as on the library page.
+        await user.should_not_see("Highpass cutoff")
+        uploader = next(iter(user.find(ui.upload).elements))
+        await uploader.handle_uploads(
+            [SmallFileUpload("GUYVIR.wav", "audio/wav", GUYVIR.read_bytes())]
+        )
+        await user.should_see("Query speed", retries=60)
         await user.should_see("Highpass cutoff")
         await user.should_see("Lowpass cutoff")
         await user.should_see("Filter order")
+        await user.should_see("Normalise to -1 dBFS")
 
     async def test_translates_to_portuguese(self, user: User):
         installed = get_state()
@@ -391,16 +367,18 @@ class TestQueryRemoval:
         await user.should_see("GUYVIR.wav")
         await user.should_see("Remove file")
         staged = next(iter(user.find(ui.audio).elements))._props["src"]
-        token = staged.split("/media/query/")[1].split("/")[0]
-        assert installed_state.queries.path(token) is not None
+        assert staged.startswith("/media/staged/")
 
         user.find("Remove file").click()
 
-        # Gone from the page and from the staging directory, not merely hidden.
-        # The filename is the thing that disappears; the uploader's own label
-        # says "Choose a recording" whether or not one is staged.
+        # Gone from the page and no longer served, not merely hidden. The
+        # filename is the thing that disappears; the uploader's own label says
+        # "Choose a recording" whether or not one is staged.
         await user.should_not_see("GUYVIR.wav", retries=60)
-        assert installed_state.queries.path(token) is None
+        assert not any(
+            getattr(route, "path", None) == staged
+            for route in nicegui_app.routes
+        )
         # find() insists on a match, so absence is read off the live registry.
         assert not [
             element
@@ -423,17 +401,20 @@ class TestSegmentPicker:
             [SmallFileUpload(path.name, "audio/wav", path.read_bytes())]
         )
         await user.should_see(path.name)
+        # The controls arrive with the spectrogram, a moment after the name.
+        await user.should_see("Query speed", retries=60)
 
     async def test_moving_the_span_keeps_the_same_spectrogram_element(
         self, user: User, installed_state, long_wav
     ):
         await self._stage(user, long_wav)
+        await user.should_see("What will be searched with (15.00 s)", retries=60)
 
         image = next(iter(user.find(ui.image).elements))
         marker = next(
             element
             for element in user.client.elements.values()
-            if "pointer-events-none" in element._classes
+            if "border-x-2" in element._classes
         )
         before = marker._style.get("left")
 
@@ -446,19 +427,22 @@ class TestSegmentPicker:
         assert marker._style.get("left") != before
         assert marker._style["left"] == "15.00%"
 
-    async def test_the_player_is_limited_to_the_chosen_window(
+    async def test_the_player_plays_the_chosen_window(
         self, user: User, installed_state, long_wav
     ):
         await self._stage(user, long_wav)
-
+        # Cut to the cap at once: the whole file is never what is searched.
+        await user.should_see("What will be searched with (15.00 s)", retries=60)
         player = next(iter(user.find(ui.audio).elements))
-        assert player._props["src"].endswith("#t=0.00,15.00")
+        first = player._props["src"]
 
         picker = next(iter(user.find(ui.range).elements))
         picker.value = {"min": 6.0, "max": 18.0}
-        # The source follows the settled drag, not every step of it.
-        user.find(ui.range).trigger("change")
-        assert player._props["src"].endswith("#t=6.00,18.00")
+        # The copy follows the settled drag, not every step of it, and the
+        # player follows the copy.
+        user.find(ui.range).trigger("change", args={"min": 6.0, "max": 18.0})
+        await user.should_see("What will be searched with (12.00 s)", retries=60)
+        assert player._props["src"] != first
 
     async def test_the_player_follows_the_query_speed(
         self, user: User, installed_state, long_wav
@@ -501,9 +485,9 @@ class TestSegmentPicker:
         sf.write(hot, samples * 10, rate, subtype="FLOAT")
         await self._stage(user, hot)
 
-        await user.should_see("beyond full scale")
-        player = next(iter(user.find(ui.audio).elements))
-        assert player._props["src"].endswith("/normalised")
+        await user.should_see("beyond full scale", retries=60)
+        # What is played is the prepared copy, normalised, not the file.
+        await user.should_see("What will be searched with", retries=60)
 
     async def test_a_selection_within_full_scale_is_not_flagged(
         self, user: User, installed_state, long_wav
@@ -516,6 +500,137 @@ class TestSegmentPicker:
 
         player = next(iter(user.find(ui.audio).elements))
         assert "#t=" not in player._props["src"]
+
+
+@pytest.mark.usefixtures("installed_state")
+class TestSearchesWhatIsHeard:
+    """The query is searched as the editor prepared it, not as it was chosen."""
+
+    @staticmethod
+    async def _stage_and_capture(user: User, installed_state, monkeypatch, path):
+        from nicegui.elements.upload_files import SmallFileUpload
+
+        calls: list[dict] = []
+
+        def fake_search(audio_path, **kwargs):
+            import soundfile as sf
+
+            calls.append(
+                {"path": audio_path, "info": sf.info(str(audio_path)), **kwargs}
+            )
+            return []
+
+        monkeypatch.setattr(installed_state.service, "search", fake_search)
+        await user.open("/search")
+        await user.should_see("Query recording")
+        uploader = next(iter(user.find(ui.upload).elements))
+        await uploader.handle_uploads(
+            [SmallFileUpload(path.name, "audio/wav", path.read_bytes())]
+        )
+        await user.should_see(path.name)
+        return calls
+
+    @staticmethod
+    def _run_search(user: User) -> None:
+        TestMetadataOnlySearch._run_search(user)
+
+    async def test_a_long_recording_is_searched_as_the_cut(
+        self, user: User, installed_state, monkeypatch, long_wav
+    ):
+        calls = await self._stage_and_capture(
+            user, installed_state, monkeypatch, long_wav
+        )
+        await user.should_see("What will be searched with (15.00 s)", retries=60)
+        self._run_search(user)
+        await user.should_see("No matches", retries=200)
+
+        (call,) = calls
+        # The prepared copy, whole: no segment or filter left to apply.
+        assert call["path"] != long_wav
+        assert call["info"].duration == pytest.approx(15.0, abs=0.01)
+        assert "start_time" not in call and "filter_band" not in call
+
+    async def test_a_cut_off_still_being_typed_is_applied_first(
+        self, user: User, installed_state, monkeypatch
+    ):
+        calls = await self._stage_and_capture(
+            user, installed_state, monkeypatch, GUYVIR
+        )
+        await user.should_see("0.00–5.00 s of 5.00 s", retries=60)
+        # Typed, but never committed with a change event.
+        highpass = next(iter(user.find(marker="apply-highpass").elements))
+        highpass.value = 2000
+        speed = next(iter(user.find(marker="apply-speed").elements))
+        speed.value = 0.5
+        self._run_search(user)
+        await user.should_see("No matches", retries=200)
+
+        (call,) = calls
+        assert call["path"] != GUYVIR
+        assert call["query_speed"] == 0.5
+        await user.should_see("What will be searched with (5.00 s)")
+
+
+@pytest.mark.usefixtures("installed_state")
+class TestTakingAQueryToTheLibrary:
+    """A query found to be new, brought to the add form as it was searched."""
+
+    @staticmethod
+    def _click(user: User, marker: str) -> None:
+        from nicegui.testing.user_interaction import UserInteraction
+
+        UserInteraction(user, set(user.find(marker=marker).elements), None).click()
+
+    @staticmethod
+    def _field(user: User, marker: str):
+        return next(iter(user.find(marker=marker).elements))
+
+    async def test_the_settings_arrive_in_the_add_form(
+        self, user: User, installed_state, long_wav
+    ):
+        await TestSegmentPicker._stage(user, long_wav)
+        await user.should_see("What will be searched with (15.00 s)", retries=60)
+
+        picker = next(iter(user.find(ui.range).elements))
+        picker.value = {"min": 6.0, "max": 18.0}
+        user.find(ui.range).trigger("change", args={"min": 6.0, "max": 18.0})
+        await user.should_see("What will be searched with (12.00 s)", retries=60)
+        # Typed and not committed: carried over all the same.
+        self._field(user, "apply-highpass").value = 2000
+        self._field(user, "apply-speed").value = 0.5
+
+        self._click(user, "to-library")
+
+        await user.should_see("Brought over from Search", retries=200)
+        await user.should_see("Keeping 6.00–18.00 s of 40.00 s", retries=60)
+        await user.should_see("What will be stored (12.00 s)", retries=60)
+        assert self._field(user, "apply-highpass").value == 2000
+        assert self._field(user, "apply-speed").value == 0.5
+        assert self._field(user, "apply-normalise").value is False
+        # Staged, not added: the metadata and Save are still to come.
+        assert installed_state.call(installed_state.service.stats)["items"] == 0
+        # The staged copy was taken, not left behind.
+        assert not installed_state.handoffs
+
+    async def test_an_unknown_handoff_is_nothing_to_take(self, installed_state):
+        from biotimbre.ui.clip_editor import ClipState, take_over
+
+        clip = ClipState()
+        assert await take_over("bogus", clip) is None
+        assert clip.upload is None
+
+    async def test_an_evicted_file_is_nothing_to_take(self, installed_state):
+        from biotimbre.ui.clip_editor import ClipState, hand_over, take_over
+
+        source = ClipState()
+        target = source.begin("GUYVIR.wav")
+        target.write_bytes(GUYVIR.read_bytes())
+        source.finish(target, "GUYVIR.wav")
+        token = await hand_over(source, speed=1.0)
+        installed_state.queries.discard(token)
+
+        assert await take_over(token, ClipState()) is None
+        assert token not in installed_state.handoffs
 
 
 class TestMetadataOnlySearch:
@@ -755,7 +870,7 @@ class TestObservationFetch:
 
         # Staged like any other query, so the rest of the page is unchanged.
         player = next(iter(user.find(ui.audio).elements))
-        assert "/media/query/" in player._props["src"]
+        assert "/media/staged/" in player._props["src"]
 
     async def test_what_the_observation_knows_fills_the_filters(
         self, user: User, installed_state, monkeypatch
@@ -789,6 +904,26 @@ class TestObservationFetch:
             if element.text == "Filters"
         )
         assert panel.value is True
+
+    async def test_taken_to_the_library_it_brings_the_metadata(
+        self, user: User, installed_state, monkeypatch
+    ):
+        from nicegui.testing.user_interaction import UserInteraction
+
+        observation = await self._fetch(user, monkeypatch)
+        await user.should_see(f"inat-{observation.id}.wav", retries=200)
+        await user.should_see("Query speed", retries=60)
+        UserInteraction(
+            user, set(user.find(marker="to-library").elements), None
+        ).click()
+
+        await user.should_see("Brought over from Search", retries=200)
+        link = next(
+            element
+            for element in user.find(ui.input).elements
+            if element._props.get("label") == "Link to full recording"
+        )
+        assert link.value == observation.url
 
     async def test_it_says_what_to_know_before_trusting_it(
         self, user: User, installed_state, monkeypatch

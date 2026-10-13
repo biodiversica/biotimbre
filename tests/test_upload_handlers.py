@@ -22,7 +22,7 @@ pytest.importorskip("nicegui", reason="needs the 'gui' extra")
 
 from nicegui.elements.upload_files import FileUpload  # noqa: E402
 
-from biotimbre.ui.admin import AddState  # noqa: E402
+from biotimbre.ui.clip_editor import ClipState  # noqa: E402
 from biotimbre.ui.state import QueryStore  # noqa: E402
 from conftest import EXAMPLES_DIR  # noqa: E402
 
@@ -80,9 +80,9 @@ class TestContractHolds:
         assert await upload.read() == GUYVIR.read_bytes()
 
 
-class TestAddStateStreaming:
+class TestClipStateStreaming:
     async def test_begin_then_save_then_finish(self):
-        add_state = AddState()
+        add_state = ClipState()
         upload = StubFileUpload("GUYVIR.wav", GUYVIR.read_bytes())
 
         target = add_state.begin(upload.name)
@@ -95,7 +95,7 @@ class TestAddStateStreaming:
         add_state.discard()
 
     async def test_begin_discards_the_previous_upload(self):
-        add_state = AddState()
+        add_state = ClipState()
         first = add_state.begin("a.wav")
         await StubFileUpload("a.wav", GUYVIR.read_bytes()).save(first)
         add_state.finish(first, "a.wav")
@@ -109,7 +109,7 @@ class TestAddStateStreaming:
         add_state.discard()
 
     async def test_undecodable_upload_is_rejected_at_finish(self):
-        add_state = AddState()
+        add_state = ClipState()
         upload = StubFileUpload("bad.wav", b"not audio")
         target = add_state.begin(upload.name)
         await upload.save(target)
@@ -121,13 +121,13 @@ class TestAddStateStreaming:
         assert add_state.upload is None
 
     async def test_begin_uses_the_basename_only(self):
-        add_state = AddState()
+        add_state = ClipState()
         target = add_state.begin("../../escape.wav")
         assert target.parent == add_state.directory
         assert target.name == "escape.wav"
 
     def test_replace_still_works_for_byte_callers(self):
-        add_state = AddState()
+        add_state = ClipState()
         staged = add_state.replace("GUYVIR.wav", GUYVIR.read_bytes())
         assert staged.properties.duration_s == pytest.approx(5.0)
         add_state.discard()

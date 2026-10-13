@@ -151,7 +151,9 @@
     "over_range": "The selection peaks at {peak} ({dbfs} dBFS), beyond full scale, so it will be stored normalised to peak at {target} dBFS.",
     "model_limits": "Dashed lines mark each model's frequency limit; content above them is not seen by that model.",
     "recompute": "Recompute embeddings",
-    "recomputed": "Embeddings recomputed."
+    "recomputed": "Embeddings recomputed.",
+    "handoff_taken": "Brought over from Search with its settings. Review them, fill in the details, and save.",
+    "handoff_gone": "That recording is no longer available here. Choose it again."
   },
   "playback": {
     "speed": "Playing at speed {speed}, as the models hear it: pitch shifts with it, so ultrasound slowed down becomes audible.",
@@ -218,6 +220,9 @@
     "query_optional": "Optional: with no recording, the filters below search the library on their own.",
     "segment": "Segment to search",
     "segment_hint": "Drag to choose at most {seconds} s. The spectrogram shows the whole file, including any content above hearing range.",
+    "filter_hint": "Filters the query before it is searched with (Butterworth). Leave both blank to search unfiltered. On the spectrogram, the dimmed areas are what the filter removes.",
+    "will_search": "What will be searched with ({duration} s)",
+    "normalise_help": "Scales the query so its loudest sample peaks at this level, louder or quieter, after the cut and the filter.",
     "segment_of": "{start}–{end} s of {duration} s",
     "run": "Search",
     "running": "Searching…",
@@ -243,11 +248,6 @@
     "fusion": "Combine models by",
     "fusion_max": "best model",
     "fusion_mean": "average",
-    "highpass": "Highpass cutoff",
-    "lowpass": "Lowpass cutoff",
-    "filter_help": "Filter the query audio before matching (Butterworth). Leave both blank for no filtering.",
-    "filter_order": "Filter order",
-    "filter_order_help": "Order of the Butterworth filter applied to the cutoffs above.",
     "results": "Results",
     "result_count": "{count} match(es)",
     "no_matches": "No matches. Try relaxing the filters.",
@@ -259,17 +259,16 @@
     "distance": "{km} km from the search centre",
     "indexed_at_speed": "Indexed at speed {speed}",
     "query_speed_note": "Matched using the query embedded at speed {speed}.",
-    "play_query": "Query",
     "min_score": "Minimum score",
     "open_item": "Open in library",
-    "whole_file": "Whole file ({duration} s)",
     "needs_segment": "Longer than {seconds} s — choose a segment to search with.",
     "over_range": "The selection peaks at {peak} ({dbfs} dBFS), beyond full scale, so it is searched and played normalised to peak at {target} dBFS.",
     "no_query": "Choose a recording to search with, or set a filter to search by metadata.",
-    "chosen": "{name} — {duration} s, {rate} Hz",
     "rank": "#",
     "compare_hint": "Play the query, then each result, to judge the match by ear.",
-    "marker_hint": "The lighter band marks the window that produced the score."
+    "marker_hint": "The lighter band marks the window that produced the score.",
+    "to_library": "Add to library…",
+    "to_library_hint": "Not in the library yet? Opens the Library page's add form with this recording and these settings, to review and save."
   },
   "map": {
     "heading": "Where the results are from",
