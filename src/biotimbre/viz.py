@@ -55,6 +55,19 @@ DEFAULT_SPECTROGRAM_COLORS = (
     "#fff4c8",
 )
 
+#: Colour of the dominant-frequency line. Cyan sits outside the default ramp,
+#: so the line stays visible even where it crosses the loudest (palest) bins —
+#: which, being the dominant frequency, it always does.
+DOMINANT_LINE_COLOR = "#00e5ff"
+
+#: Dash pattern of the dominant-frequency line, in pixels on and off. Dashed so
+#: the call it marks still shows through between the dashes.
+DOMINANT_LINE_DASH = (6, 4)
+
+#: Size, in pixels, of the dominant frequency's label — the same as the
+#: frequency axis laid over the image's left edge, so the two read as one set.
+DOMINANT_LABEL_SIZE = 10
+
 
 def _hex_to_rgb(color: str) -> tuple[int, int, int]:
     """Parse a ``#rrggbb`` string into an ``(r, g, b)`` tuple.
@@ -216,6 +229,8 @@ class Spectrogram:
         end_time: Seconds into the file at the right edge.
         max_frequency: Frequency at the top edge, in Hz (the file's Nyquist).
         sample_rate: Native sample rate of the source audio.
+        dominant_frequency: Frequency carrying the most energy over the span,
+            in Hz. See :func:`_dominant_frequency`.
     """
 
     png: bytes
@@ -225,6 +240,7 @@ class Spectrogram:
     end_time: float
     max_frequency: float
     sample_rate: int
+    dominant_frequency: float = 0.0
 
     @property
     def duration(self) -> float:
@@ -278,7 +294,7 @@ def _nfft_for(sample_rate: int) -> int:
 
 def _magnitude_db(
     samples: np.ndarray, sample_rate: int, width: int, height: int
-) -> np.ndarray:
+) -> tuple[np.ndarray, float]:
     """Compute a dB-scaled magnitude spectrogram resampled to the image grid.
 
     Args:
@@ -288,7 +304,9 @@ def _magnitude_db(
         height: Target rows.
 
     Returns:
-        A ``(height, width)`` array in dB, with row 0 the lowest frequency.
+        A ``(height, width)`` array in dB, with row 0 the lowest frequency,
+        and the dominant frequency in Hz, taken from the full-resolution
+        spectrum before it is resampled.
     """
     from scipy.signal import spectrogram as scipy_spectrogram
 
@@ -299,7 +317,7 @@ def _magnitude_db(
     nperseg = min(nfft, max(64, samples.size))
     noverlap = max(0, nperseg - hop) if nperseg > hop else 0
 
-    _, _, power = scipy_spectrogram(
+    frequencies, _, power = scipy_spectrogram(
         samples,
         fs=sample_rate,
         nperseg=nperseg,
@@ -315,7 +333,111 @@ def _magnitude_db(
     # smearing narrow-band calls the way interpolation would.
     rows = np.linspace(0, decibels.shape[0] - 1, height).round().astype(int)
     cols = np.linspace(0, decibels.shape[1] - 1, width).round().astype(int)
-    return decibels[np.ix_(rows, cols)]
+    return decibels[np.ix_(rows, cols)], _dominant_frequency(frequencies, power)
+
+
+def _dominant_frequency(frequencies: np.ndarray, magnitude: np.ndarray) -> float:
+    """The frequency carrying the most energy, summed over the whole span.
+
+    Energy rather than the loudest single bin, so a sustained call outweighs a
+    one-frame click. The DC bin is skipped: an offset in the recording is not
+    a frequency anyone is looking for.
+
+    Args:
+        frequencies: Bin centres in Hz, as returned by the STFT.
+        magnitude: ``(bins, frames)`` magnitude spectrogram.
+
+    Returns:
+        The dominant frequency in Hz, or 0 if there is nothing but DC.
+    """
+    if magnitude.shape[0] < 2 or magnitude.shape[1] == 0:
+        return 0.0
+    energy = (magnitude[1:].astype(np.float64) ** 2).sum(axis=1)
+    if not np.any(energy > 0):
+        return 0.0
+    return float(frequencies[1 + int(np.argmax(energy))])
+
+
+def _draw_frequency_line(
+    rgb: np.ndarray, hz: float, max_frequency: float, color: str
+) -> int | None:
+    """Draw a dashed horizontal line at a frequency, in place.
+
+    Args:
+        rgb: ``(height, width, 3)`` image, row 0 at the top (already flipped).
+        hz: Frequency to mark.
+        max_frequency: Frequency at the top edge.
+        color: Line colour as ``#rrggbb``.
+
+    Returns:
+        The line's upper row, or ``None`` if nothing was drawn.
+    """
+    height, width = rgb.shape[:2]
+    if hz <= 0 or max_frequency <= 0 or height < 2:
+        return None
+    # Same mapping as the row resampling in _magnitude_db: bin 0 at the
+    # bottom row, Nyquist at the top one.
+    fraction = min(1.0, hz / max_frequency)
+    row = height - 1 - int(round(fraction * (height - 1)))
+    on, off = DOMINANT_LINE_DASH
+    dashed = (np.arange(width) % (on + off)) < on
+    # Two rows thick and edged in black: the line always crosses the brightest
+    # band in the image, and a bare one-pixel dash is lost against it.
+    top = min(max(1, row - 1), height - 2)
+    for edge in (top - 1, top + 2):
+        if 0 <= edge < height:
+            rgb[edge, dashed] = 0
+    rgb[top : top + 2, dashed] = _hex_to_rgb(color)
+    return top
+
+
+def _draw_frequency_label(
+    rgb: np.ndarray, hz: float, line_top: int, color: str
+) -> np.ndarray:
+    """Label a frequency line with its value, at the image's right edge.
+
+    The right edge because the frequency axis takes the left one. The label
+    sits above the line, or below it when the line is too near the top, on a
+    dark backing like the axis labels so it reads over any part of the ramp.
+
+    Args:
+        rgb: ``(height, width, 3)`` image with the line already drawn.
+        hz: Frequency to print.
+        line_top: Upper row of the line, from :func:`_draw_frequency_line`.
+        color: Text colour as ``#rrggbb``.
+
+    Returns:
+        The labelled image, as a new array.
+    """
+    from PIL import Image, ImageDraw, ImageFont
+
+    text = f"{hz / 1000.0:.2f}".rstrip("0").rstrip(".") + " kHz"
+    font = ImageFont.load_default(size=DOMINANT_LABEL_SIZE)
+    left, top, right, bottom = font.getbbox(text)
+    pad_x, pad_y, gap, margin = 3, 2, 2, 4
+    box_w = right - left + 2 * pad_x
+    box_h = bottom - top + 2 * pad_y
+
+    height, width = rgb.shape[:2]
+    y0 = line_top - 1 - gap - box_h
+    if y0 < 0:
+        y0 = line_top + 3 + gap
+    y0 = max(0, min(y0, height - box_h))
+    x0 = max(0, width - margin - box_w)
+
+    image = Image.fromarray(rgb, mode="RGB").convert("RGBA")
+    overlay = Image.new("RGBA", image.size, (0, 0, 0, 0))
+    draw = ImageDraw.Draw(overlay)
+    draw.rounded_rectangle(
+        (x0, y0, x0 + box_w - 1, y0 + box_h - 1), radius=2, fill=(0, 0, 0, 160)
+    )
+    draw.text(
+        (x0 + pad_x - left, y0 + pad_y - top),
+        text,
+        font=font,
+        fill=(*_hex_to_rgb(color), 255),
+    )
+    return np.asarray(Image.alpha_composite(image, overlay).convert("RGB"))
 
 
 def _levels(
@@ -433,6 +555,7 @@ def render_spectrogram(
     height: int = DEFAULT_HEIGHT,
     dynamic_range_db: float = DEFAULT_DYNAMIC_RANGE_DB,
     colors: Sequence[str] = DEFAULT_SPECTROGRAM_COLORS,
+    mark_dominant: bool = False,
 ) -> Spectrogram:
     """Render an audio file, or part of it, as a spectrogram image.
 
@@ -445,6 +568,10 @@ def render_spectrogram(
         height: Image height in pixels.
         dynamic_range_db: dB below the peak to display.
         colors: Colour ramp from quiet to loud. See :func:`_colourise`.
+        mark_dominant: Draw a dashed line across the image at the span's
+            dominant frequency, labelled with its value in kHz. Both are drawn
+            into the PNG rather than laid over it, since only the renderer
+            knows where the energy is.
 
     Returns:
         The rendered :class:`Spectrogram`.
@@ -480,9 +607,15 @@ def render_spectrogram(
     if samples.size == 0:
         raise ValidationError("Selected span contains no audio.", "spectrogram")
 
-    decibels = _magnitude_db(samples, sample_rate, width, height)
+    decibels, dominant = _magnitude_db(samples, sample_rate, width, height)
     # Flip so low frequencies sit at the bottom of the image, as convention has it.
-    rgb = _colourise(decibels, dynamic_range_db, colors)[::-1]
+    rgb = np.ascontiguousarray(_colourise(decibels, dynamic_range_db, colors)[::-1])
+    if mark_dominant:
+        line_top = _draw_frequency_line(
+            rgb, dominant, sample_rate / 2.0, DOMINANT_LINE_COLOR
+        )
+        if line_top is not None:
+            rgb = _draw_frequency_label(rgb, dominant, line_top, DOMINANT_LINE_COLOR)
 
     return Spectrogram(
         png=_encode_png(rgb),
@@ -492,4 +625,5 @@ def render_spectrogram(
         end_time=span_end,
         max_frequency=sample_rate / 2.0,
         sample_rate=sample_rate,
+        dominant_frequency=dominant,
     )

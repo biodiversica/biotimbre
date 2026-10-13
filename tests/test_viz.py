@@ -263,3 +263,81 @@ class TestRobustness:
         path.write_bytes(b"not audio at all")
         with pytest.raises(ValidationError):
             render_spectrogram(path)
+
+
+def _near(pixels, color, tolerance=40):
+    """Pixels within ``tolerance`` of a colour on every channel.
+
+    Not exact: the palette PNG quantises the line's colour together with the
+    anti-aliased shades of its label.
+    """
+    from biotimbre.viz import _hex_to_rgb
+
+    target = np.array(_hex_to_rgb(color), dtype=np.int16)
+    return np.all(np.abs(pixels.astype(np.int16) - target) <= tolerance, axis=-1)
+
+
+class TestDominantFrequency:
+    @pytest.fixture
+    def tone(self, tmp_path):
+        """A loud 3 kHz tone over a quiet 9 kHz one, at 32 kHz."""
+        rate = 32_000
+        t = np.arange(rate, dtype=np.float32) / rate
+        signal = 0.5 * np.sin(2 * np.pi * 3_000 * t) + 0.05 * np.sin(
+            2 * np.pi * 9_000 * t
+        )
+        path = tmp_path / "tone.wav"
+        sf.write(path, signal.astype(np.float32), rate, subtype="FLOAT")
+        return path
+
+    def test_reports_the_loudest_frequency(self, tone):
+        spec = render_spectrogram(tone)
+        assert spec.dominant_frequency == pytest.approx(3_000, abs=50)
+
+    def test_line_is_drawn_at_the_dominant_frequency(self, tone):
+        import io
+
+        from PIL import Image
+
+        from biotimbre.viz import DOMINANT_LINE_COLOR
+
+        spec = render_spectrogram(tone, mark_dominant=True)
+        pixels = np.asarray(Image.open(io.BytesIO(spec.png)).convert("RGB"))
+        matches = _near(pixels, DOMINANT_LINE_COLOR)
+        rows = np.flatnonzero(matches.sum(axis=1) > spec.width // 3)
+        assert rows.size == 2
+        expected = (1 - spec.frequency_to_fraction(3_000)) * (spec.height - 1)
+        assert rows.mean() == pytest.approx(expected, abs=2)
+
+    def test_line_is_labelled_at_the_right_edge(self, tone):
+        import io
+
+        from PIL import Image
+
+        from biotimbre.viz import DOMINANT_LINE_COLOR
+
+        plain = render_spectrogram(tone, mark_dominant=False)
+        marked = render_spectrogram(tone, mark_dominant=True)
+        before = np.asarray(Image.open(io.BytesIO(plain.png)).convert("RGB"))
+        after = np.asarray(Image.open(io.BytesIO(marked.png)).convert("RGB"))
+        row = int((1 - marked.frequency_to_fraction(3_000)) * (marked.height - 1))
+        # The label sits just above the line, in the right-hand corner the
+        # frequency axis leaves free.
+        band = slice(max(0, row - 20), row - 2)
+        right = slice(marked.width - 70, marked.width)
+        left = slice(0, 70)
+        assert np.any(before[band, right] != after[band, right])
+        assert np.array_equal(before[band, left], after[band, left])
+        text = _near(after[band, right], DOMINANT_LINE_COLOR)
+        assert text.sum() > 5
+
+    def test_no_line_unless_asked(self, tone):
+        import io
+
+        from PIL import Image
+
+        from biotimbre.viz import DOMINANT_LINE_COLOR
+
+        spec = render_spectrogram(tone)
+        pixels = np.asarray(Image.open(io.BytesIO(spec.png)).convert("RGB"))
+        assert not _near(pixels, DOMINANT_LINE_COLOR).any()

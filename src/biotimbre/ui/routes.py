@@ -205,6 +205,7 @@ def register(app) -> None:
                 width=width,
                 height=height,
                 colors=state.settings.theme.spectrogram_colors,
+                mark_dominant=state.settings.dominant_frequency,
             )
         except NotFoundError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -285,6 +286,7 @@ def register(app) -> None:
                 width=width,
                 height=height,
                 colors=state.settings.theme.spectrogram_colors,
+                mark_dominant=state.settings.dominant_frequency,
             )
         except BiotimbreError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc

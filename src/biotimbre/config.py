@@ -198,6 +198,8 @@ class Settings:
             about a library but cannot change it. This is what to start for
             people who should search someone else's library rather than keep
             their own.
+        dominant_frequency: Whether spectrograms carry a dashed line, labelled
+            in kHz, at the frequency with the most energy over the span shown.
         language: Default UI language, one of :data:`SUPPORTED_LANGUAGES`.
         theme: UI colour palette for the light theme.
         dark_theme: UI colour palette for the dark theme. Which of the two a
@@ -229,6 +231,7 @@ class Settings:
     map_attribution: str = DEFAULT_TILE_ATTRIBUTION
     map_max_zoom: int = DEFAULT_TILE_MAX_ZOOM
     search_only: bool = False
+    dominant_frequency: bool = True
     language: str = "en"
     theme: Theme = field(default_factory=Theme)
     dark_theme: Theme = DEFAULT_DARK_THEME
@@ -401,6 +404,9 @@ def load_settings(
 
     ui = raw.get("ui", {})
     search_only = bool(ui.get("search_only", defaults.search_only))
+    dominant_frequency = bool(
+        ui.get("dominant_frequency", defaults.dominant_frequency)
+    )
     language = ui.get("language", defaults.language)
     if language not in SUPPORTED_LANGUAGES:
         raise ValueError(
@@ -505,6 +511,7 @@ def load_settings(
         map_attribution=map_attribution,
         map_max_zoom=map_max_zoom,
         search_only=search_only,
+        dominant_frequency=dominant_frequency,
         theme=theme,
         dark_theme=dark_theme,
         search_batch_size=batch_size,

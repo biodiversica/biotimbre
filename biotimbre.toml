@@ -11,6 +11,10 @@ language = "en"            # en | pt_BR
 # For one run only: biotimbre gui --search-only
 search_only = false
 
+# Mark each spectrogram with a dashed line, labelled in kHz, at the frequency
+# carrying the most energy over the span shown. Set false for plain images.
+dominant_frequency = true
+
 [sources.inaturalist]
 # Offer to fetch a recording from iNaturalist by observation ID, in the search
 # page's query card and the library page's add form. Set false for a library

@@ -351,6 +351,7 @@ max_query_duration_s = 15
 [ui]
 language = "en"            # en | pt_BR
 search_only = false        # serve the search page alone, library read-only
+dominant_frequency = true  # dashed, labelled line at the loudest frequency
 
 [map]
 # The location map on both pages. This is the only part of the interface that

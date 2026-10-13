@@ -247,3 +247,12 @@ class TestMapSection:
         config = write_config(tmp_path, body)
         with pytest.raises(ValueError, match=message):
             load_settings(config)
+
+
+class TestDominantFrequency:
+    def test_shown_by_default(self, tmp_path):
+        assert load_settings(data_dir=tmp_path).dominant_frequency is True
+
+    def test_can_be_switched_off(self, tmp_path):
+        config = write_config(tmp_path, "[ui]\ndominant_frequency = false\n")
+        assert load_settings(config).dominant_frequency is False
