@@ -31,6 +31,23 @@ class TestThemeCss:
         assert ':root[data-theme="light"] { color-scheme: light; }' in css
         assert ':root[data-theme="dark"] { color-scheme: dark; }' in css
 
+    def test_dark_components_take_the_theme_text(self):
+        # Quasar hardcodes white on these; the theme's text must win, but
+        # only on a dark page — the light header's dark popup needs white.
+        css = theme_css(Theme(), DEFAULT_DARK_THEME)
+        assert ":root .q-dark" not in css
+        for selector in ("body.body--dark .q-dark", "body.body--dark .q-item--dark",
+                         "body.body--dark .q-field--dark .q-field__native"):
+            assert selector in css
+        assert "{ color: var(--bt-text); }" in css
+
+    def test_dark_file_pickers_take_the_header_green(self):
+        css = theme_css(Theme(), DEFAULT_DARK_THEME)
+        assert (
+            "body.body--dark .q-uploader__header { background-color: "
+            "var(--bt-header-bg); color: var(--bt-header-text); }"
+        ) in css
+
     def test_leaves_the_spectrogram_ramp_alone(self):
         # Spectrograms are rendered server-side, where the reader's theme is
         # not known; the ramp is not a CSS colour at all.

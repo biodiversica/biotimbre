@@ -40,6 +40,30 @@ _STORAGE_KEY = "theme"
 #: Theme fields that are not colours and so have no CSS variable.
 _NON_COLOUR_FIELDS = frozenset({"spectrogram_colors"})
 
+#: Quasar's dark variants hardcode ``color: #fff`` on cards, expansion
+#: headers, lists and typed input, overriding the body's ``text``. Only while
+#: the whole page is dark: in the light theme the one dark component is the
+#: header's language select, whose popup is dark too and needs that white.
+#: The ``body.body--dark`` prefix also outranks Quasar without ``!important``,
+#: whichever stylesheet loads last.
+_DARK = "body.body--dark"
+_QUASAR_DARK_TEXT = (
+    f"{_DARK} .q-dark, {_DARK} .q-list--dark, {_DARK} .q-item--dark,\n"
+    f"{_DARK} .q-field--dark .q-field__native,"
+    f" {_DARK} .q-field--dark .q-field__input,\n"
+    f"{_DARK} .q-field--dark .q-field__prefix,"
+    f" {_DARK} .q-field--dark .q-field__suffix"
+    " { color: var(--bt-text); }\n"
+)
+
+#: File pickers title their box in primary, which on a dark page is a light
+#: sage that shouts beside everything else; they take the header's green
+#: instead. Light pages keep primary, already that green.
+_QUASAR_DARK_UPLOADER = (
+    f"{_DARK} .q-uploader__header"
+    " { background-color: var(--bt-header-bg); color: var(--bt-header-text); }\n"
+)
+
 
 def _variable(name: str) -> str:
     """CSS custom property name for a theme field."""
@@ -90,8 +114,9 @@ def theme_css(light: Theme, dark: Theme) -> str:
         dark: Palette used when it resolves to dark.
 
     Returns:
-        A ``<style>`` block: the tokens on ``:root``, then the two rules that
-        let ``data-theme`` pin one scheme.
+        A ``<style>`` block: the tokens on ``:root``, the two rules that let
+        ``data-theme`` pin one scheme, and the overrides that stop Quasar's
+        dark components forcing white text and primary file pickers.
     """
     tokens = "\n".join(
         f"  {_variable(field.name)}: "
@@ -107,6 +132,8 @@ def theme_css(light: Theme, dark: Theme) -> str:
         "}\n"
         ':root[data-theme="light"] { color-scheme: light; }\n'
         ':root[data-theme="dark"] { color-scheme: dark; }\n'
+        f"{_QUASAR_DARK_TEXT}"
+        f"{_QUASAR_DARK_UPLOADER}"
         "</style>"
     )
 
