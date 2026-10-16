@@ -1,5 +1,7 @@
 # Biotimbre
 
+*English · [Português (Brasil)](README_pt-BR.md)*
+
 Biotimbre is a tool for building and managing libraries of animal sound
 templates, with similarity search based on audio embeddings. Embeddings are
 computed with ONNX backbones through `onnxruntime`; Perch v2 and BirdNET 2.4 are
