@@ -2,8 +2,9 @@
 
 The two pages live in :mod:`biotimbre.ui.admin` and :mod:`biotimbre.ui.search`;
 this module wires them to routes and starts the server. Both are imported lazily
-inside their page function so importing this module does not drag in the whole
-interface.
+inside :func:`_shell` so importing this module does not drag in the whole
+interface. Either route serves both pages in one browser page, so switching
+between them keeps what was on each.
 
 **Search-only runs** (:attr:`Settings.search_only`, ``gui --search-only``) serve
 the search page and nothing else, for people who should be able to query a
@@ -30,7 +31,7 @@ from nicegui import app, ui
 
 from biotimbre.config import Settings, load_settings
 from biotimbre.ui import routes
-from biotimbre.ui.layout import page
+from biotimbre.ui.layout import current_views, page
 from biotimbre.ui.state import AppState, get_state, set_state
 
 #: Default bind address. Loopback, because this is a local library: exposing it
@@ -96,27 +97,34 @@ async def admin_page() -> Response | None:
         A redirect to the search page on a search-only run, where this page
         does not exist; ``None`` otherwise, having rendered it.
     """
-    from biotimbre.ui import admin, setup
-
     if get_state().settings.search_only:
         # Returned rather than rendered: NiceGUI hands a Response straight back,
         # so the page is never built and its handlers are never registered.
         return RedirectResponse("/search")
 
-    with page("admin") as t:
-        if not get_state().is_open:
-            setup.render(t)
-            return None
-        await admin.render(t)
+    await _shell("admin")
     return None
 
 
 @ui.page("/search")
 async def search_page() -> None:
     """Search page: query, filters, and ranked results with players."""
-    from biotimbre.ui import search, setup
+    await _shell("search")
 
-    with page("search") as t:
+
+async def _shell(active: str) -> None:
+    """Render the app with ``active`` showing, the other view kept beside it.
+
+    Both pages are panes of the one browser page (:class:`~biotimbre.ui.layout.
+    Views`), so moving between them keeps what was on each: typed fields, a
+    staged recording, results. Each is built the first time it is shown.
+
+    Args:
+        active: ``"admin"`` or ``"search"``.
+    """
+    from biotimbre.ui import admin, search, setup
+
+    with page(active) as t:
         state = get_state()
         if not state.is_open:
             if state.settings.search_only:
@@ -126,7 +134,11 @@ async def search_page() -> None:
                 return
             setup.render(t)
             return
-        await search.render(t)
+        views = current_views()
+        if not state.settings.search_only:
+            views.add("admin", lambda: admin.render(t))
+        views.add("search", lambda: search.render(t))
+        await views.show(active, push=False)
 
 
 def create_app(

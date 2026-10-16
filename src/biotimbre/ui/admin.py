@@ -34,7 +34,7 @@ from biotimbre.ui.clip_editor import (
     take_over,
 )
 from biotimbre.ui.forms import metadata_form
-from biotimbre.ui.layout import notify_error
+from biotimbre.ui.layout import current_views, notify_error
 from biotimbre.ui.playback import item_player
 from biotimbre.ui.visuals import audio_view, view_toggle
 from biotimbre.ui.state import get_state
@@ -378,11 +378,20 @@ def _add_card(t: Translator, on_added) -> None:
             ui.notify(t("admin.handoff_taken"), type="info", position="top")
             await show_staged(upload)
 
-        token = _pending_handoff()
-        if token is not None:
-            # After the page is up, rather than holding it back while the
-            # recording is decoded and pictured.
-            ui.timer(0, lambda: adopt(token), once=True)
+        def take_pending() -> None:
+            token = _pending_handoff()
+            if token is not None:
+                # After the page is up, rather than holding it back while the
+                # recording is decoded and pictured.
+                with add_panel:
+                    ui.timer(0, lambda: adopt(token), once=True)
+
+        take_pending()
+        # The page outlives a trip to the search page now, so a query sent
+        # from there has to be picked up on the way back, not only on load.
+        views = current_views()
+        if views is not None:
+            views.when_shown("admin", take_pending)
 
 
 def _pending_handoff() -> str | None:

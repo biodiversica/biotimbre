@@ -8,6 +8,7 @@ configuration.
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from contextlib import contextmanager
 
 from nicegui import app, ui
@@ -26,6 +27,13 @@ from biotimbre.ui.theming import (
 )
 
 _LANGUAGE_KEY = "language"
+
+#: Where each view lives. Both are served by the same shell, so either URL
+#: opens the app on that view, and reload or a bookmark lands where it was.
+VIEW_PATHS = {"admin": "/", "search": "/search"}
+
+#: Client storage key of the :class:`Views` for the open tab.
+_VIEWS_KEY = "views"
 
 #: The footnote at the bottom of every page. Not translated: it is a name.
 FOOTNOTE_TEXT = "~/biodiversica"
@@ -58,6 +66,7 @@ def set_language(language: str) -> None:
         ui.navigate.reload()
 
 
+@ui.refreshable
 def _model_badge(t: Translator) -> None:
     """Show whether models are ready, loading, or failed."""
     status = get_state().models
@@ -90,9 +99,15 @@ def _model_badge(t: Translator) -> None:
         ui.label(t("app.loading_models")).classes("text-xs").tooltip(
             t("app.loading_models_hint")
         )
-    # Poll until warm-up finishes, then redraw the header.
-    ui.timer(1.5, lambda: ui.navigate.reload() if get_state().models.ready else None,
-             once=False)
+    # Poll until warm-up finishes, then redraw the badge. Only the badge: a
+    # reload would throw away whatever the reader has started on meanwhile.
+
+    def poll() -> None:
+        status = get_state().models
+        if status.ready or status.failed:
+            _model_badge.refresh()
+
+    ui.timer(1.5, poll)
 
 
 def _theme_toggle(t: Translator, mode: str, dark_mode: ui.dark_mode) -> None:
@@ -129,6 +144,99 @@ def _theme_toggle(t: Translator, mode: str, dark_mode: ui.dark_mode) -> None:
         tip = ui.tooltip(t(f"app.theme.{mode}"))
 
 
+class Views:
+    """The pages of one browser tab, built once and kept while it is open.
+
+    Navigating between ``/`` and ``/search`` used to load a fresh page, which
+    threw away everything on the one being left: typed fields, a staged
+    recording, search results. Both views are now panes of one page instead,
+    and switching only changes which is shown. A view is built the first time
+    it is shown rather than up front, so opening the app costs one page, not
+    two. The address follows along, so a reload, a bookmark and the browser's
+    back button all still mean what they did.
+
+    Args:
+        active: The view the tab was opened on.
+    """
+
+    def __init__(self, active: str) -> None:
+        self.active = active
+        self._builders: dict[str, Callable[[], Awaitable[None]]] = {}
+        self._panes: dict[str, ui.element] = {}
+        self._built: set[str] = set()
+        self._hooks: dict[str, list[Callable[[], None]]] = {}
+        self._tabs: dict[str, ui.button] = {}
+
+    def add(self, name: str, build: Callable[[], Awaitable[None]]) -> None:
+        """Give a view a pane in the current container, to build when first shown.
+
+        Args:
+            name: A key of :data:`VIEW_PATHS`.
+            build: Renders the view into the pane.
+        """
+        self._builders[name] = build
+        self._panes[name] = ui.column().classes("w-full gap-4")
+        self._panes[name].set_visibility(False)
+
+    def add_tab(self, name: str, tab: ui.button) -> None:
+        """Register the header tab for ``name``, so it follows the switches."""
+        self._tabs[name] = tab
+        _style_tab(tab, name == self.active)
+
+    def when_shown(self, name: str, hook: Callable[[], None]) -> None:
+        """Run ``hook`` every time ``name`` is switched to after being built."""
+        self._hooks.setdefault(name, []).append(hook)
+
+    async def show(self, name: str, *, push: bool = True) -> None:
+        """Switch to a view, building it if this is its first time.
+
+        A view this tab does not hold -- the library chooser is up, say --
+        is navigated to the old way.
+
+        Args:
+            name: A key of :data:`VIEW_PATHS`.
+            push: Record the switch in the browser history. Off when the
+                switch is the history moving, or the page's first view.
+        """
+        if name not in self._builders:
+            ui.navigate.to(VIEW_PATHS[name])
+            return
+        previous, self.active = self.active, name
+        for other, pane in self._panes.items():
+            pane.set_visibility(other == name)
+        for tab_name, tab in self._tabs.items():
+            _style_tab(tab, tab_name == name)
+        if push and previous != name:
+            ui.run_javascript(
+                f'history.pushState({{}}, "", "{VIEW_PATHS[name]}");'
+            )
+        if name not in self._built:
+            self._built.add(name)
+            with self._panes[name]:
+                await self._builders[name]()
+            return
+        for hook in self._hooks.get(name, ()):
+            with self._panes[name]:
+                hook()
+
+
+def current_views() -> Views | None:
+    """The :class:`Views` of the tab being handled, if it has any."""
+    try:
+        return app.storage.client.get(_VIEWS_KEY)
+    except RuntimeError:
+        return None
+
+
+def _style_tab(tab: ui.button, is_active: bool) -> None:
+    """Colour a header tab as the one shown, or not."""
+    text_color = (
+        "var(--bt-header-text)" if is_active else "var(--bt-header-inactive-text)"
+    )
+    background = "var(--bt-header-active-bg)" if is_active else "transparent"
+    tab.style(f"color: {text_color}; background: {background}")
+
+
 @contextmanager
 def page(active: str):
     """Wrap page content in the shared frame.
@@ -144,6 +252,8 @@ def page(active: str):
     t = translator()
     settings = get_state().settings
     mode = theme_mode()
+    views = Views(active)
+    app.storage.client[_VIEWS_KEY] = views
 
     # Both palettes reach the page as one set of variables; which half of each
     # is used comes from color-scheme alone. The script pins the reader's
@@ -197,32 +307,32 @@ def page(active: str):
                 "color: var(--bt-header-text)"
             )
             with ui.row().classes("gap-1"):
-                entries = [
-                    ("admin", "/", "library_music"),
-                    ("search", "/search", "search"),
-                ]
+                names = list(VIEW_PATHS)
                 if settings.search_only:
                     # The library page is not served on this run, so a tab
                     # pointing at it would be a link to a redirect.
-                    entries = [e for e in entries if e[0] != "admin"]
-                for name, target, icon in entries:
-                    is_active = name == active
-                    text_color = (
-                        "var(--bt-header-text)"
-                        if is_active
-                        else "var(--bt-header-inactive-text)"
-                    )
-                    background = (
-                        "background: var(--bt-header-active-bg);" if is_active else ""
-                    )
-                    ui.button(
+                    names.remove("admin")
+                icons = {"admin": "library_music", "search": "search"}
+                for name in names:
+                    tab = ui.button(
                         t(f"app.nav.{name}"),
-                        icon=icon,
+                        icon=icons[name],
                         color=None,
-                        on_click=lambda target=target: ui.navigate.to(target),
-                    ).props("flat dense no-caps").style(
-                        f"color: {text_color}; {background}"
-                    )
+                        on_click=lambda name=name: views.show(name),
+                    ).props("flat dense no-caps")
+                    views.add_tab(name, tab)
+
+            # Back and forward move between views without leaving the page,
+            # so they have to be told apart from a real navigation.
+            ui.add_body_html(
+                "<script>window.addEventListener('popstate', () =>"
+                " emitEvent('bt_view', location.pathname));</script>"
+            )
+            paths = {path: name for name, path in VIEW_PATHS.items()}
+            ui.on(
+                "bt_view",
+                lambda event: views.show(paths.get(event.args, "search"), push=False),
+            )
 
         with ui.row().classes("items-center gap-4"):
             _model_badge(t)

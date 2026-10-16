@@ -633,6 +633,75 @@ class TestTakingAQueryToTheLibrary:
         assert token not in installed_state.handoffs
 
 
+@pytest.mark.usefixtures("installed_state")
+class TestMovingBetweenPages:
+    """Both pages live in one browser page, so leaving one keeps what was on it."""
+
+    @staticmethod
+    def _tab(user: User, label: str) -> None:
+        from nicegui.testing.user_interaction import UserInteraction
+
+        tab = next(
+            element
+            for element in user.find(ui.button).elements
+            if element._props.get("label") == label and "flat" in element._props
+        )
+        UserInteraction(user, {tab}, None).click()
+
+    @staticmethod
+    def _visible(element) -> bool:
+        while element is not None:
+            if not element.visible:
+                return False
+            element = element.parent_slot.parent if element.parent_slot else None
+        return True
+
+    async def test_a_staged_query_and_its_settings_survive_a_visit(
+        self, user: User, long_wav
+    ):
+        await TestSegmentPicker._stage(user, long_wav)
+        highpass = next(iter(user.find(marker="apply-highpass").elements))
+        highpass.value = 2000
+
+        self._tab(user, "Library")
+        await user.should_see("Add a sample")
+        assert not self._visible(highpass)
+
+        self._tab(user, "Search")
+        await user.should_see(long_wav.name)
+        assert self._visible(highpass)
+        # The same element, not a new page's: nothing was rebuilt.
+        assert next(iter(user.find(marker="apply-highpass").elements)) is highpass
+        assert highpass.value == 2000
+
+    async def test_a_query_reaches_a_library_page_already_open(
+        self, user: User, long_wav
+    ):
+        from nicegui.elements.upload_files import SmallFileUpload
+        from nicegui.testing.user_interaction import UserInteraction
+
+        await user.open("/")
+        await user.should_see("Add a sample")
+        self._tab(user, "Search")
+        await user.should_see("Query recording")
+        uploader = next(
+            element
+            for element in user.find(ui.upload).elements
+            if self._visible(element)
+        )
+        await uploader.handle_uploads(
+            [SmallFileUpload(long_wav.name, "audio/wav", long_wav.read_bytes())]
+        )
+        await user.should_see("What will be searched with (15.00 s)", retries=60)
+
+        UserInteraction(
+            user, set(user.find(marker="to-library").elements), None
+        ).click()
+
+        await user.should_see("Brought over from Search", retries=200)
+        await user.should_see("What will be stored (15.00 s)", retries=60)
+
+
 class TestMetadataOnlySearch:
     """Searching the library without a recording to search with."""
 

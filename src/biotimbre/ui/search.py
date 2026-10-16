@@ -36,7 +36,7 @@ from biotimbre.ui.clip_editor import (
 )
 from biotimbre.ui import inat, maps
 from biotimbre.ui.exports import export_button
-from biotimbre.ui.layout import notify_error
+from biotimbre.ui.layout import current_views, notify_error
 from biotimbre.ui.playback import item_player
 from biotimbre.ui.visuals import audio_view, view_toggle
 from biotimbre.ui.state import get_state
@@ -497,7 +497,11 @@ async def render(t: Translator) -> None:
                 notify_error(t, exc)
                 return
             app.storage.user[HANDOFF_KEY] = token
-            ui.navigate.to("/")
+            views = current_views()
+            if views is not None:
+                await views.show("admin")
+            else:
+                ui.navigate.to("/")
 
         async def handle_upload(event) -> None:
             # event.file is a NiceGUI FileUpload: .name plus async read()/save().
@@ -565,7 +569,17 @@ async def render(t: Translator) -> None:
         spinner.set_visibility(False)
 
     if not state.models.ready:
-        ui.label(t("app.loading_models_hint")).classes("text-notice text-sm")
+        loading = ui.label(t("app.loading_models_hint")).classes(
+            "text-notice text-sm"
+        )
+        # The page is no longer reloaded when warm-up ends, so the notice
+        # takes itself away.
+        loading_timer = ui.timer(1.5, lambda: settle_loading())
+
+        def settle_loading() -> None:
+            if state.models.ready:
+                loading.delete()
+                loading_timer.cancel()
 
     result_map = None
     if maps.enabled():
