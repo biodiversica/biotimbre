@@ -600,6 +600,24 @@ class TestEndToEnd:
         assert written.name == name
         assert written.read_bytes() == data
 
+    def test_search_results_export_in_rank_order(self, service):
+        import csv
+        import io
+
+        service.import_directory(EXAMPLES_DIR)
+        hits = service.search(GUYVIR_WAV, k=2)
+        data, name = service.results_table(hits)
+        assert name == "biotimbre_search_results.csv"
+
+        rows = list(csv.DictReader(io.StringIO(data.decode("utf-8"))))
+        assert [int(row["item_id"]) for row in rows] == [
+            hit.item.item_id for hit in hits
+        ]
+        assert float(rows[0]["score"]) == pytest.approx(hits[0].score)
+        assert rows[0]["best_model"] == hits[0].best_model
+        # The library export's columns ride along unchanged.
+        assert rows[0]["embeddings_perch_v2"] == "1"
+
     def test_export_refuses_a_model_with_no_embeddings(self, service):
         service.import_directory(EXAMPLES_DIR)
         with pytest.raises(NotFoundError, match="no fake_model embeddings"):

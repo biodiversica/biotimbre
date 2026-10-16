@@ -1417,3 +1417,34 @@ class TestResultDetails:
         )
         await user.should_see("Sample rate")
         assert "Edit" not in self._labels(user)
+
+
+class TestResultsCsv:
+    async def test_the_shown_results_export_as_csv(
+        self, user: User, installed_state
+    ):
+        import csv
+        import io
+
+        from nicegui.testing.user_interaction import UserInteraction
+
+        # Two items, one of them outside the filter: only what was shown goes.
+        TestResultMap._store(installed_state, (-26.3, -48.85), (-25.4, -49.2))
+        await user.open("/search")
+        await user.should_see("Find similar samples")
+        TestResultMap._centre(user).value = "-26.3, -48.85"
+        TestResultMap._numbers(user)["Radius"].value = 10.0
+        TestResultMap._run_search(user)
+        await user.should_see("1 match(es)")
+
+        UserInteraction(
+            user, set(user.find(marker="export-results-csv").elements), None
+        ).click()
+        response = await user.download.next(timeout=10.0)
+
+        rows = list(csv.DictReader(io.StringIO(response.content.decode("utf-8"))))
+        assert len(rows) == 1
+        assert rows[0]["rank"] == "1"
+        assert (rows[0]["latitude"], rows[0]["longitude"]) == ("-26.3", "-48.85")
+        # Measured from the filter's centre, as the card says.
+        assert float(rows[0]["distance_km"]) == pytest.approx(0.0, abs=0.01)

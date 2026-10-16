@@ -11,7 +11,7 @@ from biotimbre.domain.item import (
     Location,
     SampleWindow,
 )
-from biotimbre.io.table import items_csv
+from biotimbre.io.table import items_csv, results_csv
 
 
 def _item(item_id: int, **overrides) -> LibraryItem:
@@ -107,3 +107,71 @@ class TestItemsCsv:
         text = items_csv([], labels={}, embedding_counts={}, model_ids=("perch_v2",))
         assert len(text.splitlines()) == 1
         assert text.rstrip().endswith("embeddings_perch_v2")
+
+
+class TestResultsCsv:
+    @staticmethod
+    def _hit(item_id: int, **fields):
+        from biotimbre.service import SearchHit
+
+        return SearchHit(item=_item(item_id), **fields)
+
+    def test_the_match_comes_first_in_rank_order(self):
+        from biotimbre.search.vector_search import WindowMatch
+
+        hits = [
+            self._hit(
+                9,
+                score=0.91,
+                per_model={"perch_v2": 0.91, "birdnet_v2.4": 0.80},
+                matches={
+                    "perch_v2": WindowMatch(0.91, 0, 0, 0.0, 5.0),
+                    "birdnet_v2.4": WindowMatch(0.80, 0, 1, 1.5, 4.5),
+                },
+                distance_km=12.5,
+                query_speed=0.5,
+            ),
+            self._hit(
+                3,
+                score=0.40,
+                per_model={"perch_v2": 0.40},
+                matches={"perch_v2": WindowMatch(0.40, 0, 0, 0.0, 6.0)},
+            ),
+        ]
+        text = results_csv(
+            hits, labels={}, embedding_counts={}, model_ids=("perch_v2",)
+        )
+        header = next(csv.reader(io.StringIO(text)))
+        assert header[:9] == [
+            "rank", "score", "best_model", "matched_start", "matched_end",
+            "distance_km", "query_speed", "score_birdnet_v2.4", "score_perch_v2",
+        ]
+        # The item's own columns follow, as in the library export.
+        assert header[9] == "item_id"
+
+        rows = _rows(text)
+        assert [row["item_id"] for row in rows] == ["9", "3"]
+        assert [row["rank"] for row in rows] == ["1", "2"]
+        first, second = rows
+        assert first["score"] == "0.91"
+        assert first["best_model"] == "perch_v2"
+        assert first["distance_km"] == "12.5"
+        assert first["query_speed"] == "0.5"
+        # A model that did not score a hit is a blank, not a zero.
+        assert second["score_birdnet_v2.4"] == ""
+        # The matched window is clamped to the sample, as on screen.
+        assert (second["matched_start"], second["matched_end"]) == ("0.0", "5.0")
+
+    def test_a_metadata_search_leaves_the_scores_empty(self):
+        rows = _rows(
+            results_csv(
+                [self._hit(4, score=0.0)],
+                labels={},
+                embedding_counts={},
+                model_ids=(),
+            )
+        )
+        row = rows[0]
+        assert row["rank"] == "1"
+        for name in ("score", "best_model", "matched_start", "query_speed"):
+            assert row[name] == ""

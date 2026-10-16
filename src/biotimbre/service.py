@@ -59,7 +59,7 @@ from biotimbre.io.bundle import (
     read_bundle,
     write_bundle,
 )
-from biotimbre.io.table import items_csv
+from biotimbre.io.table import items_csv, results_csv
 from biotimbre.models_registry import get_spec
 from biotimbre.search.filters import SearchFilters, select_candidates
 from biotimbre.search.vector_search import (
@@ -83,6 +83,9 @@ from biotimbre.sharing import (
 
 #: Name of the library-wide CSV export, from the interface and the CLI alike.
 ITEMS_CSV_FILENAME = "biotimbre_items.csv"
+
+#: Name of a search's CSV export.
+RESULTS_CSV_FILENAME = "biotimbre_search_results.csv"
 
 
 def npy_filename(item_id: int, model_id: str) -> str:
@@ -1455,13 +1458,32 @@ class LibraryService:
             The CSV as UTF-8 bytes, and the name to save it under.
         """
         items = sorted(self.repo.list_items(), key=lambda item: item.item_id)
-        text = items_csv(
-            items,
-            labels=self.repo.biotimbre_labels(),
-            embedding_counts=self.repo.all_embedding_counts(),
-            model_ids=[model["model_id"] for model in self.repo.list_models()],
-        )
+        text = items_csv(items, **self._table_context())
         return text.encode("utf-8"), ITEMS_CSV_FILENAME
+
+    def results_table(self, hits: Sequence[SearchHit]) -> tuple[bytes, str]:
+        """Search results as CSV: the items' rows, with the match in front.
+
+        Exactly the hits given, in their order and as they were found — what
+        the search showed, not what it might show if run again. See
+        :func:`~biotimbre.io.table.results_csv`.
+
+        Args:
+            hits: The results, best first.
+
+        Returns:
+            The CSV as UTF-8 bytes, and the name to save it under.
+        """
+        text = results_csv(hits, **self._table_context())
+        return text.encode("utf-8"), RESULTS_CSV_FILENAME
+
+    def _table_context(self) -> dict:
+        """What a CSV row needs beyond the item: labels and window counts."""
+        return {
+            "labels": self.repo.biotimbre_labels(),
+            "embedding_counts": self.repo.all_embedding_counts(),
+            "model_ids": [model["model_id"] for model in self.repo.list_models()],
+        }
 
     def export_items_csv(self, destination: str | Path) -> Path:
         """Write :meth:`items_table` to disk.

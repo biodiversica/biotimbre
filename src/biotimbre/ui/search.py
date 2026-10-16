@@ -240,6 +240,17 @@ async def _result_card(
                         ).classes("text-xs text-link")
 
 
+async def _download_results_csv(t: Translator, hits: list[SearchHit]) -> None:
+    """Send the displayed results to the browser as one CSV."""
+    state = get_state()
+    try:
+        data, name = await state.run(state.service.results_table, hits)
+    except BiotimbreError as exc:
+        notify_error(t, exc)
+        return
+    ui.download.content(data, name, "text/csv")
+
+
 def _filters_panel(t: Translator) -> dict[str, ui.element]:
     """Render the filter inputs and return them by name."""
     inputs: dict[str, ui.element] = {}
@@ -731,6 +742,15 @@ async def render(t: Translator) -> None:
                 ui.label(t("search.result_count", count=len(hits))).classes(
                     "text-xs text-muted"
                 )
+                # The results on screen, not the library: what this search
+                # showed, in the order it showed them.
+                ui.button(
+                    t("search.export_csv"),
+                    icon="table_view",
+                    on_click=lambda: _download_results_csv(t, hits),
+                ).props("flat dense no-caps").tooltip(
+                    t("search.export_csv_help")
+                ).mark("export-results-csv")
             if not scored:
                 ui.label(t("search.metadata_only")).classes("text-xs text-muted")
             else:
