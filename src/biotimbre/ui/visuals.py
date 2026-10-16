@@ -9,11 +9,17 @@ without another round trip.
 Both views carry the same span marker, since both have the same time axis: the
 segment being kept, or the window that produced a score, reads the same either
 way.
+
+Each picture, or group of pictures that belong together, keeps its own
+:class:`ViewChoice` and its own toggle. Switching one search result to its
+waveform says nothing about the next one, so the rest of the page is left as
+it was; the last choice made only decides how pictures drawn afterwards start.
 """
 
 from __future__ import annotations
 
 import inspect
+from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
 
@@ -58,22 +64,43 @@ def set_preferred_view(view: str) -> None:
         app.storage.user[_STORAGE_KEY] = view
 
 
-def view_toggle(t: Translator, on_change) -> ui.button:
-    """A button that swaps the view and redraws whatever showed the old one.
+def _other(view: str) -> str:
+    return "waveform" if view == "spectrogram" else "spectrogram"
+
+
+@dataclass
+class ViewChoice:
+    """Which view one section of a page shows.
+
+    Attributes:
+        view: ``"spectrogram"`` or ``"waveform"``. Starts as the last view
+            chosen anywhere, so a reader who prefers waveforms is not made to
+            ask again for every new picture.
+    """
+
+    view: str = field(default_factory=preferred_view)
+
+    def swap(self) -> None:
+        """Show the other view here, and start new pictures in it too."""
+        self.view = _other(self.view)
+        set_preferred_view(self.view)
+
+
+def view_toggle(t: Translator, choice: ViewChoice, on_change) -> ui.button:
+    """A button that swaps one section's view and redraws that section.
 
     Args:
         t: Active translator.
-        on_change: Called after the choice changes, to redraw.
+        choice: The section's view, swapped by the button.
+        on_change: Called after the choice changes, to redraw the section.
 
     Returns:
         The button.
     """
-    offered = "waveform" if preferred_view() == "spectrogram" else "spectrogram"
 
     async def swap() -> None:
-        nonlocal offered
-        set_preferred_view(offered)
-        offered = "waveform" if offered == "spectrogram" else "spectrogram"
+        choice.swap()
+        offered = _other(choice.view)
         button.props(f"icon={VIEWS[offered]}")
         tip.set_text(t(f"view.{offered}"))
         # The button outlives the container it redraws, so it says what it
@@ -82,6 +109,7 @@ def view_toggle(t: Translator, on_change) -> ui.button:
         if inspect.isawaitable(result):
             await result
 
+    offered = _other(choice.view)
     button = ui.button(icon=VIEWS[offered], on_click=swap).props(
         "flat dense round size=sm"
     )
@@ -199,6 +227,7 @@ def marked_waveform(
 
 async def audio_view(
     *,
+    view: str,
     spectrogram_url: str,
     audio_path: Path | None,
     start: float,
@@ -209,9 +238,11 @@ async def audio_view(
     sample_rate: int | None = None,
     band_shade: BandShade | None = None,
 ) -> ui.element:
-    """Draw the reader's preferred view of one sample.
+    """Draw one sample as a spectrogram or a waveform.
 
     Args:
+        view: ``"spectrogram"`` or ``"waveform"``, usually a section's
+            :attr:`ViewChoice.view`.
         spectrogram_url: Image source for the spectrogram view — a route or a
             data URI, as the caller already has it.
         audio_path: The audio itself, for the waveform view. ``None`` or a
@@ -234,7 +265,7 @@ async def audio_view(
         The span marker, whichever view was drawn.
     """
     available = audio_path is not None and Path(audio_path).is_file()
-    if preferred_view() == "spectrogram" or not available:
+    if view != "waveform" or not available:
         return marked_spectrogram(
             spectrogram_url,
             span,

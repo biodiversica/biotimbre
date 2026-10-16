@@ -36,7 +36,7 @@ from biotimbre.ui.clip_editor import (
 from biotimbre.ui.forms import metadata_form
 from biotimbre.ui.layout import current_views, notify_error
 from biotimbre.ui.playback import item_player
-from biotimbre.ui.visuals import audio_view, view_toggle
+from biotimbre.ui.visuals import ViewChoice, audio_view, view_toggle
 from biotimbre.ui.state import get_state
 
 #: Spectrogram render size for the detail dialog. Taller than a list thumbnail:
@@ -530,7 +530,8 @@ async def _open_detail(t: Translator, item_id: int, on_changed) -> None:
             ui.label(t("admin.detail", item_id=item.item_id)).classes(
                 "text-lg font-medium"
             )
-            view_toggle(t, lambda: draw_view())
+            choice = ViewChoice()
+            view_toggle(t, choice, lambda: draw_view())
         # The card is a flex column that scrolls, so anything without an
         # intrinsic height is free to shrink away: the player collapsed to
         # nothing and the picture lost most of its height. Neither may shrink.
@@ -540,6 +541,7 @@ async def _open_detail(t: Translator, item_id: int, on_changed) -> None:
             visual.clear()
             with visual:
                 await audio_view(
+                    view=choice.view,
                     spectrogram_url=state.spectrogram_url(
                         item.item_id, width=DETAIL_WIDTH, height=DETAIL_HEIGHT
                     ),

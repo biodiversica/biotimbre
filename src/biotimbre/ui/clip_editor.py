@@ -33,7 +33,7 @@ from biotimbre.ui.playback import play_described, speed_audio
 from biotimbre.ui.segment_range import SegmentRange
 from biotimbre.ui.spectrograms import BandShade, place_span_marker
 from biotimbre.ui.state import get_state
-from biotimbre.ui.visuals import audio_view, view_toggle
+from biotimbre.ui.visuals import ViewChoice, audio_view, view_toggle
 from biotimbre.viz import render_spectrogram
 
 #: Accepted upload extensions, matching what soundfile can decode.
@@ -386,7 +386,6 @@ class ClipControls:
     Attributes:
         speed: The speed field. Speed is not applied to the copy — the models
             are told it — so the page reads it from here.
-        redraw_views: Redraw both pictures in the reader's preferred view.
         settle: Apply whatever the fields now say, if it has not been applied
             yet, and report whether the prepared copy matches them. To be
             awaited before the copy is used: a cut-off typed and not yet
@@ -394,7 +393,6 @@ class ClipControls:
     """
 
     speed: ui.number
-    redraw_views: Callable[[], Awaitable[None]]
     settle: Callable[[], Awaitable[bool]]
 
 
@@ -410,7 +408,6 @@ async def clip_editor(
     bind_speed: ui.element | None = None,
     speed: float = DEFAULT_SPEED,
     on_applied: Callable[[ClipState], None] | None = None,
-    on_view_change: Callable[[], Awaitable[None] | None] | None = None,
     on_ready: Callable[[ClipControls], None] | None = None,
 ) -> ClipControls | None:
     """Draw the preview and the controls for a staged recording.
@@ -431,8 +428,6 @@ async def clip_editor(
             same value can be typed elsewhere on the page.
         speed: Starting speed, when not bound.
         on_applied: Called after each successful restage.
-        on_view_change: Called after the view toggle has redrawn the editor,
-            for the page to redraw anything else it pictures.
         on_ready: Given the controls as soon as they exist, before the first
             restage has finished. The preview of that restage appears while
             this call is still awaiting it, and a page that waited for the
@@ -484,16 +479,18 @@ async def clip_editor(
         notify_error(t, exc)
         return None
 
-    async def toggled() -> None:
-        await redraw_views()
-        if on_view_change is not None:
-            result = on_view_change()
-            if result is not None:
-                await result
+    # One choice for both pictures: the recording and its prepared copy are
+    # compared with each other, which only works in the same view.
+    choice = ViewChoice()
+
+    async def redraw_views() -> None:
+        await draw_source_view()
+        describe_span()
+        await draw_stored()
 
     with ui.row().classes("items-center justify-between w-full"):
         span_label = ui.label().classes("text-xs text-muted")
-        view_toggle(t, toggled)
+        view_toggle(t, choice, redraw_views)
     source_view = ui.column().classes("w-full gap-0")
     marker: ui.element | None = None
     # Shows what the high- and low-pass will take away, on the picture of the
@@ -507,6 +504,7 @@ async def clip_editor(
         source_view.clear()
         with source_view:
             marker = await audio_view(
+                view=choice.view,
                 spectrogram_url=uri,
                 audio_path=upload.path,
                 start=0.0,
@@ -659,6 +657,7 @@ async def clip_editor(
                 notify_error(t, exc)
                 return
             await audio_view(
+                view=choice.view,
                 spectrogram_url=stored_uri,
                 audio_path=clip.processed,
                 start=0.0,
@@ -721,12 +720,6 @@ async def clip_editor(
             await restage()
         return not superseded() and applied["wanted"] == wanted()
 
-    async def redraw_views() -> None:
-        """Both pictures follow the chosen view, not just one."""
-        await draw_source_view()
-        describe_span()
-        await draw_stored()
-
     def take_span(low: float, high: float) -> None:
         # The capped picker already slides the selection; this only guards a
         # value set some other way. The edge not just moved is the one that
@@ -767,9 +760,7 @@ async def clip_editor(
     # nothing to show for it.
     describe_span()
 
-    controls = ClipControls(
-        speed=speed_input, redraw_views=redraw_views, settle=settle
-    )
+    controls = ClipControls(speed=speed_input, settle=settle)
     if on_ready is not None:
         on_ready(controls)
 

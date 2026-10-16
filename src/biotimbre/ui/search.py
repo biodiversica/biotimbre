@@ -39,7 +39,7 @@ from biotimbre.ui import inat, maps
 from biotimbre.ui.exports import export_button
 from biotimbre.ui.layout import current_views, notify_error
 from biotimbre.ui.playback import item_player
-from biotimbre.ui.visuals import audio_view, view_toggle
+from biotimbre.ui.visuals import ViewChoice, audio_view, view_toggle
 from biotimbre.ui.state import get_state
 from biotimbre.ui.suggestions import library_suggestions, suggest_tags
 
@@ -182,23 +182,35 @@ async def _result_card(
                 + f"  ({t('search.best_model', model=hit.best_model)})"
             ).classes("text-xs text-muted")
 
+        # Each result has its own view: looking at one waveform is no reason
+        # to redraw every other card on the page.
+        choice = ViewChoice()
         with ui.row().classes("items-center gap-3 w-full"):
-            with ui.column().classes("gap-0").style(f"width: {RESULT_WIDTH}px"):
-                await audio_view(
-                    spectrogram_url=state.spectrogram_url(
-                        item.item_id, width=RESULT_WIDTH, height=RESULT_HEIGHT
-                    ),
-                    audio_path=state.settings.absolute_audio_path(item.audio_path),
-                    start=0.0,
-                    end=item.duration_s,
-                    span=span,
-                    height=RESULT_HEIGHT,
-                    # One column per pixel of the row's own width: a finer
-                    # envelope would be drawn onto the same pixels, and this
-                    # markup is sent once per result.
-                    columns=RESULT_WIDTH,
-                    sample_rate=item.sample_rate,
-                )
+            visual = ui.column().classes("gap-0").style(f"width: {RESULT_WIDTH}px")
+
+            async def draw_view() -> None:
+                visual.clear()
+                with visual:
+                    await audio_view(
+                        view=choice.view,
+                        spectrogram_url=state.spectrogram_url(
+                            item.item_id, width=RESULT_WIDTH, height=RESULT_HEIGHT
+                        ),
+                        audio_path=state.settings.absolute_audio_path(
+                            item.audio_path
+                        ),
+                        start=0.0,
+                        end=item.duration_s,
+                        span=span,
+                        height=RESULT_HEIGHT,
+                        # One column per pixel of the row's own width: a finer
+                        # envelope would be drawn onto the same pixels, and
+                        # this markup is sent once per result.
+                        columns=RESULT_WIDTH,
+                        sample_rate=item.sample_rate,
+                    )
+
+            await draw_view()
             # Sized from nothing rather than from its content: the row wraps,
             # and the playback caption on one line is wide enough to push the
             # whole column below the picture. It still wraps on a narrow
@@ -209,6 +221,7 @@ async def _result_card(
                     "w-full"
                 )
                 with ui.row().classes("items-center gap-3"):
+                    view_toggle(t, choice, draw_view).mark("result-view")
                     export_button(t, item.item_id, counts)
                     if item.link_to_full_recording:
                         ui.link(
@@ -432,7 +445,6 @@ async def render(t: Translator) -> None:
             uploader.reset()
             query_area.clear()
             results_area.clear()
-            shown.update(hits=None, counts={}, scored=True)
             if result_map is not None:
                 # The dots answered the query that just went away.
                 result_map.show(())
@@ -470,7 +482,6 @@ async def render(t: Translator) -> None:
                     on_clear=clear_query,
                     max_span=cap,
                     speed=query_speed["value"],
-                    on_view_change=redraw_results,
                     on_ready=ready,
                 )
 
@@ -629,28 +640,6 @@ async def render(t: Translator) -> None:
 
     results_area = ui.column().classes("w-full gap-2")
 
-    #: What the results area is currently showing, so a view change can redraw
-    #: it without running the search again.
-    shown: dict = {"hits": None, "counts": {}, "scored": True}
-
-    async def redraw_results() -> None:
-        """Redraw the results in the chosen view, if there are any."""
-        if shown["hits"] is not None:
-            await draw_results(
-                shown["hits"], shown["counts"], scored=shown["scored"]
-            )
-
-    async def redraw_views() -> None:
-        """Redraw every picture on the page in the chosen view.
-
-        Both toggles do the same thing: one preference, so leaving the other
-        half of the page in the old view would just look broken.
-        """
-        controls = editor["controls"]
-        if controls is not None and query.upload is not None:
-            await controls.redraw_views()
-        await redraw_results()
-
     async def run_search() -> None:
         path = None
         speed = DEFAULT_SPEED
@@ -711,14 +700,13 @@ async def render(t: Translator) -> None:
         await draw_results(hits, counts, scored=path is not None)
 
     async def draw_results(hits, counts, *, scored: bool) -> None:
-        """Render the result list. Redrawn whole when the view changes.
+        """Render the result list.
 
         Args:
             hits: What the search returned.
             counts: Embedding counts per item, for the export menus.
             scored: Whether the hits came from a query rather than filters.
         """
-        shown.update(hits=hits, counts=counts, scored=scored)
         if result_map is not None:
             result_map.show(_hit_points(t, hits))
         results_area.clear()
@@ -731,9 +719,6 @@ async def render(t: Translator) -> None:
                 ui.label(t("search.result_count", count=len(hits))).classes(
                     "text-xs text-muted"
                 )
-                # One control for the whole list: the results are redrawn
-                # together, so a toggle per card would leave the others stale.
-                view_toggle(t, lambda: redraw_views())
             if not scored:
                 ui.label(t("search.metadata_only")).classes("text-xs text-muted")
             else:

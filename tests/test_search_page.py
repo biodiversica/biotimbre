@@ -1311,3 +1311,47 @@ class TestSearchEndToEnd:
         )
         assert hits
         assert hits[0].score == pytest.approx(1.0, abs=1e-3)
+
+
+class TestResultViews:
+    """Each result chooses between spectrogram and waveform on its own."""
+
+    async def test_switching_one_result_leaves_the_others_alone(
+        self, user: User, installed_state
+    ):
+        from nicegui.testing.user_interaction import UserInteraction
+
+        from biotimbre.io.sidecar import draft_from_sidecar
+
+        # Real audio, since a waveform is drawn from the file itself.
+        for name in ("GUYVIR", "ZAMTYM"):
+            installed_state.call(
+                installed_state.service.add_item,
+                EXAMPLES_DIR / f"{name}.wav",
+                draft_from_sidecar(EXAMPLES_DIR / f"{name}.txt"),
+                compute_embeddings=False,
+            )
+        await user.open("/search")
+        await user.should_see("Find similar samples")
+        dates = {
+            element._props.get("label"): element
+            for element in user.find(ui.input).elements
+        }
+        dates["From date"].value = "1900-01-01"
+        TestResultMap._run_search(user)
+        await user.should_see("2 match(es)")
+
+        toggles = list(user.find(marker="result-view").elements)
+        assert len(toggles) == 2
+        UserInteraction(user, {toggles[0]}, None).click()
+        await user.should_see(ui.html, retries=60)
+
+        waveforms = [
+            element
+            for element in user.client.elements.values()
+            if isinstance(element, ui.html) and "<polygon" in element.content
+        ]
+        assert len(waveforms) == 1
+        # Each button offers the view its own card is not showing.
+        assert toggles[0]._props["icon"] == "gradient"
+        assert toggles[1]._props["icon"] == "graphic_eq"
