@@ -137,14 +137,75 @@ def _stat_tile(label: str, value: str) -> None:
         ui.label(label).classes("text-xs uppercase tracking-wide text-muted")
 
 
+#: Taxa shown before the rest fold behind a "more" chip. A library of a few
+#: groups shows them all; one of hundreds of species would otherwise bury the
+#: map and the list under its tags.
+TAXA_SHOWN = 12
+
+_CHIP = "text-xs px-2 py-0.5 rounded bg-chip"
+
+
+def _chip_row(label: str, marker: str):
+    """A labelled, wrapping row of chips, to be filled by the caller."""
+    with ui.row().classes("items-baseline gap-2 w-full no-wrap"):
+        ui.label(label).classes(
+            "text-xs uppercase tracking-wide text-muted min-w-20 shrink-0"
+        )
+        return ui.row().classes("gap-1 flex-wrap").mark(marker)
+
+
+def _taxa_chips(t: Translator, taxa: list[tuple[str, int]]) -> None:
+    """Every tag in use with its item count, most frequent first.
+
+    Beyond :data:`TAXA_SHOWN`, the rest wait behind a chip that unfolds them,
+    and folds them again.
+    """
+    chips = _chip_row(t("admin.summary_taxa"), "summary-taxa")
+    expanded = {"value": False}
+
+    def draw() -> None:
+        chips.clear()
+        shown = taxa if expanded["value"] else taxa[:TAXA_SHOWN]
+        with chips:
+            for tag, count in shown:
+                with ui.row().classes(f"{_CHIP} items-baseline gap-1 no-wrap"):
+                    ui.label(tag)
+                    ui.label(str(count)).classes("text-muted tabular-nums")
+            if len(taxa) > TAXA_SHOWN:
+                text = (
+                    t("admin.taxa_fewer")
+                    if expanded["value"]
+                    else t("admin.taxa_more", count=len(taxa) - TAXA_SHOWN)
+                )
+                ui.label(text).classes(
+                    f"{_CHIP} cursor-pointer text-muted"
+                ).on("click", toggle).mark("summary-taxa-toggle")
+
+    def toggle() -> None:
+        expanded["value"] = not expanded["value"]
+        draw()
+
+    draw()
+
+
 async def _summary_row(t: Translator) -> None:
-    """Library totals: how many items, and how many biotimbres they form."""
+    """Library totals, and the speeds and taxa the items carry.
+
+    The speeds are the ones a query is embedded at, so they say which speeds
+    the library can be searched at; the taxa, what it holds.
+    """
     state = get_state()
     stats = await state.run(state.service.stats)
 
     with ui.row().classes("gap-3 flex-wrap"):
         _stat_tile(t("admin.column.id"), str(stats["items"]))
         _stat_tile(t("field.biotimbre_id"), str(stats["biotimbres"]))
+    if stats["speeds"]:
+        with _chip_row(t("admin.summary_speeds"), "summary-speeds"):
+            for speed in stats["speeds"]:
+                ui.label(f"{speed:g}×").classes(f"{_CHIP} tabular-nums")
+    if stats["taxa"]:
+        _taxa_chips(t, stats["taxa"])
 
 
 # ── add ───────────────────────────────────────────────────────────────────────

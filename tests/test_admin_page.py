@@ -1641,3 +1641,87 @@ class TestItemDetail:
             if tables:
                 break
         assert tables, "the item list never came back after saving an edit"
+
+
+@pytest.mark.usefixtures("installed_state")
+class TestLibrarySummary:
+    """The totals, with the speeds and taxa the library's items carry."""
+
+    @staticmethod
+    def _store(state, *items: tuple[tuple[str, ...], float]) -> None:
+        from biotimbre.domain.item import ItemDraft, Location
+        from conftest import add_item
+
+        for index, (taxa, speed) in enumerate(items):
+            draft = ItemDraft(
+                date="2020-01-14",
+                time="09:40:21",
+                location=Location(-26.3, -48.85),
+                taxa=taxa,
+                speed=speed,
+            ).validated()
+            add_item(state.service.repo, draft, sha256=f"{index:064d}")
+
+    @staticmethod
+    def _texts(user: User, marker: str) -> list[str]:
+        row = next(iter(user.find(marker=marker).elements))
+        return [
+            element.text
+            for element in row.descendants()
+            if isinstance(element, ui.label)
+        ]
+
+    async def test_lists_each_speed_once_in_order(self, user: User, installed_state):
+        self._store(
+            installed_state,
+            (("cicadidae",), 1.0),
+            (("tettigoniidae",), 0.25),
+            (("tettigoniidae",), 0.25),
+        )
+        await user.open("/")
+        await user.should_see("3 item(s)")
+        assert self._texts(user, "summary-speeds") == ["0.25×", "1×"]
+
+    async def test_lists_taxa_with_counts_most_frequent_first(
+        self, user: User, installed_state
+    ):
+        self._store(
+            installed_state,
+            (("cicadidae",), 1.0),
+            (("insecta", "tettigoniidae"), 0.25),
+            (("insecta", "tettigoniidae"), 0.25),
+        )
+        await user.open("/")
+        await user.should_see("3 item(s)")
+        assert self._texts(user, "summary-taxa") == [
+            "insecta", "2", "tettigoniidae", "2", "cicadidae", "1",
+        ]
+
+    async def test_many_taxa_fold_behind_a_chip(self, user: User, installed_state):
+        from biotimbre.ui.admin import TAXA_SHOWN
+        from nicegui.testing.user_interaction import UserInteraction
+
+        total = TAXA_SHOWN + 3
+        self._store(
+            installed_state,
+            *(((f"taxon{index:02d}",), 1.0) for index in range(total)),
+        )
+        await user.open("/")
+        await user.should_see(f"{total} item(s)")
+        assert len(self._texts(user, "summary-taxa")) == 2 * TAXA_SHOWN + 1
+        await user.should_see("+3 more")
+
+        toggle = next(iter(user.find(marker="summary-taxa-toggle").elements))
+        UserInteraction(user, {toggle}, None).click()
+        await user.should_see("Show fewer")
+        assert len(self._texts(user, "summary-taxa")) == 2 * total + 1
+
+        toggle = next(iter(user.find(marker="summary-taxa-toggle").elements))
+        UserInteraction(user, {toggle}, None).click()
+        await user.should_see("+3 more")
+
+    async def test_an_empty_library_shows_neither(self, user: User):
+        await user.open("/")
+        await user.should_see("The library is empty. Add an item to begin.")
+        await user.should_not_see(marker="summary-speeds")
+        await user.should_not_see(marker="summary-taxa")

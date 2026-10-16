@@ -89,7 +89,10 @@ funcionam normalmente.
 A página Biblioteca é dividida em três seções.
 
 - **Itens da biblioteca** — um mapa com todos os itens e a
-  lista de itens. Selecionar um item abre uma janela com todos os seus
+  lista de itens. São exibidos também os totais da biblioteca, as velocidades
+  presentes e os táxons, cada um com seu número de itens; quando há muitos
+  táxons, os mais frequentes são exibidos primeiro e os demais podem ser
+  expandidos. Selecionar um item abre uma janela com todos os seus
   metadados, seu espectrograma ou forma de onda, um reprodutor e botões para
   exportá-lo, editá-lo ou excluí-lo. A edição emite um aviso antes de salvar
   uma alteração de `speed`, pois isso exige o recálculo dos embeddings.

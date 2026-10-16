@@ -86,7 +86,10 @@ buttons behave as expected.
 The Library page is divided into three collapsible sections.
 
 - **Library items** — library totals, a map of every item and the item list.
-  Selecting an item opens a dialog with its full metadata, its spectrogram or
+  The totals are followed by the speeds present in the library and by its
+  taxa, each with its number of items; when there are many taxa, the most
+  frequent are shown first and the rest can be expanded. Selecting an item
+  opens a dialog with its full metadata, its spectrogram or
   waveform, a player, and buttons to export, edit or delete it. Editing warns
   before saving a change of `speed`, since that requires recomputing the
   embeddings. **Export CSV** downloads the metadata of every item as a table
