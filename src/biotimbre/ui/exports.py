@@ -1,5 +1,9 @@
 """Downloading an item: its audio, or its embeddings as ``.npy``.
 
+Embeddings can come with the audio each window was computed from, cut and
+resampled as that model was given it, for a tool that wants to check what a
+vector describes or to feed the same input to something else.
+
 The same control serves the library list and the search results — an item is
 the same thing wherever it was found, and so is the question "give me this one
 as a file". Filenames match what ``biotimbre export-npy`` writes, so a download
@@ -12,6 +16,7 @@ from nicegui import ui
 
 from biotimbre.domain.errors import BiotimbreError
 from biotimbre.i18n import Translator
+from biotimbre.models_registry import MODEL_SPECS
 from biotimbre.service import audio_filename
 from biotimbre.ui.layout import notify_error
 from biotimbre.ui.state import get_state
@@ -44,17 +49,23 @@ async def _download_bundle(t: Translator, item_id: int) -> None:
     ui.download.content(data, name, "application/zip")
 
 
-async def _download_embeddings(t: Translator, item_id: int, model_id: str) -> None:
+async def _download_embeddings(
+    t: Translator, item_id: int, model_id: str, *, with_audio: bool = False
+) -> None:
     """Send one model's embeddings to the browser, one file per window."""
     state = get_state()
     try:
         data, name = await state.run(
-            state.service.embeddings_export, item_id, model_id
+            state.service.embeddings_export,
+            item_id,
+            model_id,
+            with_audio=with_audio,
         )
     except BiotimbreError as exc:
         notify_error(t, exc)
         return
-    ui.download.content(data, name, "application/octet-stream")
+    mime = "application/zip" if name.endswith(".zip") else "application/octet-stream"
+    ui.download.content(data, name, mime)
 
 
 def export_button(t: Translator, item_id: int, counts: dict[str, int]) -> ui.button:
@@ -98,6 +109,20 @@ def export_button(t: Translator, item_id: int, counts: dict[str, int]) -> ui.but
                         t, item_id, model
                     ),
                 )
+                # Only for a model whose preprocessing is known: the clips are
+                # cut again from the audio, the way that model cuts them.
+                spec = MODEL_SPECS.get(model)
+                if spec is not None:
+                    ui.menu_item(
+                        t(
+                            "export.embeddings_with_audio",
+                            model=model,
+                            rate=spec.sample_rate,
+                        ),
+                        on_click=lambda model=model: _download_embeddings(
+                            t, item_id, model, with_audio=True
+                        ),
+                    )
             if not counts:
                 ui.menu_item(t("export.no_embeddings")).props("disable")
     return button

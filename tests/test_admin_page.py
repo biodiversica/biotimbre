@@ -1513,12 +1513,12 @@ class TestItemDetail:
         assert "shrink-0" in audio._classes
 
     async def test_offers_the_audio_and_each_model_for_export(
-        self, user: User, installed_state
+        self, user: User, installed_state, monkeypatch
     ):
         import dataclasses
 
         from conftest import unit_vectors
-        from biotimbre.models_registry import ModelSpec
+        from biotimbre.models_registry import MODEL_SPECS, ModelSpec
 
         item = self._add(installed_state).item
         spec = ModelSpec(
@@ -1531,6 +1531,8 @@ class TestItemDetail:
             description="test double",
         )
         windowed = dataclasses.replace(spec, model_id="windowed_model")
+        # A model whose preprocessing is known can have its clips remade.
+        monkeypatch.setitem(MODEL_SPECS, "fake_model", spec)
         for model in (spec, windowed):
             installed_state.call(
                 installed_state.service.repo.register_model, model, 4
@@ -1561,6 +1563,10 @@ class TestItemDetail:
         await user.should_see("fake_model embeddings (.npy)")
         # More than one window means more than one file, so it arrives zipped.
         await user.should_see("windowed_model embeddings (2 windows, .zip)")
+        # Clips at the rate the model was given them, offered only where the
+        # model's preprocessing is known and the windows can be cut again.
+        await user.should_see("fake_model embeddings + audio clips at 32000 Hz (.zip)")
+        await user.should_not_see("windowed_model embeddings + audio clips")
 
     async def test_reads_the_band_and_window_with_dashes(
         self, user: User, installed_state

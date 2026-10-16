@@ -96,17 +96,21 @@ def npy_filename(item_id: int, model_id: str) -> str:
     return f"item_{item_id}_{model_id}.npy"
 
 
-def npy_archive_filename(item_id: int, model_id: str) -> str:
+def npy_archive_filename(
+    item_id: int, model_id: str, *, with_audio: bool = False
+) -> str:
     """Conventional name for a multi-window embedding export.
 
     Args:
         item_id: The item.
         model_id: The model.
+        with_audio: Whether the archive also holds each window's audio clip.
 
     Returns:
         A bare filename, no directory.
     """
-    return f"item_{item_id}_{model_id}.zip"
+    suffix = "_with_audio" if with_audio else ""
+    return f"item_{item_id}_{model_id}{suffix}.zip"
 
 
 def window_npy_filename(
@@ -127,9 +131,36 @@ def window_npy_filename(
     Returns:
         A bare filename, no directory.
     """
-    return (
-        f"item_{item_id}_{model_id}_w{index:02d}_{start:.2f}-{end:.2f}s.npy"
-    )
+    return f"{_window_stem(item_id, model_id, index, start, end)}.npy"
+
+
+def window_wav_filename(
+    item_id: int, model_id: str, index: int, start: float, end: float
+) -> str:
+    """Name of one window's audio clip inside an export archive.
+
+    The same stem as the window's ``.npy``, so a vector and the audio it was
+    computed from sort next to each other and pair up by name.
+    """
+    return f"{_window_stem(item_id, model_id, index, start, end)}.wav"
+
+
+def _window_stem(
+    item_id: int, model_id: str, index: int, start: float, end: float
+) -> str:
+    return f"item_{item_id}_{model_id}_w{index:02d}_{start:.2f}-{end:.2f}s"
+
+
+def _wav_bytes(samples: np.ndarray, rate: int) -> bytes:
+    """Encode float32 mono samples as an IEEE-float WAV, unchanged."""
+    from scipy.io import wavfile
+
+    buffer = io.BytesIO()
+    # scipy rather than soundfile, as for the browser's normalised preview:
+    # soundfile writes to a buffer through cffi callbacks, which fail where
+    # libffi does not match what cffi was built for.
+    wavfile.write(buffer, rate, np.asarray(samples, dtype=np.float32))
+    return buffer.getvalue()
 
 
 def bundle_filename(item_ids: Sequence[int]) -> str:
@@ -913,7 +944,9 @@ class LibraryService:
             written[item_id] = counts.get(model_id, 0)
         return written
 
-    def embeddings_export(self, item_id: int, model_id: str) -> tuple[bytes, str]:
+    def embeddings_export(
+        self, item_id: int, model_id: str, *, with_audio: bool = False
+    ) -> tuple[bytes, str]:
         """One item's embeddings for one model, as a file per window.
 
         A window is the unit that means something — one vector, over one span
@@ -921,50 +954,149 @@ class LibraryService:
         a single window exports as a bare ``.npy``; several windows export as a
         zip of one ``.npy`` each, named with the window's index and its span.
 
+        With ``with_audio``, the export is always a zip, and each ``.npy`` has
+        a ``.wav`` beside it of the same name: the samples the model was given
+        for that window — speed-shifted, resampled to the model's rate and
+        padded to its window length, exactly as embedding prepared them. See
+        :meth:`window_clips`.
+
         The same bytes :meth:`export_npy` writes, for a caller that has nowhere
         to write them — a browser download, say.
 
         Args:
             item_id: The item.
             model_id: The model.
+            with_audio: Whether to include each window's audio clip.
 
         Returns:
             The file's bytes and the name to save them under. Each ``.npy``
             holds one 1-D vector of the model's width.
 
         Raises:
-            NotFoundError: If the item has no embeddings for this model.
+            NotFoundError: If the item has no embeddings for this model, or,
+                with audio, its audio file is missing.
+            ValidationError: With audio, if the stored windows no longer match
+                what the model would cut from the audio today.
         """
         windows = self.repo.get_embeddings(item_id, model_id)
         if not windows:
             raise NotFoundError(
                 f"Item {item_id} has no {model_id} embeddings to export."
             )
+        clips = self.window_clips(item_id, model_id, windows) if with_audio else None
 
         def npy_bytes(vector: np.ndarray) -> bytes:
             buffer = io.BytesIO()
             np.save(buffer, vector)
             return buffer.getvalue()
 
-        if len(windows) == 1:
+        if len(windows) == 1 and clips is None:
             return npy_bytes(windows[0][3]), npy_filename(item_id, model_id)
+
+        def write(archive: zipfile.ZipFile, name: str, data: bytes) -> None:
+            # A fixed timestamp, so exporting the same rows twice gives the
+            # same bytes: the archive can be checksummed as provenance, and a
+            # download matches a command-line export exactly. 1980-01-01 is
+            # the earliest a zip entry can record.
+            entry = zipfile.ZipInfo(name, date_time=(1980, 1, 1, 0, 0, 0))
+            entry.compress_type = zipfile.ZIP_DEFLATED
+            archive.writestr(entry, data)
 
         buffer = io.BytesIO()
         with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
-            for index, start, end, vector in windows:
-                # A fixed timestamp, so exporting the same rows twice gives the
-                # same bytes: the archive can be checksummed as provenance, and
-                # a download matches a command-line export exactly. 1980-01-01
-                # is the earliest a zip entry can record.
-                entry = zipfile.ZipInfo(
+            for position, (index, start, end, vector) in enumerate(windows):
+                write(
+                    archive,
                     window_npy_filename(item_id, model_id, index, start, end),
-                    date_time=(1980, 1, 1, 0, 0, 0),
+                    npy_bytes(vector),
                 )
-                entry.compress_type = zipfile.ZIP_DEFLATED
-                archive.writestr(entry, npy_bytes(vector))
-        return buffer.getvalue(), npy_archive_filename(item_id, model_id)
+                if clips is not None:
+                    write(
+                        archive,
+                        window_wav_filename(item_id, model_id, index, start, end),
+                        clips[position],
+                    )
+        name = npy_archive_filename(item_id, model_id, with_audio=clips is not None)
+        return buffer.getvalue(), name
 
-    def export_npy(self, item_id: int, model_id: str, destination: str | Path) -> Path:
+    def window_clips(
+        self,
+        item_id: int,
+        model_id: str,
+        windows: Sequence[tuple[int, float, float, np.ndarray]] | None = None,
+    ) -> list[bytes]:
+        """Each stored window's model input, as WAV, in window order.
+
+        Cut again rather than stored: the audio and the model's preprocessing
+        are both kept, so the windows can be remade exactly — the same speed
+        shift, the same single resample to the model's rate, the same framing
+        and zero-padding as :meth:`compute_embeddings_for`. Each clip is mono
+        float32 at the model's sample rate, one window long.
+
+        Args:
+            item_id: The item.
+            model_id: The model.
+            windows: The item's stored windows for this model, if the caller
+                already has them.
+
+        Returns:
+            One WAV file's bytes per stored window.
+
+        Raises:
+            NotFoundError: If the audio file is missing, or there are no
+                stored windows.
+            ValidationError: If the model is unknown, or the windows cut today
+                differ from the stored ones — the vectors were computed under
+                other settings, and a clip would not be what they describe.
+        """
+        if windows is None:
+            windows = self.repo.get_embeddings(item_id, model_id)
+        if not windows:
+            raise NotFoundError(
+                f"Item {item_id} has no {model_id} embeddings to export."
+            )
+        try:
+            spec = get_spec(model_id)
+        except KeyError as exc:
+            raise ValidationError(str(exc), "model_id") from None
+
+        item = self.repo.get_item(item_id)
+        source = self.settings.absolute_audio_path(item.audio_path)
+        if not source.is_file():
+            raise NotFoundError(
+                f"Audio for item {item_id} is missing from {source}."
+            )
+        samples, native_rate = audio_io.load_mono(source)
+        clips, spans = audio_io.prepare_windows(
+            samples,
+            native_rate,
+            model_rate=spec.sample_rate,
+            window_samples=spec.window_samples,
+            stride_samples=spec.stride_samples,
+            speed=item.speed,
+        )
+
+        stored = [(start, end) for _, start, end, _ in windows]
+        if len(spans) != len(stored) or any(
+            abs(a - c) > 1e-3 or abs(b - d) > 1e-3
+            for (a, b), (c, d) in zip(spans, stored)
+        ):
+            raise ValidationError(
+                f"Item {item_id}'s {model_id} embeddings were computed with "
+                "other settings than the model's current ones, so its clips "
+                "cannot be remade. Re-embed the item first.",
+                "model_id",
+            )
+        return [_wav_bytes(clip, spec.sample_rate) for clip in clips]
+
+    def export_npy(
+        self,
+        item_id: int,
+        model_id: str,
+        destination: str | Path,
+        *,
+        with_audio: bool = False,
+    ) -> Path:
         """Write one item's embeddings for one model to disk.
 
         Provided for interop and hand-off; the database remains the source of
@@ -975,6 +1107,8 @@ class LibraryService:
             item_id: The item.
             model_id: The model.
             destination: Output path, or a directory to name the file inside.
+            with_audio: Whether to include each window's audio clip, as the
+                model heard it. Always writes a zip.
 
         Returns:
             The written path.
@@ -982,7 +1116,9 @@ class LibraryService:
         Raises:
             NotFoundError: If the item has no embeddings for this model.
         """
-        data, name = self.embeddings_export(item_id, model_id)
+        data, name = self.embeddings_export(
+            item_id, model_id, with_audio=with_audio
+        )
 
         out = Path(destination)
         if out.is_dir():

@@ -304,6 +304,28 @@ class TestEndToEndCli:
         with zipfile.ZipFile(reported) as archive:
             assert len(archive.namelist()) == 3
 
+    def test_export_npy_with_audio_adds_a_clip_per_window(
+        self, data_dir, tmp_path, capsys
+    ):
+        import zipfile
+
+        run(data_dir, "init", "--name", "Test Library")
+        run(data_dir, "add", str(GUYVIR_WAV))
+        capsys.readouterr()
+
+        assert run(
+            data_dir, "export-npy", "1", "perch_v2", str(tmp_path), "--with-audio"
+        ) == 0
+        from pathlib import Path
+
+        reported = Path(capsys.readouterr().out.strip().removeprefix("Wrote "))
+        assert reported.name == "item_1_perch_v2_with_audio.zip"
+        with zipfile.ZipFile(reported) as archive:
+            assert sorted(Path(n).suffix for n in archive.namelist()) == [
+                ".npy",
+                ".wav",
+            ]
+
     def test_search_warns_about_a_query_beyond_full_scale(
         self, data_dir, tmp_path, capsys
     ):

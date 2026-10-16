@@ -502,6 +502,80 @@ class TestEndToEnd:
         written = service.export_npy(1, "birdnet_v2.4", tmp_path / "vectors.npy")
         assert written.suffix == ".zip"
 
+    def test_audio_clips_come_beside_each_window(self, service):
+        import io
+        import zipfile
+
+        from scipy.io import wavfile
+
+        from biotimbre.models_registry import get_spec
+
+        service.import_directory(EXAMPLES_DIR)
+        spec = get_spec("birdnet_v2.4")
+        data, name = service.embeddings_export(1, "birdnet_v2.4", with_audio=True)
+        assert name == "item_1_birdnet_v2.4_with_audio.zip"
+
+        with zipfile.ZipFile(io.BytesIO(data)) as archive:
+            names = sorted(archive.namelist())
+            assert len(names) == 6
+            # Each vector's audio sorts next to it and shares its name.
+            assert names[0] == "item_1_birdnet_v2.4_w00_0.00-3.00s.npy"
+            assert names[1] == "item_1_birdnet_v2.4_w00_0.00-3.00s.wav"
+            for entry in names[1::2]:
+                rate, clip = wavfile.read(io.BytesIO(archive.read(entry)))
+                # As the model was given it: its rate, one window long.
+                assert rate == spec.sample_rate
+                assert clip.dtype == np.float32
+                assert clip.shape == (spec.window_samples,)
+
+    def test_a_clip_is_the_exact_model_input(self, service):
+        import io
+        import zipfile
+
+        from scipy.io import wavfile
+
+        from biotimbre.embeddings import audio as audio_io
+        from biotimbre.models_registry import get_spec
+
+        service.import_directory(EXAMPLES_DIR)
+        item = service.repo.get_item(1)
+        spec = get_spec("perch_v2")
+        samples, rate = audio_io.load_mono(
+            service.settings.absolute_audio_path(item.audio_path)
+        )
+        expected, _ = audio_io.prepare_windows(
+            samples,
+            rate,
+            model_rate=spec.sample_rate,
+            window_samples=spec.window_samples,
+            stride_samples=spec.stride_samples,
+            speed=item.speed,
+        )
+
+        # A single window still comes as an archive: two files now travel.
+        data, name = service.embeddings_export(1, "perch_v2", with_audio=True)
+        assert name.endswith(".zip")
+        with zipfile.ZipFile(io.BytesIO(data)) as archive:
+            wav = next(n for n in archive.namelist() if n.endswith(".wav"))
+            _, clip = wavfile.read(io.BytesIO(archive.read(wav)))
+        np.testing.assert_array_equal(clip, expected[0])
+
+    def test_the_audio_export_is_reproducible(self, service, tmp_path):
+        service.import_directory(EXAMPLES_DIR)
+        data, _ = service.embeddings_export(1, "birdnet_v2.4", with_audio=True)
+        written = service.export_npy(
+            1, "birdnet_v2.4", tmp_path, with_audio=True
+        )
+        assert written.read_bytes() == data
+
+    def test_clips_are_refused_when_the_windows_no_longer_match(self, service):
+        service.import_directory(EXAMPLES_DIR)
+        # Stored windows from other settings: a clip cut today would not be
+        # what these vectors describe.
+        windows = service.repo.get_embeddings(1, "birdnet_v2.4")[:2]
+        with pytest.raises(ValidationError, match="Re-embed"):
+            service.window_clips(1, "birdnet_v2.4", windows)
+
     def test_export_refuses_a_model_with_no_embeddings(self, service):
         service.import_directory(EXAMPLES_DIR)
         with pytest.raises(NotFoundError, match="no fake_model embeddings"):

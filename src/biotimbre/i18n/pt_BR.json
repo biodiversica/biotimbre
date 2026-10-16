@@ -165,6 +165,7 @@
     "audio": "Arquivo de áudio",
     "embeddings_one": "Embeddings {model} (.npy)",
     "embeddings_many": "Embeddings {model} ({count} janelas, .zip)",
+    "embeddings_with_audio": "Embeddings {model} + trechos de áudio a {rate} Hz (.zip)",
     "no_embeddings": "Ainda sem embeddings",
     "bundle": "Pacote para compartilhar (.btz)"
   },

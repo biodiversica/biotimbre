@@ -165,6 +165,7 @@
     "audio": "Audio file",
     "embeddings_one": "{model} embeddings (.npy)",
     "embeddings_many": "{model} embeddings ({count} windows, .zip)",
+    "embeddings_with_audio": "{model} embeddings + audio clips at {rate} Hz (.zip)",
     "no_embeddings": "No embeddings yet",
     "bundle": "Shareable bundle (.btz)"
   },

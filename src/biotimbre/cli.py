@@ -428,7 +428,9 @@ def cmd_backfill(args: argparse.Namespace) -> int:
 def cmd_export_npy(args: argparse.Namespace) -> int:
     """Export one item's embeddings: a .npy per window, zipped if several."""
     with _service(args) as service:
-        out = service.export_npy(args.item_id, args.model_id, args.output)
+        out = service.export_npy(
+            args.item_id, args.model_id, args.output, with_audio=args.with_audio
+        )
         print(f"Wrote {out}")
     return 0
 
@@ -750,6 +752,13 @@ def build_parser() -> argparse.ArgumentParser:
     p_export.add_argument("item_id", type=int)
     p_export.add_argument("model_id")
     p_export.add_argument("output", help="Output file or directory.")
+    p_export.add_argument(
+        "--with-audio",
+        action="store_true",
+        help="Also include each window's audio as WAV, as the model was given "
+             "it: at the model's sample rate, speed-shifted and padded. Always "
+             "writes a zip.",
+    )
     p_export.set_defaults(func=cmd_export_npy)
 
     p_export_bundle = subparsers.add_parser(
