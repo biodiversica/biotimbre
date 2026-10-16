@@ -260,6 +260,7 @@
     "query_speed_note": "Correspondência usando a busca calculada na velocidade {speed}.",
     "min_score": "Pontuação mínima",
     "open_item": "Abrir na biblioteca",
+    "details": "Detalhes",
     "needs_segment": "Mais longo que {seconds} s — escolha um trecho para buscar.",
     "over_range": "O trecho selecionado atinge pico de {peak} ({dbfs} dBFS), acima da escala cheia, então é buscado e reproduzido normalizado com pico em {target} dBFS.",
     "no_query": "Escolha uma gravação para buscar, ou defina um filtro para buscar por metadados.",

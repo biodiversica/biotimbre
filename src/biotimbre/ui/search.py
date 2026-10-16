@@ -35,6 +35,7 @@ from biotimbre.ui.clip_editor import (
     hand_over,
 )
 from biotimbre.ui.coordinates import CoordinatesInput
+from biotimbre.ui.details import open_detail
 from biotimbre.ui import inat, maps
 from biotimbre.ui.exports import export_button
 from biotimbre.ui.layout import current_views, notify_error
@@ -112,6 +113,7 @@ def _hit_points(t: Translator, hits) -> list[maps.MapPoint]:
                 latitude=item.location.latitude,
                 longitude=item.location.longitude,
                 label=" · ".join(part for part in parts if part),
+                item_id=item.item_id,
             )
         )
     return points
@@ -222,6 +224,13 @@ async def _result_card(
                 )
                 with ui.row().classes("items-center gap-3"):
                     view_toggle(t, choice, draw_view).mark("result-view")
+                    # The library's own dialog, without its edit and delete:
+                    # everything stored about the item, read where it was found.
+                    ui.button(
+                        t("search.details"),
+                        icon="info",
+                        on_click=lambda: open_detail(t, item.item_id),
+                    ).props("flat dense no-caps").mark("result-details")
                     export_button(t, item.item_id, counts)
                     if item.link_to_full_recording:
                         ui.link(
@@ -614,6 +623,9 @@ async def render(t: Translator) -> None:
             heading=t("map.heading"),
             hint=t("map.pick_hint"),
             on_pick=pick_centre,
+            # The same read-only dialog as the result's Details button.
+            on_open=lambda item_id: open_detail(t, item_id),
+            open_label=t("map.open_item"),
         )
 
         def show_centre() -> None:

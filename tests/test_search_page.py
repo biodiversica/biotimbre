@@ -1355,3 +1355,65 @@ class TestResultViews:
         # Each button offers the view its own card is not showing.
         assert toggles[0]._props["icon"] == "gradient"
         assert toggles[1]._props["icon"] == "graphic_eq"
+
+
+class TestResultDetails:
+    """A result opens the library's detail dialog, without its edit actions."""
+
+    @staticmethod
+    async def _search(user: User, state):
+        from biotimbre.io.sidecar import draft_from_sidecar
+
+        item = state.call(
+            state.service.add_item,
+            EXAMPLES_DIR / "GUYVIR.wav",
+            draft_from_sidecar(EXAMPLES_DIR / "GUYVIR.txt"),
+            compute_embeddings=False,
+        ).item
+        await user.open("/search")
+        await user.should_see("Find similar samples")
+        dates = {
+            element._props.get("label"): element
+            for element in user.find(ui.input).elements
+        }
+        dates["From date"].value = "1900-01-01"
+        TestResultMap._run_search(user)
+        await user.should_see("1 match(es)")
+        return item
+
+    @staticmethod
+    def _labels(user: User) -> set[str]:
+        return {
+            element._props.get("label") for element in user.find(ui.button).elements
+        }
+
+    async def test_details_shows_everything_but_offers_no_edit(
+        self, user: User, installed_state
+    ):
+        from nicegui.testing.user_interaction import UserInteraction
+
+        item = await self._search(user, installed_state)
+        UserInteraction(
+            user, set(user.find(marker="result-details").elements), None
+        ).click()
+
+        await user.should_see(f"Item {item.item_id}")
+        await user.should_see("Sample rate")
+        await user.should_see(item.biotimbre_id)
+        # Changing the library is the library page's business.
+        assert "Edit" not in self._labels(user)
+        assert "Delete" not in self._labels(user)
+        assert "Close" in self._labels(user)
+
+    async def test_a_dot_s_link_opens_the_same_dialog(
+        self, user: User, installed_state
+    ):
+        from nicegui.testing.user_interaction import UserInteraction
+
+        item = await self._search(user, installed_state)
+        leaflet = next(iter(user.find(ui.leaflet).elements))
+        UserInteraction(user, {user.client.layout}, None).trigger(
+            f"btMapOpen{leaflet.id}", args=item.item_id
+        )
+        await user.should_see("Sample rate")
+        assert "Edit" not in self._labels(user)

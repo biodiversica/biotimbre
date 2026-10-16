@@ -476,6 +476,8 @@ def map_card(
     hint: str = "",
     height: int = DEFAULT_HEIGHT,
     on_pick: Callable[[float, float], None] | None = None,
+    on_open: Callable[[int], object] | None = None,
+    open_label: str = "",
 ) -> LocationMap:
     """Render a titled card holding one map, and return it.
 
@@ -485,6 +487,8 @@ def map_card(
         hint: Translated line under it, if there is anything to say.
         height: Map height in pixels.
         on_pick: Passed through to :class:`LocationMap`.
+        on_open: Passed through to :class:`LocationMap`.
+        open_label: Passed through to :class:`LocationMap`.
 
     Returns:
         The map, ready to be given points.
@@ -493,7 +497,9 @@ def map_card(
         ui.label(heading).classes("text-sm font-medium")
         if hint:
             ui.label(hint).classes("text-xs text-muted")
-        return LocationMap(height=height, on_pick=on_pick)
+        return LocationMap(
+            height=height, on_pick=on_pick, on_open=on_open, open_label=open_label
+        )
 
 
 def location_picker(

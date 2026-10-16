@@ -260,6 +260,7 @@
     "query_speed_note": "Matched using the query embedded at speed {speed}.",
     "min_score": "Minimum score",
     "open_item": "Open in library",
+    "details": "Details",
     "needs_segment": "Longer than {seconds} s — choose a segment to search with.",
     "over_range": "The selection peaks at {peak} ({dbfs} dBFS), beyond full scale, so it is searched and played normalised to peak at {target} dBFS.",
     "no_query": "Choose a recording to search with, or set a filter to search by metadata.",
