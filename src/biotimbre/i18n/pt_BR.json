@@ -56,7 +56,9 @@
     "of": "de",
     "play": "Reproduzir",
     "spectrogram": "Espectrograma",
-    "no_results": "Nada a exibir."
+    "no_results": "Nada a exibir.",
+    "copied": "{text} copiado",
+    "copy_failed": "Não foi possível copiar automaticamente. Selecione e copie aqui: {text}"
   },
   "field": {
     "item_id": "ID do item",
@@ -235,7 +237,7 @@
       "centre": "Centro (latitude, longitude)",
       "radius": "Raio",
       "biotimbre_id": "ID do biotimbre",
-      "biotimbre_id_help": "UUID completo do biotimbre. Copie da visão detalhada do item ou da dica de um resultado.",
+      "biotimbre_id_help": "UUID completo do biotimbre. Clique no ID de um resultado para copiá-lo, ou copie da visão detalhada do item.",
       "clear": "Limpar filtros"
     },
     "options": "Opções",
@@ -266,6 +268,7 @@
     "over_range": "O trecho selecionado atinge pico de {peak} ({dbfs} dBFS), acima da escala cheia, então é buscado e reproduzido normalizado com pico em {target} dBFS.",
     "no_query": "Escolha uma gravação para buscar, ou defina um filtro para buscar por metadados.",
     "rank": "#",
+    "copy_id": "{biotimbre_id} (clique para copiar)",
     "compare_hint": "Reproduza a busca e depois cada resultado para julgar a correspondência de ouvido.",
     "marker_hint": "A faixa mais clara marca a janela que gerou a pontuação.",
     "to_library": "Adicionar à biblioteca…",

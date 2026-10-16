@@ -34,6 +34,7 @@ from biotimbre.ui.clip_editor import (
     clip_editor,
     hand_over,
 )
+from biotimbre.ui.clipboard import copy_on_click
 from biotimbre.ui.coordinates import CoordinatesInput
 from biotimbre.ui.details import open_detail
 from biotimbre.ui import inat, maps
@@ -149,9 +150,16 @@ async def _result_card(
                             "text-lg font-medium tabular-nums"
                         )
                     ui.label(item.taxa_display).classes("text-sm")
-                    ui.label(item.biotimbre_id[:8]).classes(
-                        "font-mono text-xs px-2 py-0.5 rounded bg-chip"
-                    ).tooltip(item.biotimbre_id)
+                    # Shortened to stay out of the way; a click copies the
+                    # whole ID, for the filter or another library.
+                    copy_on_click(
+                        t,
+                        ui.label(item.biotimbre_id[:8])
+                        .classes("font-mono text-xs px-2 py-0.5 rounded bg-chip")
+                        .tooltip(t("search.copy_id", biotimbre_id=item.biotimbre_id))
+                        .mark("result-biotimbre-id"),
+                        item.biotimbre_id,
+                    )
                 with ui.row().classes("gap-3 text-xs text-muted flex-wrap"):
                     ui.label(f"#{item.item_id}")
                     ui.label(f"{item.date} {item.time}")

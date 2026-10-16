@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import numpy as np
 import pytest
 import soundfile as sf
@@ -1449,3 +1451,57 @@ class TestResultsCsv:
         assert (rows[0]["latitude"], rows[0]["longitude"]) == ("-26.3", "-48.85")
         # Measured from the filter's centre, as the card says.
         assert float(rows[0]["distance_km"]) == pytest.approx(0.0, abs=0.01)
+
+
+@pytest.mark.usefixtures("installed_state")
+class TestCopyBiotimbreId:
+    """A result's shortened ID copies the whole UUID when clicked."""
+
+    @staticmethod
+    async def _one_result(user: User, installed_state) -> ui.label:
+        TestResultMap._store(installed_state, (-26.3, -48.85), (-25.4, -49.2))
+        await user.open("/search")
+        await user.should_see("Choose a recording to search with")
+        TestResultMap._centre(user).value = "-26.3, -48.85"
+        TestResultMap._numbers(user)["Radius"].value = 10.0
+        TestResultMap._run_search(user)
+        await user.should_see("1 match(es)")
+        return next(iter(user.find(marker="result-biotimbre-id").elements))
+
+    async def test_the_chip_copies_the_whole_uuid(self, user: User, installed_state):
+        chip = await self._one_result(user, installed_state)
+        short = chip.text
+        [listener] = [
+            listener
+            for listener in chip._event_listeners.values()
+            if listener.type == "click"
+        ]
+        full = next(
+            item.biotimbre_id
+            for item in installed_state.service.repo.list_items()
+            if item.biotimbre_id.startswith(short)
+        )
+        assert len(short) == 8
+        # Copied in the browser, inside the click: the whole UUID, not the label.
+        assert json.dumps(full) in listener.js_handler
+
+    async def test_a_copy_is_confirmed(self, user: User, installed_state):
+        from nicegui.testing.user_interaction import UserInteraction
+
+        chip = await self._one_result(user, installed_state)
+        UserInteraction(user, {chip}, None).trigger("click", True)
+        full = next(
+            item.biotimbre_id
+            for item in installed_state.service.repo.list_items()
+            if item.biotimbre_id.startswith(chip.text)
+        )
+        await user.should_see(f"Copied {full}")
+
+    async def test_a_failed_copy_shows_the_uuid_to_copy_by_hand(
+        self, user: User, installed_state
+    ):
+        from nicegui.testing.user_interaction import UserInteraction
+
+        chip = await self._one_result(user, installed_state)
+        UserInteraction(user, {chip}, None).trigger("click", False)
+        await user.should_see("Could not copy automatically")
