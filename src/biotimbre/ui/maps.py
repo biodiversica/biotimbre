@@ -30,6 +30,7 @@ from dataclasses import dataclass
 from nicegui import ui
 
 from biotimbre.i18n import Translator
+from biotimbre.ui.coordinates import CoordinatesInput
 from biotimbre.ui.state import get_state
 
 #: Height of the map, in pixels. One big map per page, so it can afford to be
@@ -497,15 +498,14 @@ def map_card(
 
 def location_picker(
     t: Translator,
-    latitude: ui.number,
-    longitude: ui.number,
+    coordinates: CoordinatesInput,
     *,
     height: int = PICKER_HEIGHT,
 ) -> ui.expansion:
-    """A collapsed map that fills in a pair of coordinate inputs when clicked.
+    """A collapsed map that fills in a coordinates input when clicked.
 
-    An option beside the inputs, not a replacement for them: typing, pasting
-    and an iNaturalist fetch still write the fields, and the map follows.
+    An option beside the input, not a replacement for it: typing, pasting
+    and an iNaturalist fetch still write the field, and the map follows.
 
     The map is built the first time the panel opens. Most additions never need
     it, so tiles are not fetched for nothing — and Leaflet sizes itself when it
@@ -513,8 +513,7 @@ def location_picker(
 
     Args:
         t: Active translator.
-        latitude: The latitude input to fill.
-        longitude: The longitude input to fill.
+        coordinates: The input to fill.
         height: Map height in pixels.
 
     Returns:
@@ -535,15 +534,15 @@ def location_picker(
         """
         picker = holder["map"]
         if picker is not None:
+            latitude, longitude = coordinates.coordinates or (None, None)
             picker.set_focus(
-                latitude.value, longitude.value, None, refit=not holder["clicked"]
+                latitude, longitude, None, refit=not holder["clicked"]
             )
 
     def pick(lat: float, lon: float) -> None:
         holder["clicked"] = True
         try:
-            latitude.value = round(lat, 6)
-            longitude.value = round(lon, 6)
+            coordinates.coordinates = (lat, lon)
         finally:
             holder["clicked"] = False
 
@@ -556,6 +555,5 @@ def location_picker(
         show_pick()
 
     panel.on_value_change(build)
-    latitude.on_value_change(show_pick)
-    longitude.on_value_change(show_pick)
+    coordinates.on_value_change(show_pick)
     return panel

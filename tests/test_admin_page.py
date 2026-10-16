@@ -237,8 +237,7 @@ class TestMetadataForm:
         form = await self._form(user)
         form.inputs["date"].value = "2021-03-05"
         form.inputs["time"].value = "22:10:00"
-        form.inputs["latitude"].value = -26.9
-        form.inputs["longitude"].value = -48.7
+        form.inputs["location"].value = "-26.9, -48.7"
         form.inputs["window_start"].value = 12.0
         form.inputs["window_end"].value = 17.0
 
@@ -254,8 +253,7 @@ class TestMetadataForm:
         form = await self._form(user)
         form.inputs["date"].value = "2021-03-05"
         form.inputs["time"].value = "22:10:00"
-        form.inputs["latitude"].value = -26.9
-        form.inputs["longitude"].value = -48.7
+        form.inputs["location"].value = "-26.9, -48.7"
 
         assert form.draft().sample_window is None
 
@@ -263,8 +261,7 @@ class TestMetadataForm:
         form = await self._form(user)
         form.inputs["date"].value = "2021-03-05"
         form.inputs["time"].value = "22:10:00"
-        form.inputs["latitude"].value = -26.9
-        form.inputs["longitude"].value = -48.7
+        form.inputs["location"].value = "-26.9, -48.7"
         form.inputs["window_start"].value = 12.0
 
         with pytest.raises(ValidationError) as exc:
@@ -272,7 +269,7 @@ class TestMetadataForm:
         assert exc.value.field == "sample_window.end"
         assert form.show_error(exc.value) is True
 
-    async def test_missing_location_is_reported_on_the_latitude_input(
+    async def test_missing_location_is_reported_on_its_input(
         self, user: User
     ):
         form = await self._form(user)
@@ -286,15 +283,60 @@ class TestMetadataForm:
         # The point of ValidationError.field: mark the input, not a bare toast.
         assert exc.value.field == "location"
         assert form.show_error(exc.value) is True
-        # A half-given location is reported on latitude, the first of the pair.
-        assert form.inputs["latitude"]._props["error"] is True
+        assert form.inputs["location"]._props["error"] is True
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "  -26.9 ,-48.7 ",
+            "-26.9;-48.7",
+            "-26.9 ; -48.7",
+            "-26.9 -48.7",
+            "-26.9\t-48.7",
+        ],
+    )
+    async def test_a_pasted_pair_is_read_whatever_its_separator(
+        self, user: User, text: str
+    ):
+        form = await self._form(user)
+        form.inputs["date"].value = "2021-03-05"
+        form.inputs["time"].value = "22:10:00"
+        form.inputs["location"].value = text
+
+        location = form.draft().location
+        assert (location.latitude, location.longitude) == (-26.9, -48.7)
+
+    @pytest.mark.parametrize(
+        ("text", "field"),
+        [
+            ("-26.9", "location"),
+            ("-26.9, , -48.7", "location"),
+            # A decimal comma makes four numbers, not two.
+            ("-26,9 -48,7", "location"),
+            ("-26.9, west", "location.longitude"),
+            ("-126.9, -48.7", "location.latitude"),
+        ],
+    )
+    async def test_an_unreadable_location_is_reported_on_its_input(
+        self, user: User, text: str, field: str
+    ):
+        form = await self._form(user)
+        form.inputs["date"].value = "2021-03-05"
+        form.inputs["time"].value = "22:10:00"
+        form.inputs["location"].value = text
+
+        with pytest.raises(ValidationError) as exc:
+            form.draft()
+        assert exc.value.field == field
+        # Either half of the pair is wrong in the one input that holds both.
+        assert form.show_error(exc.value) is True
+        assert form.inputs["location"]._props["error"] is True
 
     async def test_bad_date_is_mapped_to_the_date_input(self, user: User):
         form = await self._form(user)
         form.inputs["date"].value = "not-a-date"
         form.inputs["time"].value = "22:10:00"
-        form.inputs["latitude"].value = -26.9
-        form.inputs["longitude"].value = -48.7
+        form.inputs["location"].value = "-26.9, -48.7"
         form.inputs["window_start"].value = 0.0
         form.inputs["window_end"].value = 5.0
 
@@ -307,8 +349,7 @@ class TestMetadataForm:
         form = await self._form(user)
         form.inputs["date"].value = "2021-03-05"
         form.inputs["time"].value = "22:10:00"
-        form.inputs["latitude"].value = -26.9
-        form.inputs["longitude"].value = -48.7
+        form.inputs["location"].value = "-26.9, -48.7"
         form.inputs["window_start"].value = 17.0
         form.inputs["window_end"].value = 12.0
 
@@ -324,8 +365,7 @@ class TestMetadataForm:
         form = await self._form(user)
         form.inputs["date"].value = "2021-03-05"
         form.inputs["time"].value = "22:10:00"
-        form.inputs["latitude"].value = -26.9
-        form.inputs["longitude"].value = -48.7
+        form.inputs["location"].value = "-26.9, -48.7"
         form.inputs["window_start"].value = 0.0
         form.inputs["window_end"].value = 5.0
         form.inputs["highpass"].value = 2000
@@ -340,8 +380,7 @@ class TestMetadataForm:
         form = await self._form(user)
         form.inputs["date"].value = "2021-03-05"
         form.inputs["time"].value = "22:10:00"
-        form.inputs["latitude"].value = -26.9
-        form.inputs["longitude"].value = -48.7
+        form.inputs["location"].value = "-26.9, -48.7"
         form.inputs["window_start"].value = 0.0
         form.inputs["window_end"].value = 5.0
         form.inputs["device"].value = "   "
@@ -355,8 +394,7 @@ class TestMetadataForm:
         form = await self._form(user)
         form.inputs["date"].value = "2021-03-05"
         form.inputs["time"].value = "22:10:00"
-        form.inputs["latitude"].value = -26.9
-        form.inputs["longitude"].value = -48.7
+        form.inputs["location"].value = "-26.9, -48.7"
         form.inputs["window_start"].value = 0.0
         form.inputs["window_end"].value = 5.0
         form.inputs["speed"].value = 500.0
@@ -419,7 +457,10 @@ class TestEditPrefill:
         form = holder["form"]
 
         assert form.inputs["date"].value == item.date
-        assert form.inputs["latitude"].value == item.location.latitude
+        assert form.inputs["location"].coordinates == (
+            item.location.latitude,
+            item.location.longitude,
+        )
         assert form.inputs["device"].value == "Audiomoth"
         # The open-ended band round-trips as an empty upper bound.
         assert form.inputs["highpass"].value == 2000.0
@@ -1013,8 +1054,7 @@ class TestSpeciesJoinsItsBiotimbre:
         }
         inputs["Date"].value = "2021-03-05"
         inputs["Time"].value = "22:10:00"
-        inputs["Latitude"].value = -26.9
-        inputs["Longitude"].value = -48.7
+        inputs["Location"].value = "-26.9, -48.7"
         inputs["Taxa"].value = [taxon]
 
         button = next(
@@ -1142,7 +1182,7 @@ class TestObservationFetch:
         }
         assert inputs["Date"].value == "2026-09-14"
         assert inputs["Time"].value == "17:59:27"
-        assert inputs["Latitude"].value == pytest.approx(-28.82)
+        assert inputs["Location"].coordinates == pytest.approx((-28.82, 153.28))
         assert inputs["Taxa"].value == ["Guyalna bonaerensis"]
         assert inputs["Recorded by"].value == "Paul Montgomery"
         # The observation page is the full recording this sample came from.
@@ -1158,11 +1198,11 @@ class TestObservationFetch:
 
         inputs = {
             element._props.get("label"): element
-            for element in user.find(ui.number).elements
+            for element in user.find(ui.input).elements
         }
         # iNaturalist's coordinates for a hidden observation name a random
         # point; recording them as fact would be a lie.
-        assert inputs["Latitude"].value is None
+        assert not inputs["Location"].value
 
     async def test_notes_already_written_are_kept(self, user: User, monkeypatch):
         from nicegui.testing.user_interaction import UserInteraction

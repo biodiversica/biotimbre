@@ -69,9 +69,8 @@
     "taxa_help": "Comma-separated tags, e.g. insecta, orthoptera. Empty means unknown.",
     "date": "Date",
     "time": "Time",
-    "latitude": "Latitude",
-    "longitude": "Longitude",
     "location": "Location",
+    "location_hint": "Latitude, longitude in decimal degrees, e.g. -26.3, -48.85",
     "device": "Device",
     "device_help": "Recording device brand and model.",
     "microphone": "Microphone",
@@ -233,8 +232,7 @@
       "taxa_all": "Require every tag",
       "date_from": "From date",
       "date_to": "To date",
-      "latitude": "Centre latitude",
-      "longitude": "Centre longitude",
+      "centre": "Centre (latitude, longitude)",
       "radius": "Radius",
       "biotimbre_id": "Biotimbre ID",
       "biotimbre_id_help": "Full biotimbre UUID. Copy it from the item detail view or a result's tooltip.",
@@ -276,7 +274,7 @@
     "library_hint": "One dot per item. Click a dot to see which, and open it from there. Ctrl+scroll zooms the map.",
     "open_item": "Open details",
     "pick_location": "Pick on map",
-    "pick_location_hint": "Click where the recording was made to fill in latitude and longitude. Ctrl+scroll or the +/− buttons zoom."
+    "pick_location_hint": "Click where the recording was made to fill in the location. Ctrl+scroll or the +/− buttons zoom."
   },
   "inat": {
     "observation": "iNaturalist observation ID or link",

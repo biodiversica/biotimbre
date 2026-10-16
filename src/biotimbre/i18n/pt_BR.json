@@ -69,9 +69,8 @@
     "taxa_help": "Tags separados por vírgula, ex.: insecta, orthoptera. Quando não há tags significa desconhecido.",
     "date": "Data",
     "time": "Hora",
-    "latitude": "Latitude",
-    "longitude": "Longitude",
     "location": "Localização",
+    "location_hint": "Latitude, longitude em graus decimais, ex.: -26.3, -48.85",
     "device": "Equipamento de gravação",
     "device_help": "Marca e modelo do gravador.",
     "microphone": "Microfone",
@@ -233,8 +232,7 @@
       "taxa_all": "Exigir todas as etiquetas",
       "date_from": "Data inicial",
       "date_to": "Data final",
-      "latitude": "Latitude central",
-      "longitude": "Longitude central",
+      "centre": "Centro (latitude, longitude)",
       "radius": "Raio",
       "biotimbre_id": "ID do biotimbre",
       "biotimbre_id_help": "UUID completo do biotimbre. Copie da visão detalhada do item ou da dica de um resultado.",
@@ -276,7 +274,7 @@
     "library_hint": "Um ponto por item. Clique em um ponto para ver qual e abri-lo a partir dali. Ctrl+scroll aplica zoom no mapa.",
     "open_item": "Abrir detalhes",
     "pick_location": "Escolher no mapa",
-    "pick_location_hint": "Clique onde a gravação foi feita para preencher a latitude e a longitude. Ctrl+scroll ou os botões +/− aplicam zoom."
+    "pick_location_hint": "Clique onde a gravação foi feita para preencher a localização. Ctrl+scroll ou os botões +/− aplicam zoom."
   },
   "inat": {
     "observation": "ID ou link de observação no iNaturalist",

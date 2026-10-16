@@ -22,10 +22,10 @@ from biotimbre.domain.item import (
     FilteredBand,
     ItemDraft,
     LibraryItem,
-    Location,
     SampleWindow,
 )
 from biotimbre.i18n import Translator
+from biotimbre.ui.coordinates import CoordinatesInput
 from biotimbre.ui.maps import location_picker
 from biotimbre.ui.sections import foldable
 from biotimbre.ui.suggestions import suggest_tags, suggest_text
@@ -35,9 +35,9 @@ from biotimbre.ui.suggestions import suggest_tags, suggest_text
 _FIELD_TO_INPUT: dict[str, str] = {
     "date": "date",
     "time": "time",
-    "location": "latitude",
-    "location.latitude": "latitude",
-    "location.longitude": "longitude",
+    "location": "location",
+    "location.latitude": "location",
+    "location.longitude": "location",
     "sample_window": "window_start",
     "sample_window.start": "window_start",
     "sample_window.end": "window_end",
@@ -60,7 +60,7 @@ _FIELD_TO_INPUT: dict[str, str] = {
 
 
 #: Inputs shown above the fold; every other one lives in the optional panel.
-_REQUIRED_INPUTS = frozenset({"date", "time", "latitude", "longitude"})
+_REQUIRED_INPUTS = frozenset({"date", "time", "location"})
 
 
 def _blank_to_none(value: object) -> object | None:
@@ -124,9 +124,8 @@ class MetadataForm:
         """
         values = {name: element.value for name, element in self.inputs.items()}
 
-        latitude = _blank_to_none(values["latitude"])
-        longitude = _blank_to_none(values["longitude"])
-        if latitude is None or longitude is None:
+        location = self.inputs["location"].location()
+        if location is None:
             raise ValidationError(
                 self.t("common.required"), "location"
             )
@@ -146,7 +145,7 @@ class MetadataForm:
         return ItemDraft(
             date=values["date"] or "",
             time=values["time"] or "",
-            location=Location.parse((latitude, longitude)),
+            location=location,
             # Optional: the window locates the sample inside a full
             # recording, and not every sample comes from one.
             sample_window=SampleWindow.parse_optional(
@@ -231,24 +230,16 @@ def metadata_form(
             ui.input(t("field.time"), value=draft.time if draft else "")
             .props('mask="##:##:##" hint="HH:MM:SS"')
         )
-        inputs["latitude"] = dense(
-            ui.number(
-                t("field.latitude"),
-                value=draft.location.latitude if draft else None,
-                format="%.6f",
-                step=0.000001,
-            )
-        )
-        inputs["longitude"] = dense(
-            ui.number(
-                t("field.longitude"),
-                value=draft.location.longitude if draft else None,
-                format="%.6f",
-                step=0.000001,
-            )
-        )
+        inputs["location"] = dense(
+            CoordinatesInput(
+                t("field.location"),
+                (draft.location.latitude, draft.location.longitude)
+                if draft
+                else None,
+            ).props(f'hint="{t("field.location_hint")}"')
+        ).classes("col-span-2")
     if map_picker:
-        location_picker(t, inputs["latitude"], inputs["longitude"])
+        location_picker(t, inputs["location"])
 
     # Folds away, since most additions need few of these and the form is long;
     # the choice is remembered, and an error in a folded field unfolds it.

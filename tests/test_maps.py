@@ -14,6 +14,7 @@ from nicegui.testing import User  # noqa: E402
 
 from biotimbre.config import DEFAULT_TILE_URL  # noqa: E402
 from biotimbre.ui import maps  # noqa: E402
+from biotimbre.ui.coordinates import CoordinatesInput  # noqa: E402
 from biotimbre.ui.state import AppState, get_state, set_state  # noqa: E402
 
 
@@ -481,11 +482,8 @@ class TestLocationPicker:
 
         @ui.page(path)
         def page() -> None:
-            holder["lat"] = ui.number("lat")
-            holder["lon"] = ui.number("lon")
-            holder["panel"] = maps.location_picker(
-                Translator("en"), holder["lat"], holder["lon"]
-            )
+            holder["input"] = CoordinatesInput("location")
+            holder["panel"] = maps.location_picker(Translator("en"), holder["input"])
 
         await user.open(path)
         return holder
@@ -499,7 +497,7 @@ class TestLocationPicker:
         holder["panel"].value = True
         assert len(leaflets(user)) == 1
 
-    async def test_clicking_the_map_fills_both_inputs(
+    async def test_clicking_the_map_fills_the_input(
         self, user: User, installed_state
     ):
         holder = await self._picker(user, "/pickclick")
@@ -508,8 +506,7 @@ class TestLocationPicker:
         user.find(ui.leaflet).trigger(
             "mapClick", {"latlng": {"lat": -26.30441234, "lng": 311.15}}
         )
-        assert holder["lat"].value == pytest.approx(-26.304412)
-        assert holder["lon"].value == pytest.approx(-48.85)
+        assert holder["input"].value == "-26.304412, -48.85"
 
     async def test_a_click_marks_the_point_without_moving_the_view(
         self, user: User, installed_state
@@ -534,8 +531,7 @@ class TestLocationPicker:
         self, user: User, installed_state
     ):
         holder = await self._picker(user, "/picktyped")
-        holder["lat"].value = -26.3
-        holder["lon"].value = -48.85
+        holder["input"].value = "-26.3, -48.85"
 
         # Coordinates already there when the map opens are shown at once.
         holder["panel"].value = True
@@ -543,5 +539,21 @@ class TestLocationPicker:
         assert element.center == pytest.approx((-26.3, -48.85))
         assert element.zoom == maps.SINGLE_POINT_ZOOM
 
-        holder["lon"].value = -47.0
+        holder["input"].value = "-26.3, -47.0"
         assert element.center == pytest.approx((-26.3, -47.0))
+
+    async def test_half_typed_coordinates_mark_nothing(
+        self, user: User, installed_state
+    ):
+        holder = await self._picker(user, "/pickpartial")
+        holder["panel"].value = True
+        element = leaflets(user)[0]
+
+        holder["input"].value = "-26.3, -48.85"
+        # Not a location yet, and not an error either: the dot goes until
+        # the text reads as one again.
+        holder["input"].value = "-26.3,"
+        assert not [
+            layer for layer in element.layers
+            if layer.to_dict()["type"] == "circleMarker"
+        ]

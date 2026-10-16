@@ -69,8 +69,10 @@ def _fill_metadata_from(t: Translator, form, observation) -> None:
     if observation.time:
         form.inputs["time"].value = observation.time
     if observation.latitude is not None and observation.longitude is not None:
-        form.inputs["latitude"].value = observation.latitude
-        form.inputs["longitude"].value = observation.longitude
+        form.inputs["location"].coordinates = (
+            observation.latitude,
+            observation.longitude,
+        )
     if observation.taxon:
         # The select starts with no options and grows as tags are typed, so a
         # value it has never heard of renders as nothing.

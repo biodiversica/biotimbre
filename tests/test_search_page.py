@@ -16,6 +16,7 @@ from nicegui.testing import User  # noqa: E402
 
 from biotimbre.i18n import Translator  # noqa: E402
 from biotimbre.ui import maps, routes  # noqa: E402
+from biotimbre.ui.coordinates import CoordinatesInput  # noqa: E402
 from biotimbre.ui.search import (  # noqa: E402
     OBSERVATION_RADIUS_KM,
     _build_filters,
@@ -151,19 +152,28 @@ class TestFilterPanel:
 
     async def test_location_is_assembled(self, user: User):
         inputs = await self._panel(user)
-        inputs["latitude"].value = -26.0
-        inputs["longitude"].value = -48.0
+        inputs["location"].value = "-26.0, -48.0"
         inputs["radius_km"].value = 50.0
         filters = _build_filters(inputs, query_speed=1.0)
         assert filters.has_location is True
+        assert (filters.latitude, filters.longitude) == (-26.0, -48.0)
 
     async def test_partial_location_is_rejected(self, user: User):
         from biotimbre.domain.errors import ValidationError
 
         inputs = await self._panel(user)
-        inputs["latitude"].value = -26.0
-        # Latitude without a radius cannot mean anything; the domain says so.
+        inputs["location"].value = "-26.0, -48.0"
+        # A centre without a radius cannot mean anything; the domain says so.
         with pytest.raises(ValidationError, match="together"):
+            _build_filters(inputs, query_speed=1.0)
+
+    async def test_an_unreadable_centre_is_rejected(self, user: User):
+        from biotimbre.domain.errors import ValidationError
+
+        inputs = await self._panel(user)
+        inputs["location"].value = "-26.0"
+        inputs["radius_km"].value = 50.0
+        with pytest.raises(ValidationError, match="latitude, longitude"):
             _build_filters(inputs, query_speed=1.0)
 
     async def test_dates_are_canonicalised(self, user: User):
@@ -183,8 +193,7 @@ class TestFilterPanel:
         inputs["taxa_all"].value = True
         inputs["date_from"].value = "2020-01-01"
         inputs["date_to"].value = "2020-12-31"
-        inputs["latitude"].value = -26.0
-        inputs["longitude"].value = -48.0
+        inputs["location"].value = "-26.0, -48.0"
         inputs["radius_km"].value = 50.0
         inputs["biotimbre_id"].set_options(["x"], value=["x"])
 
@@ -963,7 +972,7 @@ class TestObservationFetch:
         # made, not when the animal sings.
         assert not inputs["From date"].value
         assert not inputs["To date"].value
-        assert inputs["Centre latitude"].value == pytest.approx(-28.82)
+        assert inputs["Centre (latitude, longitude)"].coordinates == pytest.approx((-28.82, 153.28))
         assert inputs["Radius"].value == 25.0
         # Filled, not applied behind the reader's back: the panel is opened so
         # the narrowing is visible and can be cleared.
@@ -1014,9 +1023,9 @@ class TestObservationFetch:
 
         inputs = {
             element._props.get("label"): element
-            for element in user.find(ui.number).elements
+            for element in user.find(ui.input).elements
         }
-        assert inputs["Centre latitude"].value is None
+        assert not inputs["Centre (latitude, longitude)"].value
 
     async def test_an_observation_without_sound_is_reported(
         self, user: User, installed_state, monkeypatch
@@ -1104,6 +1113,10 @@ class TestResultMap:
         }
 
     @staticmethod
+    def _centre(user: User):
+        return next(iter(user.find(CoordinatesInput).elements))
+
+    @staticmethod
     def _markers(element):
         return [
             layer
@@ -1155,8 +1168,7 @@ class TestResultMap:
             element._props.get("label"): element
             for element in user.find(ui.number).elements
         }
-        numbers["Centre latitude"].value = -26.3
-        numbers["Centre longitude"].value = -48.85
+        self._centre(user).value = "-26.3, -48.85"
         numbers["Radius"].value = 25.0
 
         element = self._map(user)
@@ -1179,8 +1191,7 @@ class TestResultMap:
         self._click_map(element, -26.3, -48.85)
 
         numbers = self._numbers(user)
-        assert numbers["Centre latitude"].value == -26.3
-        assert numbers["Centre longitude"].value == -48.85
+        assert self._centre(user).value == "-26.3, -48.85"
         # A click is a click on a region, not on a point: the default radius
         # is assumed and the map goes to the scale that shows it.
         assert numbers["Radius"].value == OBSERVATION_RADIUS_KM
@@ -1228,8 +1239,7 @@ class TestResultMap:
             element._props.get("label"): element
             for element in user.find(ui.number).elements
         }
-        numbers["Centre latitude"].value = -26.3
-        numbers["Centre longitude"].value = -48.85
+        self._centre(user).value = "-26.3, -48.85"
         numbers["Radius"].value = 25.0
 
         user.find("Clear filters").click()
@@ -1251,9 +1261,13 @@ class TestResultMap:
         # The coordinate filters are untouched by the switch: only the picture
         # goes away, not the ability to search on location.
         labels = {
-            element._props.get("label") for element in user.find(ui.number).elements
+            element._props.get("label")
+            for element in [
+                *user.find(ui.input).elements,
+                *user.find(ui.number).elements,
+            ]
         }
-        assert {"Centre latitude", "Centre longitude", "Radius"} <= labels
+        assert {"Centre (latitude, longitude)", "Radius"} <= labels
         assert not [
             element
             for element in user.client.elements.values()

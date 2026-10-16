@@ -34,6 +34,7 @@ from biotimbre.ui.clip_editor import (
     clip_editor,
     hand_over,
 )
+from biotimbre.ui.coordinates import CoordinatesInput
 from biotimbre.ui import inat, maps
 from biotimbre.ui.exports import export_button
 from biotimbre.ui.layout import current_views, notify_error
@@ -83,8 +84,7 @@ def _fill_filters_from(t: Translator, inputs: dict, observation) -> None:
         # the centre is what completes them: an order that sets it last leaves
         # the map framing a centre it is about to reframe.
         inputs["radius_km"].value = inputs["radius_km"].value or OBSERVATION_RADIUS_KM
-        inputs["latitude"].value = observation.latitude
-        inputs["longitude"].value = observation.longitude
+        inputs["location"].coordinates = (observation.latitude, observation.longitude)
     inputs["panel"].value = True
 
 
@@ -256,11 +256,8 @@ def _filters_panel(t: Translator) -> dict[str, ui.element]:
             inputs["date_to"] = dense(
                 ui.input(t("search.filter.date_to")).props('mask="####-##-##"')
             )
-            inputs["latitude"] = dense(
-                ui.number(t("search.filter.latitude"), format="%.6f", step=0.000001)
-            )
-            inputs["longitude"] = dense(
-                ui.number(t("search.filter.longitude"), format="%.6f", step=0.000001)
+            inputs["location"] = dense(
+                CoordinatesInput(t("search.filter.centre"))
             )
             inputs["radius_km"] = dense(
                 ui.number(
@@ -303,8 +300,8 @@ def clear_filters(inputs: dict[str, ui.element]) -> None:
     inputs["taxa_all"].value = False
     for name in ("date_from", "date_to"):
         inputs[name].value = ""
-    for name in ("latitude", "longitude", "radius_km"):
-        inputs[name].value = None
+    inputs["location"].coordinates = None
+    inputs["radius_km"].value = None
 
 
 def _options_panel(t: Translator) -> dict[str, ui.element]:
@@ -369,21 +366,23 @@ def _build_filters(
             exist, and filtering by it would quietly hide most of the library.
 
     Raises:
-        ValidationError: If the values are inconsistent, e.g. a partial location.
+        ValidationError: If the values are inconsistent, e.g. a centre with no
+            radius, or the centre is not readable as coordinates.
     """
 
     def text(name: str) -> str | None:
         value = inputs[name].value
         return value.strip() if isinstance(value, str) and value.strip() else None
 
+    location = inputs["location"].location()
     return SearchFilters(
         taxa=tuple(inputs["taxa"].value or ()),
         taxa_match_all=bool(inputs["taxa_all"].value),
         biotimbre_ids=tuple(inputs["biotimbre_id"].value or ()),
         date_from=text("date_from"),
         date_to=text("date_to"),
-        latitude=inputs["latitude"].value,
-        longitude=inputs["longitude"].value,
+        latitude=location.latitude if location else None,
+        longitude=location.longitude if location else None,
         radius_km=inputs["radius_km"].value,
         speeds=() if query_speed is None else (query_speed,),
     )
@@ -596,8 +595,7 @@ async def render(t: Translator) -> None:
             filters["radius_km"].value = (
                 filters["radius_km"].value or OBSERVATION_RADIUS_KM
             )
-            filters["latitude"].value = round(latitude, 6)
-            filters["longitude"].value = round(longitude, 6)
+            filters["location"].coordinates = (latitude, longitude)
             filters["panel"].value = True
 
         result_map = maps.map_card(
@@ -615,9 +613,10 @@ async def render(t: Translator) -> None:
             observation — is also a request to see the area it selects, and a
             change of radius is a request to see the new one.
             """
+            latitude, longitude = filters["location"].coordinates or (None, None)
             result_map.set_focus(
-                filters["latitude"].value,
-                filters["longitude"].value,
+                latitude,
+                longitude,
                 filters["radius_km"].value,
                 refit=True,
             )
@@ -625,7 +624,7 @@ async def render(t: Translator) -> None:
         # Bound to the inputs rather than called from each place that writes
         # them: the centre is set by clicking the map, by typing, by a fetched
         # observation and by Clear filters, and all four have to agree.
-        for name in ("latitude", "longitude", "radius_km"):
+        for name in ("location", "radius_km"):
             filters[name].on_value_change(show_centre)
 
     results_area = ui.column().classes("w-full gap-2")
