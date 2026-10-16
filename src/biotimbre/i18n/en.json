@@ -102,14 +102,13 @@
     "updated": "Updated"
   },
   "admin": {
-    "heading": "Library items",
-    "add_heading": "Add a sample",
+    "add_heading": "Add an item",
     "edit_heading": "Edit item {item_id}",
     "upload": "Choose a WAV file",
     "sidecar_found": "Metadata loaded from {name}.",
     "mandatory_section": "Required",
     "optional_section": "Optional",
-    "library_section": "Map and items",
+    "library_section": "Library items",
     "export_csv": "Export CSV",
     "export_csv_help": "Every item as a row and every stored value as a column, for a spreadsheet or a dataframe.",
     "save_item": "Add to library",
@@ -122,7 +121,7 @@
     "joined_species": "Filed under the biotimbre {species} already has ({biotimbre_id}).",
     "speed_change_warning": "Changing the speed recomputes this item's embeddings.",
     "reembedded": "Embeddings recomputed: {summary}.",
-    "no_items": "The library is empty. Add a sample to begin.",
+    "no_items": "The library is empty. Add an item to begin.",
     "item_count": "{count} item(s)",
     "column": {
       "id": "ID",
@@ -172,8 +171,8 @@
     "bundle": "Shareable bundle (.btz)"
   },
   "share": {
-    "import_heading": "Import a shared bundle",
-    "import_hint": "A .btz file someone sent you. You will see exactly what it would do, and can change any of it, before anything is added.",
+    "import_heading": "Import a shared item",
+    "import_hint": "Select a shared .btz file to import its items into this library. A preview of the import is shown first, so that its contents and settings can be reviewed and adjusted before any item is added.",
     "upload": "Choose a bundle",
     "from_library": "From {name}",
     "unnamed_library": "an unnamed library",
@@ -215,10 +214,8 @@
     "waveform": "Show the waveform"
   },
   "search": {
-    "heading": "Find similar samples",
-    "query": "Query recording",
     "upload": "Choose a recording to search with",
-    "upload_hint": "Up to {seconds} s is searched. For a longer file, pick a segment below.",
+    "upload_hint": "Find library items that sound like your recording. Choose a recording of up to {seconds} s (for a longer file, select a segment below), then press Search.",
     "query_optional": "Optional: with no recording, the filters below search the library on their own.",
     "segment": "Segment to search",
     "segment_hint": "Drag to choose at most {seconds} s. The spectrogram shows the whole file, including any content above hearing range.",
@@ -275,8 +272,8 @@
     "to_library_hint": "Not in the library yet? Opens the Library page's add form with this recording and these settings, to review and save."
   },
   "map": {
-    "heading": "Where the results are from",
-    "pick_hint": "One dot per result; click a dot to see which. Clicking anywhere else sets the location filter's centre and zooms to its radius. Ctrl+scroll zooms the map.",
+    "heading": "Results map",
+    "pick_hint": "Each point represents one search result. Select a point to identify the result and open its details. Selecting any other location sets the centre of the location filter and zooms the map to its radius. Use Ctrl + scroll to zoom.",
     "library_hint": "One dot per item. Click a dot to see which, and open it from there. Ctrl+scroll zooms the map.",
     "open_item": "Open details",
     "pick_location": "Pick on map",

@@ -210,13 +210,13 @@ class TestPages:
         self, user: User, installed_state
     ):
         await user.open("/")
-        await user.should_see("Find similar samples")
+        await user.should_see("Choose a recording to search with")
 
     async def test_there_is_no_tab_back_to_the_library(
         self, user: User, installed_state
     ):
         await user.open("/search")
-        await user.should_see("Find similar samples")
+        await user.should_see("Choose a recording to search with")
 
         labels = {
             element._props.get("label") for element in user.find(ui.button).elements

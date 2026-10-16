@@ -671,8 +671,7 @@ async def render(t: Translator) -> None:
     # the library holds, and the totals are no use apart from the listing.
     with foldable_card("library", t("admin.library_section")):
         with ui.column().classes("w-full gap-1"):
-            with ui.row().classes("items-center justify-between w-full"):
-                ui.label(t("admin.heading")).classes("text-sm font-medium")
+            with ui.row().classes("items-center justify-end w-full"):
                 ui.button(
                     t("admin.export_csv"),
                     icon="table_view",

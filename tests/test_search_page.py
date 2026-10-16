@@ -316,14 +316,15 @@ class TestQueryRoutes:
 class TestSearchPageRenders:
     async def test_renders_without_a_query(self, user: User):
         await user.open("/search")
-        await user.should_see("Find similar samples")
         await user.should_see("Choose a recording to search with")
         await user.should_see("Search")
+        await user.should_not_see("Find similar samples")
+        await user.should_not_see("Query recording")
 
     async def test_mentions_the_query_limit(self, user: User):
         await user.open("/search")
         # The cap has to be visible before a long file is rejected.
-        await user.should_see("Up to 15 s is searched")
+        await user.should_see("Choose a recording of up to 15 s")
 
     async def test_shows_filter_and_option_panels(self, user: User):
         await user.open("/search")
@@ -352,7 +353,7 @@ class TestSearchPageRenders:
             **{**installed.settings.__dict__, "language": "pt_BR"}
         )
         await user.open("/search")
-        await user.should_see("Encontrar amostras semelhantes")
+        await user.should_see("Escolha uma gravação para buscar")
         await user.should_see("Buscar")
 
 
@@ -367,7 +368,7 @@ class TestQueryRemoval:
         from nicegui.elements.upload_files import SmallFileUpload
 
         await user.open("/search")
-        await user.should_see("Query recording")
+        await user.should_see("Choose a recording to search with")
 
         uploader = next(iter(user.find(ui.upload).elements))
         await uploader.handle_uploads(
@@ -404,7 +405,7 @@ class TestSegmentPicker:
         from nicegui.elements.upload_files import SmallFileUpload
 
         await user.open("/search")
-        await user.should_see("Query recording")
+        await user.should_see("Choose a recording to search with")
         uploader = next(iter(user.find(ui.upload).elements))
         await uploader.handle_uploads(
             [SmallFileUpload(path.name, "audio/wav", path.read_bytes())]
@@ -531,7 +532,7 @@ class TestSearchesWhatIsHeard:
 
         monkeypatch.setattr(installed_state.service, "search", fake_search)
         await user.open("/search")
-        await user.should_see("Query recording")
+        await user.should_see("Choose a recording to search with")
         uploader = next(iter(user.find(ui.upload).elements))
         await uploader.handle_uploads(
             [SmallFileUpload(path.name, "audio/wav", path.read_bytes())]
@@ -673,7 +674,7 @@ class TestMovingBetweenPages:
         highpass.value = 2000
 
         self._tab(user, "Library")
-        await user.should_see("Add a sample")
+        await user.should_see("Add an item")
         assert not self._visible(highpass)
 
         self._tab(user, "Search")
@@ -690,9 +691,9 @@ class TestMovingBetweenPages:
         from nicegui.testing.user_interaction import UserInteraction
 
         await user.open("/")
-        await user.should_see("Add a sample")
+        await user.should_see("Add an item")
         self._tab(user, "Search")
-        await user.should_see("Query recording")
+        await user.should_see("Choose a recording to search with")
         uploader = next(
             element
             for element in user.find(ui.upload).elements
@@ -722,7 +723,7 @@ class TestMetadataOnlySearch:
             compute_embeddings=False,
         )
         await user.open("/search")
-        await user.should_see("Query recording")
+        await user.should_see("Choose a recording to search with")
 
     @staticmethod
     def _run_search(user: User) -> None:
@@ -779,7 +780,7 @@ class TestMetadataOnlySearch:
             compute_embeddings=False,
         )
         await user.open("/search")
-        await user.should_see("Query recording")
+        await user.should_see("Choose a recording to search with")
         self._taxa_input(user).value = ["cicadidae"]
         self._run_search(user)
         await user.should_see("1 match(es)")
@@ -847,7 +848,7 @@ class TestResultExport:
         )
 
         await user.open("/search")
-        await user.should_see("Query recording")
+        await user.should_see("Choose a recording to search with")
         taxa = next(
             element
             for element in user.find(ui.select).elements
@@ -924,7 +925,7 @@ class TestObservationFetch:
         self._stub(monkeypatch, observation)
 
         await user.open("/search")
-        await user.should_see("Query recording")
+        await user.should_see("Choose a recording to search with")
 
         field = next(
             element
@@ -1045,7 +1046,7 @@ class TestObservationFetch:
             installed_state.settings, inaturalist_enabled=False
         )
         await user.open("/search")
-        await user.should_see("Query recording")
+        await user.should_see("Choose a recording to search with")
         assert not [
             element
             for element in user.find(ui.input).elements
@@ -1129,7 +1130,7 @@ class TestResultMap:
     ):
         self._store(installed_state, (-26.3, -48.85), (-25.4, -49.2))
         await user.open("/search")
-        await user.should_see("Find similar samples")
+        await user.should_see("Choose a recording to search with")
 
         elements = list(user.find(ui.leaflet).elements)
         assert len(elements) == 1
@@ -1137,7 +1138,7 @@ class TestResultMap:
     async def test_results_are_plotted(self, user: User, installed_state):
         self._store(installed_state, (-26.3, -48.85), (-25.4, -49.2))
         await user.open("/search")
-        await user.should_see("Find similar samples")
+        await user.should_see("Choose a recording to search with")
 
         # A metadata-only search, so no models are needed: a filter alone is
         # enough, and a search with no filter and no query is refused.
@@ -1160,7 +1161,7 @@ class TestResultMap:
         self, user: User, installed_state
     ):
         await user.open("/search")
-        await user.should_see("Find similar samples")
+        await user.should_see("Choose a recording to search with")
 
         # Typing into the filter is enough: the map follows the inputs rather
         # than each of the four places that write them.
@@ -1185,7 +1186,7 @@ class TestResultMap:
         from test_maps import visible_height_km
 
         await user.open("/search")
-        await user.should_see("Find similar samples")
+        await user.should_see("Choose a recording to search with")
 
         element = self._map(user)
         self._click_map(element, -26.3, -48.85)
@@ -1203,7 +1204,7 @@ class TestResultMap:
         self, user: User, installed_state
     ):
         await user.open("/search")
-        await user.should_see("Find similar samples")
+        await user.should_see("Choose a recording to search with")
 
         element = self._map(user)
         self._click_map(element, -26.3, -48.85)
@@ -1218,7 +1219,7 @@ class TestResultMap:
         self, user: User, installed_state
     ):
         await user.open("/search")
-        await user.should_see("Find similar samples")
+        await user.should_see("Choose a recording to search with")
 
         element = self._map(user)
         self._numbers(user)["Radius"].value = 5.0
@@ -1233,7 +1234,7 @@ class TestResultMap:
         self, user: User, installed_state
     ):
         await user.open("/search")
-        await user.should_see("Find similar samples")
+        await user.should_see("Choose a recording to search with")
 
         numbers = {
             element._props.get("label"): element
@@ -1256,7 +1257,7 @@ class TestResultMap:
         )
         self._store(installed_state, (-26.3, -48.85))
         await user.open("/search")
-        await user.should_see("Find similar samples")
+        await user.should_see("Choose a recording to search with")
 
         # The coordinate filters are untouched by the switch: only the picture
         # goes away, not the ability to search on location.
@@ -1332,7 +1333,7 @@ class TestResultViews:
                 compute_embeddings=False,
             )
         await user.open("/search")
-        await user.should_see("Find similar samples")
+        await user.should_see("Choose a recording to search with")
         dates = {
             element._props.get("label"): element
             for element in user.find(ui.input).elements
@@ -1371,7 +1372,7 @@ class TestResultDetails:
             compute_embeddings=False,
         ).item
         await user.open("/search")
-        await user.should_see("Find similar samples")
+        await user.should_see("Choose a recording to search with")
         dates = {
             element._props.get("label"): element
             for element in user.find(ui.input).elements
@@ -1431,7 +1432,7 @@ class TestResultsCsv:
         # Two items, one of them outside the filter: only what was shown goes.
         TestResultMap._store(installed_state, (-26.3, -48.85), (-25.4, -49.2))
         await user.open("/search")
-        await user.should_see("Find similar samples")
+        await user.should_see("Choose a recording to search with")
         TestResultMap._centre(user).value = "-26.3, -48.85"
         TestResultMap._numbers(user)["Radius"].value = 10.0
         TestResultMap._run_search(user)

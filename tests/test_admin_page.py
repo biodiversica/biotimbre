@@ -506,8 +506,8 @@ class TestAdminPageRenders:
     async def test_empty_library_invites_adding(self, user: User):
         await user.open("/")
         await user.should_see("Library items")
-        await user.should_see("Add a sample")
-        await user.should_see("The library is empty. Add a sample to begin.")
+        await user.should_see("Add an item")
+        await user.should_see("The library is empty. Add an item to begin.")
 
     async def test_shows_required_and_optional_sections(self, user: User):
         await user.open("/")
@@ -538,12 +538,16 @@ class TestAdminPageRenders:
         await user.open("/")
         await user.should_see("Library items")
         section = next(iter(user.find(marker="section-library").elements))
-        heading = next(
+        export = next(iter(user.find(marker="export-csv").elements))
+        assert section in export.ancestors()
+
+    async def test_the_library_section_has_no_second_heading(self, user: User):
+        await user.open("/")
+        assert not [
             element
             for element in user.find("Library items").elements
             if isinstance(element, ui.label)
-        )
-        assert section in heading.ancestors()
+        ]
 
     async def test_an_opened_section_stays_open_on_the_next_visit(
         self, user: User
@@ -1004,7 +1008,7 @@ class TestAdminPageRenders:
         )
         await user.open("/")
         await user.should_see("Itens da biblioteca")
-        await user.should_see("Adicionar uma amostra")
+        await user.should_see("Adicionar um item")
 
 
 @pytest.mark.usefixtures("installed_state")
@@ -1252,7 +1256,7 @@ class TestObservationFetch:
             installed_state.settings, inaturalist_enabled=False
         )
         await user.open("/")
-        await user.should_see("Add a sample")
+        await user.should_see("Add an item")
         assert not [
             element
             for element in user.find(ui.input).elements

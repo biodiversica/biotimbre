@@ -176,7 +176,7 @@ async def _open_preview(t: Translator, path: Path, on_imported) -> None:
             )
             with ui.row().classes("gap-2"):
                 ui.button(t("common.cancel"), on_click=dialog.close).props("flat")
-                # Marked so a test can name it: "Import a shared bundle" is
+                # Marked so a test can name it: "Import a shared item" is
                 # the card's heading, so the word alone is not unique.
                 import_button = ui.button(
                     t("share.import"), on_click=do_import

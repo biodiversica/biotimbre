@@ -146,7 +146,7 @@ async def upload_bundle(user: User, path) -> None:
 class TestImportCard:
     async def test_the_page_offers_the_importer(self, user: User):
         await user.open("/")
-        await user.should_see("Import a shared bundle")
+        await user.should_see("Import a shared item")
         await user.should_see("Choose a bundle")
 
     async def test_the_importer_accepts_only_bundles(self, user: User):

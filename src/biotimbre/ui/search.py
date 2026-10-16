@@ -442,10 +442,7 @@ async def render(t: Translator) -> None:
     #: the library's add form to take the metadata from.
     origin: dict = {"observation": None}
 
-    ui.label(t("search.heading")).classes("text-xl font-medium")
-
     with ui.card().classes("w-full p-4 gap-3 bg-card"):
-        ui.label(t("search.query")).classes("text-sm font-medium")
         ui.label(t("search.upload_hint", seconds=f"{cap:g}")).classes(
             "text-xs text-muted"
         )
