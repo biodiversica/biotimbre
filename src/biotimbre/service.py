@@ -59,6 +59,7 @@ from biotimbre.io.bundle import (
     read_bundle,
     write_bundle,
 )
+from biotimbre.io.table import items_csv
 from biotimbre.models_registry import get_spec
 from biotimbre.search.filters import SearchFilters, select_candidates
 from biotimbre.search.vector_search import (
@@ -78,6 +79,10 @@ from biotimbre.sharing import (
     local_fingerprints,
     plan_import,
 )
+
+
+#: Name of the library-wide CSV export, from the interface and the CLI alike.
+ITEMS_CSV_FILENAME = "biotimbre_items.csv"
 
 
 def npy_filename(item_id: int, model_id: str) -> str:
@@ -1437,6 +1442,43 @@ class LibraryService:
             Matching items.
         """
         return self.repo.list_items(biotimbre_id=biotimbre_id, limit=limit)
+
+    def items_table(self) -> tuple[bytes, str]:
+        """Every item as one CSV row, every stored value as a column.
+
+        Rows run in item ID order — the order items were added — so two
+        exports of a growing library line up row for row. Beside the item's
+        own values come its biotimbre's label and, per registered model, how
+        many windows it was embedded as. See :func:`~biotimbre.io.table.items_csv`.
+
+        Returns:
+            The CSV as UTF-8 bytes, and the name to save it under.
+        """
+        items = sorted(self.repo.list_items(), key=lambda item: item.item_id)
+        text = items_csv(
+            items,
+            labels=self.repo.biotimbre_labels(),
+            embedding_counts=self.repo.all_embedding_counts(),
+            model_ids=[model["model_id"] for model in self.repo.list_models()],
+        )
+        return text.encode("utf-8"), ITEMS_CSV_FILENAME
+
+    def export_items_csv(self, destination: str | Path) -> Path:
+        """Write :meth:`items_table` to disk.
+
+        Args:
+            destination: Output path, or a directory to name the file inside.
+
+        Returns:
+            The written path.
+        """
+        data, name = self.items_table()
+        out = Path(destination)
+        if out.is_dir():
+            out = out / name
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_bytes(data)
+        return out
 
     def get_audio(self, item_id: int) -> tuple[Path, str]:
         """Resolve an item's audio for playback.

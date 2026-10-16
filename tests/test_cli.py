@@ -326,6 +326,22 @@ class TestEndToEndCli:
                 ".wav",
             ]
 
+    def test_export_csv_writes_a_row_per_item(self, data_dir, tmp_path, capsys):
+        import csv
+        from pathlib import Path
+
+        run(data_dir, "init", "--name", "Test Library")
+        run(data_dir, "add", str(GUYVIR_WAV))
+        capsys.readouterr()
+
+        assert run(data_dir, "export-csv", str(tmp_path)) == 0
+        reported = Path(capsys.readouterr().out.strip().removeprefix("Wrote "))
+        assert reported.name == "biotimbre_items.csv"
+        with reported.open(newline="", encoding="utf-8") as handle:
+            rows = list(csv.DictReader(handle))
+        assert len(rows) == 1
+        assert rows[0]["item_id"] == "1"
+
     def test_search_warns_about_a_query_beyond_full_scale(
         self, data_dir, tmp_path, capsys
     ):

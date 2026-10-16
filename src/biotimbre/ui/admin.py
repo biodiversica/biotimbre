@@ -429,6 +429,17 @@ def _ingest_report(t: Translator, result) -> None:
 # ── detail, edit, delete ──────────────────────────────────────────────────────
 
 
+async def _download_items_csv(t: Translator) -> None:
+    """Send every item's metadata to the browser as one CSV."""
+    state = get_state()
+    try:
+        data, name = await state.run(state.service.items_table)
+    except BiotimbreError as exc:
+        notify_error(t, exc)
+        return
+    ui.download.content(data, name, "text/csv")
+
+
 async def _open_detail(t: Translator, item_id: int, on_changed) -> None:
     """Show one item, with the library's edit and delete actions."""
 
@@ -660,7 +671,15 @@ async def render(t: Translator) -> None:
     # the library holds, and the totals are no use apart from the listing.
     with foldable_card("library", t("admin.library_section")):
         with ui.column().classes("w-full gap-1"):
-            ui.label(t("admin.heading")).classes("text-sm font-medium")
+            with ui.row().classes("items-center justify-between w-full"):
+                ui.label(t("admin.heading")).classes("text-sm font-medium")
+                ui.button(
+                    t("admin.export_csv"),
+                    icon="table_view",
+                    on_click=lambda: _download_items_csv(t),
+                ).props("flat dense no-caps").tooltip(
+                    t("admin.export_csv_help")
+                ).mark("export-csv")
             summary_container = ui.column().classes("w-full")
         # One map for the whole library, above the list it plots — never one
         # per row. Created here rather than further down because ``redraw``

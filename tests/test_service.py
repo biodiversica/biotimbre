@@ -576,6 +576,30 @@ class TestEndToEnd:
         with pytest.raises(ValidationError, match="Re-embed"):
             service.window_clips(1, "birdnet_v2.4", windows)
 
+    def test_the_items_table_has_a_row_per_item(self, service, tmp_path):
+        import csv
+        import io
+
+        service.import_directory(EXAMPLES_DIR)
+        data, name = service.items_table()
+        assert name == "biotimbre_items.csv"
+        rows = list(csv.DictReader(io.StringIO(data.decode("utf-8"))))
+        # In the order items were added, so exports of a growing library
+        # line up row for row.
+        assert [row["item_id"] for row in rows] == ["1", "2"]
+        by_window = {row["sample_window_start"]: row for row in rows}
+        zamtym = by_window["5.0"]
+        assert zamtym["taxa"] == "cicadidae"
+        assert (zamtym["latitude"], zamtym["longitude"]) == ("-20.0", "-46.0")
+        assert zamtym["filtered_band_high"] == "10000.0"
+        # Every registered model has its column, filled from the database.
+        assert zamtym["embeddings_perch_v2"] == "1"
+        assert zamtym["embeddings_birdnet_v2.4"] == "3"
+
+        written = service.export_items_csv(tmp_path)
+        assert written.name == name
+        assert written.read_bytes() == data
+
     def test_export_refuses_a_model_with_no_embeddings(self, service):
         service.import_directory(EXAMPLES_DIR)
         with pytest.raises(NotFoundError, match="no fake_model embeddings"):

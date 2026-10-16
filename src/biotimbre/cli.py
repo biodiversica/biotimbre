@@ -435,6 +435,14 @@ def cmd_export_npy(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_export_csv(args: argparse.Namespace) -> int:
+    """Export every item's metadata as one CSV row."""
+    with _service(args) as service:
+        out = service.export_items_csv(args.output)
+        print(f"Wrote {out}")
+    return 0
+
+
 def cmd_export_bundle(args: argparse.Namespace) -> int:
     """Package items into a file that another library can load."""
     with _service(args) as service:
@@ -760,6 +768,14 @@ def build_parser() -> argparse.ArgumentParser:
              "writes a zip.",
     )
     p_export.set_defaults(func=cmd_export_npy)
+
+    p_export_csv = subparsers.add_parser(
+        "export-csv",
+        help="Export every item's metadata as CSV: one row per item, one "
+             "column per stored value.",
+    )
+    p_export_csv.add_argument("output", help="Output file or directory.")
+    p_export_csv.set_defaults(func=cmd_export_csv)
 
     p_export_bundle = subparsers.add_parser(
         "export-bundle",

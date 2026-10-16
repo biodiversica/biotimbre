@@ -110,6 +110,8 @@
     "mandatory_section": "Obrigatório",
     "optional_section": "Opcional",
     "library_section": "Mapa e itens",
+    "export_csv": "Exportar CSV",
+    "export_csv_help": "Cada item em uma linha e cada valor armazenado em uma coluna, para uma planilha ou um dataframe.",
     "save_item": "Adicionar à biblioteca",
     "saved": "Item {item_id} adicionado no biotimbre {biotimbre_id}.",
     "updated": "Item {item_id} atualizado.",

@@ -185,6 +185,13 @@ class Repository:
         ).fetchone()
         return dict(row) if row is not None else None
 
+    def biotimbre_labels(self) -> dict[str, str | None]:
+        """Every biotimbre's label, by biotimbre ID, in one query."""
+        rows = self._conn.execute(
+            "SELECT biotimbre_id, label FROM biotimbres"
+        ).fetchall()
+        return {row["biotimbre_id"]: row["label"] for row in rows}
+
     def set_biotimbre_label(self, biotimbre_id: str, label: str | None) -> None:
         """Set or clear a biotimbre's human-readable label.
 
@@ -914,6 +921,22 @@ class Repository:
             (item_id,),
         ).fetchall()
         return {row["model_id"]: int(row["n"]) for row in rows}
+
+    def all_embedding_counts(self) -> dict[int, dict[str, int]]:
+        """Window count per model for every item, in one query.
+
+        Returns:
+            Mapping of item ID to :meth:`embedding_counts`' mapping; items
+            with no embeddings at all are absent.
+        """
+        rows = self._conn.execute(
+            "SELECT item_id, model_id, COUNT(*) AS n FROM embeddings "
+            "GROUP BY item_id, model_id ORDER BY item_id, model_id"
+        ).fetchall()
+        counts: dict[int, dict[str, int]] = {}
+        for row in rows:
+            counts.setdefault(int(row["item_id"]), {})[row["model_id"]] = int(row["n"])
+        return counts
 
     def items_missing_embeddings(self, model_id: str) -> list[int]:
         """IDs of items with no embeddings for a model.

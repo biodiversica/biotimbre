@@ -1491,6 +1491,27 @@ class TestItemDetail:
             state.service.add_item, GUYVIR, draft, compute_embeddings=False
         )
 
+    async def test_the_library_exports_as_csv(self, user: User, installed_state):
+        import csv
+        import io
+
+        from nicegui.testing.user_interaction import UserInteraction
+
+        item = self._add(installed_state).item
+        await user.open("/")
+        await user.should_see("1 item(s)")
+
+        # Beside the heading of the section it exports.
+        UserInteraction(
+            user, set(user.find(marker="export-csv").elements), None
+        ).click()
+        # Built off the event loop, so the download arrives a moment later.
+        response = await user.download.next(timeout=10.0)
+
+        rows = list(csv.DictReader(io.StringIO(response.content.decode("utf-8"))))
+        assert [row["item_id"] for row in rows] == [str(item.item_id)]
+        assert rows[0]["biotimbre_id"] == item.biotimbre_id
+
     async def test_shows_the_link_and_the_timestamps(self, user: User, installed_state):
         item = self._add(
             installed_state, link_to_full_recording="https://example.org/rec"
