@@ -15,14 +15,67 @@ bibliotecas.
 
 ## Instalação
 
-```bash
-uv venv --python 3.12
-uv sync --extra dev --extra gui
-uv run biotimbre init --name "Minha Biblioteca"   # baixa cerca de 70 MB de modelos, uma única vez
+**Sem Python.** O instalador configura tudo o que é necessário e adiciona um
+atalho **biotimbre** que abre a [interface web](#interface-web). Executá-lo
+novamente atualiza a instalação.
+
+No Windows, abra o PowerShell e execute:
+
+```powershell
+powershell -ExecutionPolicy ByPass -c "irm https://github.com/biodiversica/biotimbre/releases/latest/download/install.ps1 | iex"
 ```
 
-Os modelos são armazenados em cache após o primeiro download; depois disso,
-nenhuma conexão de rede é necessária.
+No macOS e no Linux, abra um terminal e execute:
+
+```sh
+curl -LsSf https://github.com/biodiversica/biotimbre/releases/latest/download/install.sh | sh
+```
+
+O instalador executa as seguintes etapas:
+
+1. Instala o [uv](https://docs.astral.sh/uv/) em `~/.local/bin`, caso ainda
+   não esteja presente. O uv baixa o próprio Python, de modo que nenhuma
+   instalação prévia é necessária, e qualquer instalação de Python existente
+   permanece inalterada.
+2. Executa `uv tool install --python 3.12 "biotimbre[gui]"`, que instala o
+   biotimbre com a interface web e adiciona `biotimbre` ao PATH.
+3. Cria uma pasta de trabalho, `~/biotimbre`, na qual a interface é iniciada e
+   oferece a criação da primeira biblioteca.
+4. Adiciona um atalho **biotimbre** que executa `biotimbre gui` nessa pasta:
+   um atalho na Área de Trabalho e no menu Iniciar no Windows,
+   `biotimbre.command` na Mesa do macOS e uma entrada no menu de aplicativos
+   no Linux. O atalho abre uma janela de terminal ao lado do navegador. Essa
+   janela executa o servidor, e fechá-la (ou pressionar Ctrl+C) encerra o
+   servidor.
+
+Duas variáveis de ambiente alteram os padrões do instalador:
+`BIOTIMBRE_PACKAGE` (o pacote a instalar, por exemplo `biotimbre` sem a
+interface) e `BIOTIMBRE_WORKDIR` (a pasta de trabalho). Para desinstalar,
+execute `uv tool uninstall biotimbre` e apague o atalho; as bibliotecas não
+são removidas.
+
+**Com uv ou pip.** A interface web é um extra opcional, de modo que uma
+instalação sem interface ou apenas de linha de comando continua pequena:
+
+```bash
+uv tool install --python 3.12 "biotimbre[gui]"   # com a interface web
+uv tool install --python 3.12 biotimbre          # apenas linha de comando
+pip install "biotimbre[gui]"                     # ou com pip, no ambiente atual
+```
+
+`uv tool upgrade biotimbre` atualiza e `uv tool uninstall biotimbre`
+desinstala. Para trabalhar no próprio biotimbre, consulte
+[Desenvolvimento](#desenvolvimento); a partir de uma cópia do código-fonte,
+prefixe os comandos deste documento com `uv run`.
+
+**Primeira execução.** A primeira inicialização baixa os modelos Perch e
+BirdNET (cerca de 70 MB) e os armazena em cache; depois disso, nenhuma conexão
+de rede é necessária. Uma biblioteca pode ser criada pela interface ou pela
+linha de comando:
+
+```bash
+biotimbre init --name "Minha Biblioteca"
+```
 
 A opção `--name` é obrigatória na primeira inicialização de uma biblioteca.
 Cada biblioteca possui um nome e um UUID, gerado uma única vez e estável por
@@ -38,7 +91,7 @@ A localização pode ser definida de três maneiras:
 
 ```bash
 # 1. Para uma única execução
-uv run biotimbre --data-dir /media/drive/biotimbre list
+biotimbre --data-dir /media/drive/biotimbre list
 
 # 2. Com um arquivo de configuração no diretório de trabalho (ou --config /caminho/para/ele)
 echo '[library]
@@ -57,7 +110,7 @@ de configuração e sua biblioteca podem ser movidos juntos.
 comando abre o banco de dados e cria o que estiver faltando.
 
 ```bash
-uv run biotimbre --data-dir /media/drive/biotimbre list
+biotimbre --data-dir /media/drive/biotimbre list
 ```
 
 `init` pode ser executado com segurança em uma biblioteca já populada; ele
@@ -68,7 +121,7 @@ pode ser movida ou renomeada sem invalidar nenhuma referência.**
 ## Interface Web
 
 ```bash
-uv run biotimbre gui        # http://127.0.0.1:8080
+biotimbre gui        # http://127.0.0.1:8080
 ```
 
 Por padrão, o servidor escuta apenas na interface de loopback; disponibilizá-lo
@@ -158,7 +211,7 @@ disponível no modo somente busca.
 ### Modo Somente Busca
 
 ```bash
-uv run biotimbre gui --data-dir ./library --search-only
+biotimbre --data-dir ./library gui --search-only
 ```
 
 Esse modo permite que outras pessoas pesquisem uma biblioteca sem poder
@@ -182,7 +235,7 @@ seu conteúdo. Para torná-la acessível a partir de outra máquina, combine-o c
 `--host`:
 
 ```bash
-uv run biotimbre gui --data-dir ./library --search-only --host 0.0.0.0
+biotimbre --data-dir ./library gui --search-only --host 0.0.0.0
 ```
 
 A configuração equivalente, para uma máquina que deve apenas atender buscas:
@@ -678,6 +731,11 @@ tema. A troca entra em vigor sem recarregar a página.
 O arquivo de configuração `biotimbre.toml` é opcional, e toda configuração
 possui um valor padrão.
 
+**Caminhos no Windows.** Em TOML, uma barra invertida entre aspas duplas
+inicia uma sequência de escape, de modo que `"C:\Users\eu\biotimbre"` é
+recusado como inválido. Use aspas simples, que tomam o texto literalmente
+(`'C:\Users\eu\biotimbre'`), ou barras normais (`"C:/Users/eu/biotimbre"`).
+
 ```toml
 [library]
 data_dir = "data"
@@ -798,6 +856,42 @@ item precisa ser importado novamente.
 ## Desenvolvimento
 
 ```bash
-uv run pytest                    # suíte completa, aproximadamente 100 s
-uv run pytest -m "not models"    # aproximadamente 75 s: ignora os 98 testes que executam modelos reais
+git clone git@github.com:biodiversica/biotimbre.git
+cd biotimbre
+uv sync --extra dev --extra gui
+uv run biotimbre --help
+uv run pytest                    # suíte completa, aproximadamente 2 minutos
+uv run pytest -m "not models"    # ignora os testes que baixam e executam modelos reais
 ```
+
+`uv sync --extra X` substitui o conjunto de extras ativos em vez de
+acrescentar a ele, de modo que todos os extras necessários devem ser indicados
+a cada execução.
+
+A CI (`.github/workflows/ci.yml`) executa a suíte completa no Linux, no macOS
+e no Windows a cada push para `main` e a cada pull request. Ela também gera o
+pacote, executa os dois instaladores com ele e inicia a interface a partir da
+pasta de trabalho do instalador.
+
+### Publicando uma Versão
+
+Defina a nova versão em `pyproject.toml` e em `src/biotimbre/__init__.py`,
+execute `uv lock`, faça o commit da alteração e, em seguida, crie e envie uma
+tag:
+
+```bash
+git tag v0.2.0 && git push origin v0.2.0
+```
+
+A tag aciona `.github/workflows/release.yml`. A CI é executada nos três
+sistemas, o pacote é enviado ao PyPI e uma release **rascunho** é criada no
+GitHub, com os instaladores anexados e as notas de
+`.github/release-notes.md`. Depois de escritos os destaques, a release
+precisa ser publicada, pois os comandos de instalação baixam da release
+*publicada* mais recente. A geração do pacote falha se a tag não corresponder
+à versão em `pyproject.toml` ou se essa versão for diferente da de
+`src/biotimbre/__init__.py`.
+
+## Licença
+
+[MIT](https://github.com/biodiversica/biotimbre/blob/main/LICENSE)
