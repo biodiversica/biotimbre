@@ -1,0 +1,111 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+  # release.yml runs this first, and publishes the wheel built here.
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    name: tests / ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+      - name: Install
+        run: uv sync --locked --extra dev --extra gui
+      # The models-marked tests download Perch and BirdNET (about 70 MB) from
+      # Hugging Face and run them; the suite is about two minutes, so they run
+      # everywhere.
+      - name: Test
+        run: uv run pytest
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+      - name: Check the version agrees everywhere
+        run: |
+          version=$(uv version --short)
+          code=$(sed -n 's/^__version__ = "\(.*\)"$/\1/p' src/biotimbre/__init__.py)
+          if [ "$version" != "$code" ]; then
+            echo "::error::pyproject.toml says $version, src/biotimbre/__init__.py says $code"
+            exit 1
+          fi
+          if [ "$GITHUB_REF_TYPE" = tag ] && [ "$GITHUB_REF_NAME" != "v$version" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match version $version"
+            exit 1
+          fi
+      - run: uv build
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist
+          path: dist/
+
+  # What a new user does: run the installer on a machine with no Python set
+  # up, then start the interface. The wheel stands in for the PyPI release.
+  installer:
+    name: installer / ${{ matrix.os }}
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist
+
+      - name: Run install.sh
+        if: runner.os != 'Windows'
+        run: |
+          BIOTIMBRE_PACKAGE="biotimbre[gui] @ $(ls "$PWD"/dist/*.whl)" sh scripts/install.sh
+      - name: Run install.ps1
+        if: runner.os == 'Windows'
+        # Windows PowerShell 5.1, the one every Windows machine has.
+        shell: powershell
+        run: |
+          $env:BIOTIMBRE_PACKAGE = "biotimbre[gui] @ $((Get-ChildItem dist\*.whl).FullName)"
+          powershell -NoProfile -ExecutionPolicy ByPass -File scripts\install.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: The launcher is in place
+        run: |
+          case "$RUNNER_OS" in
+            Linux)   test -f "$HOME/.local/share/applications/biotimbre.desktop" ;;
+            macOS)   test -x "$HOME/Desktop/biotimbre.command" ;;
+            Windows) test -f "$USERPROFILE/Desktop/biotimbre.lnk" ;;
+          esac
+
+      # Started from the work folder as the launcher starts it: no library is
+      # configured there, so the page is the library chooser.
+      - name: The installed command runs and serves the interface
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          biotimbre --version
+          cd "$HOME/biotimbre"
+          biotimbre gui --no-browser --port 8765 > gui.log 2>&1 &
+          for _ in $(seq 90); do
+            curl -fsS http://127.0.0.1:8765/media/status && break
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:8765/ | grep -q "Choose a library" || { cat gui.log; exit 1; }

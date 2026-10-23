@@ -1,0 +1,56 @@
+name: Release
+
+# Push a tag matching the version in pyproject.toml, e.g. v0.1.0:
+#   CI runs on all three systems, the wheel it built goes to PyPI, and a draft
+#   GitHub release is opened with the installers attached. Edit its notes and
+#   press Publish; the install one-liners point at the latest published release.
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+
+  pypi:
+    needs: ci
+    runs-on: ubuntu-latest
+    # Trusted publishing: PyPI accepts this workflow's identity, so no token is
+    # stored. The publisher is registered on PyPI for this repository,
+    # workflow (release.yml) and environment (pypi).
+    environment:
+      name: pypi
+      url: https://pypi.org/project/biotimbre/
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist
+      - uses: astral-sh/setup-uv@v7
+      - run: uv publish
+
+  github-release:
+    needs: pypi
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist
+      - name: Open a draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" --draft \
+            --title "biotimbre ${GITHUB_REF_NAME#v}" \
+            --notes-file .github/release-notes.md \
+            dist/* scripts/install.sh scripts/install.ps1
