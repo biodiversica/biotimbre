@@ -337,3 +337,24 @@ class TestCommandLineOverrides:
             assert app_state.settings.active_models == ("perch_v2",)
         finally:
             app_state.close()
+
+
+class TestRememberedAcrossRuns:
+    """Browser storage outlives a restart only if its signing key does."""
+
+    def test_the_secret_is_kept(self, tmp_path):
+        first = ui_app.storage_secret(tmp_path / "state")
+        assert ui_app.storage_secret(tmp_path / "state") == first
+        assert (tmp_path / "state" / "storage_secret").read_text() == first
+
+    def test_an_unwritable_place_still_gives_a_secret(self, tmp_path):
+        blocker = tmp_path / "file"
+        blocker.write_text("")
+        assert ui_app.storage_secret(blocker / "state")
+
+    @pytest.mark.skipif(
+        ui_app.sys.platform in ("win32", "darwin"), reason="the XDG location"
+    )
+    def test_the_state_dir_follows_xdg(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
+        assert ui_app.user_state_dir() == tmp_path / "biotimbre"

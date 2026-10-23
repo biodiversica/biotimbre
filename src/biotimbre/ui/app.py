@@ -18,16 +18,20 @@ what makes this a guarantee rather than a convention.
 
 from __future__ import annotations
 
+import os
 import secrets
 import socket
+import sys
 import threading
 import time
 import webbrowser
 from collections.abc import Mapping
+from pathlib import Path
 
 from fastapi import Response
 from fastapi.responses import RedirectResponse
 from nicegui import app, ui
+from nicegui.storage import Storage
 
 from biotimbre.config import Settings, load_settings
 from biotimbre.ui import routes
@@ -41,6 +45,61 @@ DEFAULT_PORT = 8080
 
 #: How long the browser thread waits for the server to answer before giving up.
 BROWSER_TIMEOUT = 30.0
+
+
+def user_state_dir() -> Path:
+    """Where the interface keeps what it remembers per person, across runs.
+
+    Per user rather than per working directory: the same person starting the
+    interface from the launcher one day and from a terminal elsewhere the next
+    should find their language, theme and recent libraries both times.
+
+    Returns:
+        ``$XDG_STATE_HOME/biotimbre`` (``~/.local/state/biotimbre``) on Linux,
+        ``~/Library/Application Support/biotimbre`` on macOS,
+        ``%LOCALAPPDATA%\\biotimbre`` on Windows. Not created here.
+    """
+    if sys.platform == "win32":
+        local = os.environ.get("LOCALAPPDATA")
+        base = Path(local) if local else Path.home() / "AppData" / "Local"
+    elif sys.platform == "darwin":
+        base = Path.home() / "Library" / "Application Support"
+    else:
+        state = os.environ.get("XDG_STATE_HOME")
+        base = Path(state) if state else Path.home() / ".local" / "state"
+    return base / "biotimbre"
+
+
+def storage_secret(directory: Path) -> str:
+    """The key that signs each browser's storage cookie, made once and kept.
+
+    A key generated per run gives every browser a new identity on every start,
+    so everything it remembered — language, theme, recent libraries — is
+    orphaned in a file nobody reads again.
+
+    Args:
+        directory: Where to keep it. Created if absent.
+
+    Returns:
+        The stored key, or a fresh one if it could not be read or written; the
+        interface then forgets on restart, as it used to, but still starts.
+    """
+    path = directory / "storage_secret"
+    try:
+        kept = path.read_text(encoding="ascii").strip()
+        if kept:
+            return kept
+    except (OSError, UnicodeDecodeError):
+        pass
+
+    secret = secrets.token_urlsafe(32)
+    try:
+        directory.mkdir(parents=True, exist_ok=True)
+        path.write_text(secret, encoding="ascii")
+        path.chmod(0o600)
+    except OSError:
+        pass
+    return secret
 
 
 def _wait_for_port(host: str, port: int, timeout: float) -> bool:
@@ -198,6 +257,9 @@ def run(
         settings if settings is not None else load_settings(),
         overrides=overrides,
     )
+    state_dir = user_state_dir()
+    # NiceGUI otherwise keeps it in ./.nicegui, i.e. wherever it was started.
+    Storage.path = state_dir / "browser"
     if show:
         # Opened here rather than by NiceGUI's ``show``, which goes through
         # ``webbrowser.open`` and can open a tab per launcher it tries.
@@ -213,9 +275,9 @@ def run(
         favicon="🦗",
         show=False,
         reload=reload,
-        # Per-browser storage holds only the chosen language. Generated per run
-        # rather than committed, since nothing here needs to survive a restart.
-        storage_secret=secrets.token_urlsafe(32),
+        # Per-browser storage holds interface preferences and recent libraries,
+        # which have to survive a restart; see storage_secret().
+        storage_secret=storage_secret(state_dir),
         # Auto until a page says otherwise: every page installs its own
         # ui.dark_mode from the reader's stored choice (biotimbre.ui.theming),
         # and following the system is the least wrong thing to show first.
