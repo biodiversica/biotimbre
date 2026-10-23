@@ -177,9 +177,17 @@
     "bundle": "Shareable bundle (.btz)"
   },
   "share": {
-    "import_heading": "Import a shared item",
+    "import_heading": "Import items",
     "import_hint": "Select a shared .btz file to import its items into this library. A preview of the import is shown first, so that its contents and settings can be reviewed and adjusted before any item is added.",
     "upload": "Choose a bundle",
+    "library_heading": "Import from another library",
+    "library_hint": "Select another library on this computer to add all of its items to this one. The other library is not changed. A preview is shown first, with the same settings as for a .btz file: recordings already here are skipped, and species join their existing biotimbre.",
+    "library_path": "Library directory",
+    "library_browse": "Browse",
+    "library_preview": "Preview import",
+    "library_no_path": "Give the directory of the library to import from.",
+    "library_missing_audio": "{count} item(s) of that library have no audio on disk and are left out: {ids}.",
+    "library_models_none": "No embeddings in that library — they will be computed here.",
     "from_library": "From {name}",
     "unnamed_library": "an unnamed library",
     "written": "written {when}",

@@ -452,6 +452,37 @@ class TestBundleCommands:
         assert run(receiver, "list") == 0
         assert "cicadidae" in capsys.readouterr().out
 
+    def test_import_library_adds_everything(self, two_libraries, capsys):
+        sender, receiver = two_libraries
+        self.add_item(sender, taxa="cicadidae")
+        self.add_item(sender, EXAMPLES_DIR / "ZAMTYM.wav", taxa="orthoptera")
+        capsys.readouterr()
+
+        assert run(receiver, "import-library", sender, "--no-embeddings") == 0
+        printed = capsys.readouterr().out
+        assert "Bundle from Sender" in printed
+        assert "Added 2, skipped 0." in printed
+
+        assert run(receiver, "list") == 0
+        listed = capsys.readouterr().out
+        assert "cicadidae" in listed and "orthoptera" in listed
+
+    def test_import_library_dry_run_changes_nothing(self, two_libraries, capsys):
+        sender, receiver = two_libraries
+        self.add_item(sender)
+        capsys.readouterr()
+
+        assert run(receiver, "import-library", sender, "--dry-run") == 0
+        assert "Would add 1" in capsys.readouterr().out
+        assert run(receiver, "list") == 0
+        assert "Library is empty." in capsys.readouterr().out
+
+    def test_import_library_refuses_a_non_library(self, two_libraries, tmp_path, capsys):
+        _, receiver = two_libraries
+        (tmp_path / "empty").mkdir()
+        assert run(receiver, "import-library", str(tmp_path / "empty")) == 2
+        assert "No biotimbre library" in capsys.readouterr().err
+
     def test_a_dry_run_changes_nothing(self, two_libraries, tmp_path, capsys):
         sender, receiver = two_libraries
         self.add_item(sender)

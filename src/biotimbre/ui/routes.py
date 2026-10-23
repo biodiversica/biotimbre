@@ -16,6 +16,7 @@ from pathlib import Path
 from fastapi import HTTPException, Response
 from fastapi.responses import FileResponse
 
+from biotimbre.config import DEFAULT_DB_NAME
 from biotimbre.domain.errors import BiotimbreError, NotFoundError
 from biotimbre.embeddings import audio as audio_io
 from biotimbre.ui.state import get_state
@@ -71,7 +72,7 @@ def list_directory(path: str | None = None) -> dict:
         answers "not that I can tell" rather than refusing the whole listing.
         """
         try:
-            return (directory / "library.db").is_file()
+            return (directory / DEFAULT_DB_NAME).is_file()
         except OSError:
             return False
 

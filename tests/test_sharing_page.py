@@ -1,4 +1,4 @@
-"""The bundle importer in the interface.
+"""The bundle and library importers in the interface.
 
 The dialog's job is to make four decisions visible before they are acted on,
 so most of what is tested here is that flipping a control changes what the
@@ -146,7 +146,7 @@ async def upload_bundle(user: User, path) -> None:
 class TestImportCard:
     async def test_the_page_offers_the_importer(self, user: User):
         await user.open("/")
-        await user.should_see("Import a shared item")
+        await user.should_see("Import items")
         await user.should_see("Choose a bundle")
 
     async def test_the_importer_accepts_only_bundles(self, user: User):
@@ -241,6 +241,79 @@ class TestPreviewDialog:
         await user.open("/")
         await upload_bundle(user, broken)
         await user.should_see("Not a readable bundle", retries=20)
+
+
+async def preview_library_import(user: User, data_dir) -> None:
+    """Name another library and ask for the import preview."""
+    path_input = _control(user, "library-path")
+    path_input.set_value(str(data_dir))
+    user.find(marker="library-preview").click()
+
+
+@pytest.mark.usefixtures("receiver")
+class TestImportLibrary:
+    async def test_the_page_offers_the_library_import(self, user: User):
+        await user.open("/")
+        await user.should_see("Import from another library")
+        await user.should_see("Preview import")
+
+    async def test_it_previews_every_item_and_does_nothing(
+        self, user: User, sender, receiver
+    ):
+        add(sender, taxa="cicadidae")
+        add(sender, ZAMTYM, taxa="orthoptera")
+
+        await user.open("/")
+        await preview_library_import(user, sender.settings.data_dir)
+
+        await user.should_see("From Sender's cicadas", retries=20)
+        await user.should_see("2 item(s)")
+        await user.should_see("Would add 2, skip 0.")
+        assert receiver.service.stats()["items"] == 0
+
+    async def test_importing_adds_every_item(self, user: User, sender, receiver):
+        first = add(sender, taxa="cicadidae")
+        add(sender, ZAMTYM, taxa="orthoptera")
+
+        await user.open("/")
+        await preview_library_import(user, sender.settings.data_dir)
+        await user.should_see("Would add 2, skip 0.", retries=20)
+        _import_button(user).click()
+        await user.should_see("Added 2, skipped 0.", retries=20)
+
+        assert receiver.service.stats()["items"] == 2
+        assert first.biotimbre_id in {
+            item.biotimbre_id for item in receiver.service.list_items()
+        }
+        # The other library is untouched.
+        assert sender.stats()["items"] == 2
+
+    async def test_missing_audio_is_reported(self, user: User, sender):
+        gone = add(sender)
+        add(sender, ZAMTYM)
+        sender.settings.absolute_audio_path(gone.audio_path).unlink()
+
+        await user.open("/")
+        await preview_library_import(user, sender.settings.data_dir)
+        await user.should_see("have no audio on disk", retries=20)
+        await user.should_see("Would add 1, skip 0.")
+
+    async def test_a_directory_without_a_library_is_reported(
+        self, user: User, tmp_path
+    ):
+        (tmp_path / "nothing").mkdir()
+
+        await user.open("/")
+        await preview_library_import(user, tmp_path / "nothing")
+        await user.should_see("No biotimbre library", retries=20)
+
+    async def test_browsing_lists_libraries(self, user: User, sender, tmp_path):
+        await user.open("/")
+        _control(user, "library-path").set_value(str(tmp_path))
+        user.find("Browse").click()
+
+        await user.should_see("sender", retries=20)
+        await user.should_see("library")
 
 
 @pytest.mark.usefixtures("receiver")

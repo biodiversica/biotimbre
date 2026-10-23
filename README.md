@@ -99,8 +99,9 @@ The Library page is divided into three collapsible sections.
   limit indicated. The recording can be trimmed, filtered and normalised before
   it is stored (see [Audio Preparation](#audio-preparation)). Validation errors
   are shown on the corresponding field.
-- **Import a shared item** — loads a `.btz` bundle from another library, with a
-  preview of the outcome that can be adjusted before anything is added (see
+- **Import items** — loads a `.btz` bundle from another library, or adds
+  every item of another library on the same computer, with a preview of the
+  outcome that can be adjusted before anything is added (see
   [Sharing Items Between Libraries](#sharing-items-between-libraries)).
 
 The recording location is entered in a single field as
@@ -209,6 +210,7 @@ biotimbre export-npy ITEM_ID MODEL_ID OUT [--with-audio]
 biotimbre export-csv OUT                       # metadata of every item as CSV
 biotimbre export-bundle ITEM_ID... -o FILE [--no-embeddings]
 biotimbre import-bundle FILE [--dry-run] [options]
+biotimbre import-library DIR [--dry-run] [options]   # add another library's items to this one
 biotimbre stats
 biotimbre gui [--host H] [--port P] [--no-browser] [--no-map] [--search-only]
 ```
@@ -433,7 +435,7 @@ biotimbre export-bundle 12 13 14 -o batch.btz      # several items
 biotimbre export-bundle 12 -o small.btz --no-embeddings
 ```
 
-The recipient can import the bundle in the *Import a shared item* section of
+The recipient can import the bundle in the *Import items* section of
 the Library page, which shows a preview first, or from the command line. A
 dry run reports what would happen without changing anything:
 
@@ -476,6 +478,30 @@ Anything the bundle does not supply is computed on import, so an imported item
 is immediately searchable. `--no-embeddings` leaves these gaps to be filled
 later with `backfill`, which is useful for bulk imports on a machine without
 the model files.
+
+### Importing From Another Library
+
+Every item of another library on the same computer can be imported at once,
+without creating a bundle first. In the *Import items* section of the Library
+page, **Import from another library** takes the other library's directory (the one
+containing its `library.db`), typed in or chosen with **Browse**, and
+**Preview import** opens the same preview and settings as for a bundle. From
+the command line, `import-library` accepts the same options as
+`import-bundle`:
+
+```bash
+biotimbre import-library ~/field-2024 --dry-run
+biotimbre import-library ~/field-2024
+```
+
+The other library is opened read-only and is not changed. Each of its items is
+treated as an entry of a bundle from that library, so the
+[import rules](#import-rules) above apply unchanged: recordings already present
+are skipped, which makes repeating an import safe; species join their local
+biotimbre; and vectors are reused only where the model fingerprints match.
+Items whose stored audio is missing from disk are left out and listed. The
+other library must be at the current schema version; an older one is upgraded
+by opening it once.
 
 ### Security
 

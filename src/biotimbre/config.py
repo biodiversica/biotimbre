@@ -23,6 +23,10 @@ from pathlib import Path
 DEFAULT_CONFIG_NAME = "biotimbre.toml"
 ENV_CONFIG = "BIOTIMBRE_CONFIG"
 
+#: The database's filename inside a data directory. Its presence is what makes
+#: a directory a library, to the chooser and to an import alike.
+DEFAULT_DB_NAME = "library.db"
+
 #: Default basemap for the location map: OpenStreetMap's standard raster tiles.
 #: Leaflet itself ships with NiceGUI and is served from this process, so the
 #: tiles are the only part of the map that comes off the network — which is why
@@ -304,7 +308,7 @@ class Settings:
 def _default_settings(data_dir: Path) -> Settings:
     return Settings(
         data_dir=data_dir,
-        db_path=data_dir / "library.db",
+        db_path=data_dir / DEFAULT_DB_NAME,
         audio_dir=data_dir / "audio",
     )
 

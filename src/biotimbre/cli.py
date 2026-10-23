@@ -459,46 +459,77 @@ def cmd_export_bundle(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_import_bundle(args: argparse.Namespace) -> int:
-    """Load a shared bundle into this library."""
-    policy = ImportPolicy(
+def _import_policy(args: argparse.Namespace) -> ImportPolicy:
+    """The choices import-bundle and import-library share."""
+    return ImportPolicy(
         trust_embeddings=not args.distrust_embeddings,
         compute_embeddings=not args.no_embeddings,
         duplicate_audio=args.duplicates,
         species_conflict=args.species.replace("-", "_"),
     )
 
-    with _service(args) as service:
-        if args.dry_run:
-            preview = service.inspect_bundle(args.bundle, policy=policy)
-            _print_bundle_header(preview.bundle)
-            print()
-            for plan in preview.plans:
-                _print_plan(plan)
-            print(
-                f"\nWould add {len(preview.to_add)}, skip {len(preview.to_skip)}. "
-                f"Nothing was changed."
-            )
-            return 0
 
-        report = service.import_bundle(args.bundle, policy=policy)
-        _print_bundle_header(report.bundle)
+def _run_import(args: argparse.Namespace, inspect, perform) -> int:
+    """Preview or carry out an import, and report it entry by entry."""
+    policy = _import_policy(args)
+    if args.dry_run:
+        preview = inspect(policy)
+        _print_bundle_header(preview.bundle)
         print()
-        for outcome in report.outcomes:
-            _print_plan(outcome.plan, outcome=outcome)
+        for plan in preview.plans:
+            _print_plan(plan)
         print(
-            f"\nAdded {len(report.added)}, skipped {len(report.skipped)}"
-            + (f", failed {len(report.failed)}" if report.failed else "")
-            + "."
+            f"\nWould add {len(preview.to_add)}, skip {len(preview.to_skip)}. "
+            f"Nothing was changed."
         )
-        if report.failed:
-            for outcome in report.failed:
-                print(
-                    f"  entry {outcome.plan.index}: {outcome.reason}",
-                    file=sys.stderr,
-                )
-            return 1
+        return 0
+
+    report = perform(policy)
+    _print_bundle_header(report.bundle)
+    print()
+    for outcome in report.outcomes:
+        _print_plan(outcome.plan, outcome=outcome)
+    print(
+        f"\nAdded {len(report.added)}, skipped {len(report.skipped)}"
+        + (f", failed {len(report.failed)}" if report.failed else "")
+        + "."
+    )
+    if report.failed:
+        for outcome in report.failed:
+            print(
+                f"  entry {outcome.plan.index}: {outcome.reason}",
+                file=sys.stderr,
+            )
+        return 1
     return 0
+
+
+def cmd_import_bundle(args: argparse.Namespace) -> int:
+    """Load a shared bundle into this library."""
+    with _service(args) as service:
+        return _run_import(
+            args,
+            lambda policy: service.inspect_bundle(args.bundle, policy=policy),
+            lambda policy: service.import_bundle(args.bundle, policy=policy),
+        )
+
+
+def cmd_import_library(args: argparse.Namespace) -> int:
+    """Add every item of another library to this one."""
+    with _service(args) as service:
+        external = service.open_external_library(args.library)
+        if external.missing_audio:
+            ids = ", ".join(str(item_id) for item_id in external.missing_audio)
+            print(
+                f"warning: {len(external.missing_audio)} item(s) have no audio "
+                f"on disk and are left out: {ids}",
+                file=sys.stderr,
+            )
+        return _run_import(
+            args,
+            lambda policy: service.inspect_library(external, policy=policy),
+            lambda policy: service.import_library(external, policy=policy),
+        )
 
 
 def cmd_gui(args: argparse.Namespace) -> int:
@@ -582,6 +613,45 @@ def cmd_stats(args: argparse.Namespace) -> int:
 
 
 # ── argument parsing ──────────────────────────────────────────────────────────
+
+
+def _add_import_options(parser: argparse.ArgumentParser, source: str) -> None:
+    """The options import-bundle and import-library share.
+
+    Args:
+        parser: The subcommand's parser.
+        source: What is being imported, for the help text.
+    """
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Say what would happen and change nothing.",
+    )
+    parser.add_argument(
+        "--no-embeddings",
+        action="store_true",
+        help=f"Do not compute what the {source} did not supply; leave it for "
+             "`backfill`.",
+    )
+    parser.add_argument(
+        "--distrust-embeddings",
+        action="store_true",
+        help=f"Ignore the {source}'s vectors and recompute from its audio.",
+    )
+    parser.add_argument(
+        "--duplicates",
+        choices=("skip", "add"),
+        default="skip",
+        help="What to do with a recording this library already holds under "
+             "another biotimbre. Default: skip.",
+    )
+    parser.add_argument(
+        "--species",
+        choices=("join-local", "keep-incoming"),
+        default="join-local",
+        help="What to do when an incoming species already has a biotimbre "
+             "here. Default: join-local, one species one biotimbre.",
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -803,37 +873,19 @@ def build_parser() -> argparse.ArgumentParser:
         help="Load a bundle shared by another library.",
     )
     p_import_bundle.add_argument("bundle", help=f"The {BUNDLE_SUFFIX} file.")
-    p_import_bundle.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Say what would happen and change nothing.",
-    )
-    p_import_bundle.add_argument(
-        "--no-embeddings",
-        action="store_true",
-        help="Do not compute what the bundle did not supply; leave it for "
-             "`backfill`.",
-    )
-    p_import_bundle.add_argument(
-        "--distrust-embeddings",
-        action="store_true",
-        help="Ignore the bundle's vectors and recompute from its audio.",
-    )
-    p_import_bundle.add_argument(
-        "--duplicates",
-        choices=("skip", "add"),
-        default="skip",
-        help="What to do with a recording this library already holds under "
-             "another biotimbre. Default: skip.",
-    )
-    p_import_bundle.add_argument(
-        "--species",
-        choices=("join-local", "keep-incoming"),
-        default="join-local",
-        help="What to do when an incoming species already has a biotimbre "
-             "here. Default: join-local, one species one biotimbre.",
-    )
+    _add_import_options(p_import_bundle, "bundle")
     p_import_bundle.set_defaults(func=cmd_import_bundle)
+
+    p_import_library = subparsers.add_parser(
+        "import-library",
+        help="Add every item of another library on this machine to this "
+             "one. The other library is not changed.",
+    )
+    p_import_library.add_argument(
+        "library", help="The other library's directory (holding library.db)."
+    )
+    _add_import_options(p_import_library, "library")
+    p_import_library.set_defaults(func=cmd_import_library)
 
     p_stats = subparsers.add_parser("stats", help="Show library totals.")
     p_stats.set_defaults(func=cmd_stats)

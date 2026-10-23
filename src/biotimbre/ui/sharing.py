@@ -1,4 +1,4 @@
-"""Receiving a bundle someone sent: look at it, decide, then import.
+"""Receiving a bundle someone sent, or another whole library: look, decide, import.
 
 Importing is not one act but a handful of decisions — whose biotimbre wins when
 two libraries have catalogued the same species, whether to keep a recording that
@@ -10,7 +10,9 @@ The list underneath is not an explanation of what the buttons mean; it is the
 actual outcome, recomputed.
 
 That is affordable because
-:meth:`~biotimbre.service.LibraryService.inspect_bundle` writes nothing. The
+:meth:`~biotimbre.service.LibraryService.inspect_bundle` writes nothing, and
+neither does :meth:`~biotimbre.service.LibraryService.inspect_library`, which
+plans importing every item of another library on this machine the same way. The
 same :func:`~biotimbre.sharing.plan_import` runs again on import, against the
 library as it is then, so what was shown is what happens.
 """
@@ -20,6 +22,7 @@ from __future__ import annotations
 import tempfile
 from dataclasses import replace
 from pathlib import Path
+from typing import Callable
 
 from nicegui import ui
 
@@ -28,7 +31,9 @@ from biotimbre.i18n import Translator
 from biotimbre.io.bundle import BUNDLE_SUFFIX
 from biotimbre.sharing import BundlePreview, EntryPlan, ImportPolicy, ImportReport
 from biotimbre.ui.layout import notify_error
+from biotimbre.ui.routes import list_directory
 from biotimbre.ui.sections import foldable_card
+from biotimbre.ui.setup import recent_libraries
 from biotimbre.ui.state import get_state
 
 #: What the upload control accepts. One extension, because a bundle is one
@@ -45,12 +50,14 @@ _ACTION_ICONS = {
 
 
 def import_card(t: Translator, on_imported) -> None:
-    """The card that takes a bundle file and opens the preview.
+    """The card that takes a bundle file or another library and opens the preview.
 
     Args:
         t: Active translator.
         on_imported: Called after items are added, to refresh the page.
     """
+    state = get_state()
+
     with foldable_card("import", t("share.import_heading")):
         ui.label(t("share.import_hint")).classes("text-sm text-muted")
 
@@ -63,7 +70,16 @@ def import_card(t: Translator, on_imported) -> None:
             target = Path(staging.name) / Path(event.file.name).name
             try:
                 await event.file.save(target)
-                await _open_preview(t, target, on_imported)
+                await _open_preview(
+                    t,
+                    lambda policy: state.service.inspect_bundle(
+                        target, policy=policy
+                    ),
+                    lambda policy: state.service.import_bundle(
+                        target, policy=policy
+                    ),
+                    on_imported,
+                )
             except BiotimbreError as exc:
                 notify_error(t, exc)
             except Exception as exc:  # noqa: BLE001
@@ -84,24 +100,164 @@ def import_card(t: Translator, on_imported) -> None:
             "upload-bundle"
         )
 
+        ui.separator().classes("my-1")
+        _library_controls(t, on_imported)
 
-async def _open_preview(t: Translator, path: Path, on_imported) -> None:
-    """Show what importing this bundle would do, and let the reader change it.
 
-    Waits for the dialog to close before returning, so the caller can keep the
-    bundle file on disk for exactly as long as it is needed: every change of
-    policy re-reads it, and so does the import.
+def _library_controls(t: Translator, on_imported) -> None:
+    """Pick another library on this machine and preview importing all of it.
+
+    The directory listing is read on the server, as the library chooser reads
+    it (see :mod:`biotimbre.ui.setup`), and through the same function — not the
+    chooser's HTTP route, which is withdrawn once a library is open.
+    """
+    state = get_state()
+
+    ui.label(t("share.library_heading")).classes("text-base font-medium")
+    ui.label(t("share.library_hint")).classes("text-sm text-muted")
+
+    current = state.settings.data_dir.resolve()
+    others = [
+        path
+        for path in recent_libraries()
+        if Path(path).expanduser().resolve() != current
+    ]
+
+    with ui.row().classes("items-center gap-2 w-full no-wrap"):
+        path_input = ui.input(t("share.library_path")).props(
+            "dense outlined clearable"
+        ).classes("grow").mark("library-path")
+        browse_button = ui.button(
+            t("share.library_browse"), icon="folder_open"
+        ).props("flat dense no-caps")
+        preview_button = ui.button(
+            t("share.library_preview"), icon="library_add"
+        ).props("dense no-caps").mark("library-preview")
+
+    if others:
+        with ui.row().classes("items-center gap-1 flex-wrap"):
+            ui.label(t("setup.recent")).classes("text-xs text-muted")
+            for path in others:
+                ui.button(
+                    path, on_click=lambda p=path: path_input.set_value(p)
+                ).props("flat dense no-caps size=sm").classes("font-mono")
+
+    listing = ui.column().classes("w-full gap-1")
+    listing.set_visibility(False)
+
+    async def show(path: str | None) -> None:
+        """Draw one directory's subdirectories, libraries marked."""
+        listing.clear()
+        listing.set_visibility(True)
+        try:
+            data = await state.run(list_directory, path)
+        except Exception as exc:  # noqa: BLE001 — a bad path is user input
+            with listing:
+                ui.label(str(exc)).classes("text-sm text-notice")
+            return
+
+        if data["is_library"]:
+            path_input.set_value(data["path"])
+        with listing:
+            with ui.row().classes("items-center gap-2 flex-wrap w-full"):
+                ui.label(data["path"]).classes("text-sm font-mono grow")
+                if data["parent"]:
+                    ui.button(
+                        t("setup.parent"),
+                        icon="arrow_upward",
+                        on_click=lambda p=data["parent"]: show(p),
+                    ).props("flat dense no-caps")
+                ui.button(
+                    t("setup.home"), icon="home", on_click=lambda: show(None)
+                ).props("flat dense no-caps")
+                ui.button(
+                    icon="close", on_click=lambda: listing.set_visibility(False)
+                ).props("flat dense round")
+            if not data["directories"]:
+                ui.label(t("setup.empty")).classes("text-xs text-muted")
+            with ui.column().classes(
+                "w-full gap-0 max-h-64 overflow-auto rounded bg-surface p-1"
+            ):
+                for entry in data["directories"]:
+                    with ui.row().classes("items-center gap-2 w-full px-2 py-1"):
+                        ui.icon(
+                            "folder_special" if entry["is_library"] else "folder",
+                            size="1.1rem",
+                        ).classes(
+                            "text-link" if entry["is_library"] else "text-muted"
+                        )
+                        ui.button(
+                            entry["name"],
+                            on_click=lambda p=entry["path"]: show(p),
+                        ).props("flat dense no-caps").classes("grow justify-start")
+                        if entry["is_library"]:
+                            ui.label(t("setup.is_library")).classes(
+                                "text-xs text-muted"
+                            )
+
+    async def browse() -> None:
+        typed = (path_input.value or "").strip()
+        await show(typed or str(state.settings.data_dir.resolve().parent))
+
+    async def preview() -> None:
+        path = (path_input.value or "").strip()
+        if not path:
+            ui.notify(t("share.library_no_path"), type="warning", position="top")
+            return
+        preview_button.props("loading")
+        try:
+            external = await state.run(state.service.open_external_library, path)
+        except BiotimbreError as exc:
+            notify_error(t, exc)
+            return
+        finally:
+            preview_button.props(remove="loading")
+        listing.set_visibility(False)
+        await _open_preview(
+            t,
+            lambda policy: state.service.inspect_library(external, policy=policy),
+            lambda policy: state.service.import_library(external, policy=policy),
+            on_imported,
+            origin=str(external.data_dir),
+            missing_audio=external.missing_audio,
+        )
+
+    browse_button.on_click(browse)
+    preview_button.on_click(preview)
+    path_input.on("keydown.enter", lambda _: preview())
+
+
+async def _open_preview(
+    t: Translator,
+    inspect: Callable[[ImportPolicy], BundlePreview],
+    perform: Callable[[ImportPolicy], ImportReport],
+    on_imported,
+    *,
+    origin: str | None = None,
+    missing_audio: tuple[int, ...] = (),
+) -> None:
+    """Show what an import would do, and let the reader change it.
+
+    Waits for the dialog to close before returning, so the caller can keep
+    whatever ``inspect`` and ``perform`` read — a staged bundle file — for
+    exactly as long as it is needed: every change of policy plans again, and
+    so does the import.
 
     Args:
         t: Active translator.
-        path: The staged bundle file. Must outlive this call.
+        inspect: Plans the import under a policy, writing nothing.
+        perform: Carries the import out under a policy.
         on_imported: Called after a successful import.
+        origin: Where the items are coming from, for a library on this
+            machine. ``None`` for a bundle, which says when it was written
+            instead.
+        missing_audio: Items of that library left out for want of audio.
     """
     state = get_state()
     policy = ImportPolicy()
 
     try:
-        preview = await state.run(state.service.inspect_bundle, path, policy=policy)
+        preview = await state.run(inspect, policy)
     except BiotimbreError as exc:
         notify_error(t, exc)
         return
@@ -109,7 +265,15 @@ async def _open_preview(t: Translator, path: Path, on_imported) -> None:
     with ui.dialog() as dialog, ui.card().classes(
         "w-full max-w-4xl p-4 gap-3 bg-card"
     ):
-        _bundle_header(t, preview)
+        _bundle_header(t, preview, origin=origin)
+        if missing_audio:
+            ui.label(
+                t(
+                    "share.library_missing_audio",
+                    count=len(missing_audio),
+                    ids=", ".join(str(item_id) for item_id in missing_audio),
+                )
+            ).classes("text-sm text-notice")
 
         plans_container = ui.column().classes("w-full gap-2")
         footer_label = ui.label().classes("text-sm text-muted")
@@ -118,9 +282,7 @@ async def _open_preview(t: Translator, path: Path, on_imported) -> None:
             """Re-decide every entry under the policy as it now stands."""
             nonlocal preview
             try:
-                preview = await state.run(
-                    state.service.inspect_bundle, path, policy=policy
-                )
+                preview = await state.run(inspect, policy)
             except BiotimbreError as exc:
                 notify_error(t, exc)
                 return
@@ -153,9 +315,7 @@ async def _open_preview(t: Translator, path: Path, on_imported) -> None:
             import_button.set_enabled(False)
             import_button.props("loading")
             try:
-                report = await state.run(
-                    state.service.import_bundle, path, policy=policy
-                )
+                report = await state.run(perform, policy)
             except BiotimbreError as exc:
                 notify_error(t, exc)
                 import_button.props(remove="loading")
@@ -176,8 +336,8 @@ async def _open_preview(t: Translator, path: Path, on_imported) -> None:
             )
             with ui.row().classes("gap-2"):
                 ui.button(t("common.cancel"), on_click=dialog.close).props("flat")
-                # Marked so a test can name it: "Import a shared item" is
-                # the card's heading, so the word alone is not unique.
+                # Marked so a test can name it: "Import items" is the card's
+                # heading, so the word alone is not unique.
                 import_button = ui.button(
                     t("share.import"), on_click=do_import
                 ).mark("bundle-import")
@@ -186,8 +346,10 @@ async def _open_preview(t: Translator, path: Path, on_imported) -> None:
     await dialog
 
 
-def _bundle_header(t: Translator, preview: BundlePreview) -> None:
-    """Who sent this, when, and what models their vectors came from."""
+def _bundle_header(
+    t: Translator, preview: BundlePreview, *, origin: str | None = None
+) -> None:
+    """Who sent this, when or from where, and what models their vectors came from."""
     bundle = preview.bundle
     library = bundle.source_library
 
@@ -201,7 +363,9 @@ def _bundle_header(t: Translator, preview: BundlePreview) -> None:
             ).tooltip(library.uuid)
 
     details = [t("share.item_count", count=len(bundle))]
-    if bundle.created_at:
+    if origin is not None:
+        details.append(origin)
+    elif bundle.created_at:
         details.append(t("share.written", when=bundle.created_at))
     ui.label(" · ".join(details)).classes("text-sm text-muted")
 
@@ -217,7 +381,9 @@ def _bundle_header(t: Translator, preview: BundlePreview) -> None:
                 )
             ).classes("text-xs text-muted font-mono")
     else:
-        ui.label(t("share.models_none")).classes("text-xs text-muted")
+        ui.label(
+            t("share.library_models_none" if origin else "share.models_none")
+        ).classes("text-xs text-muted")
 
 
 def _policy_controls(t: Translator, policy: ImportPolicy, on_change) -> None:

@@ -583,6 +583,80 @@ def write_bundle(
             handle.close()
 
 
+def bundle_from_entries(
+    entries: Sequence[ExportEntry],
+    *,
+    models: Mapping[str, ModelFingerprint] | None = None,
+    source_library: SourceLibrary | None = None,
+    created_at: str | None = None,
+) -> Bundle:
+    """The bundle :func:`write_bundle` would write, opened without a file.
+
+    For moving items between two libraries on the same machine: nothing needs
+    packing, digesting or extracting when both ends can read the same disk, and
+    a whole library is not held to the caps that keep a stranger's file in
+    check. Each entry's ``audio`` stays where it is — the exporting library's
+    own file — so the result is valid only while that library is.
+
+    Entries are checked as :func:`write_bundle` checks them, which is the half
+    of the round trip that concerns a sender; the other half guards against an
+    archive, and there is none.
+
+    Args:
+        entries: The items, in order. Each must have a ``biotimbre_id`` and an
+            audio file that exists.
+        models: Fingerprint for every model whose vectors any entry carries.
+        source_library: The exporting library's identity.
+        created_at: Timestamp to record as the export time; defaults to now.
+
+    Returns:
+        A :class:`Bundle` whose entries point at the original audio files.
+
+    Raises:
+        ValidationError: As :func:`write_bundle`.
+    """
+    fingerprints = dict(models or {})
+    prepared = [
+        _prepare(entry, index, fingerprints)
+        for index, entry in enumerate(entries, start=1)
+    ]
+    library = source_library or SourceLibrary()
+    exported_at = created_at or _utc_now()
+
+    return Bundle(
+        format_version=BUNDLE_VERSION,
+        created_at=exported_at,
+        source_library=library,
+        models={
+            model_id: fingerprints[model_id]
+            for model_id in sorted(_models_used(prepared))
+        },
+        entries=tuple(
+            BundleEntry(
+                draft=entry.draft.validated(),
+                audio=Path(entry.audio),
+                audio_info=AudioInfo(
+                    sha256=entry.audio_sha256,
+                    duration_s=entry.duration_s,
+                    sample_rate=entry.sample_rate,
+                    channels=entry.channels,
+                ),
+                biotimbre_label=entry.biotimbre_label,
+                embeddings={
+                    model_id: list(rows) for model_id, rows in entry.embeddings.items()
+                },
+                provenance=Provenance(
+                    library_uuid=library.uuid,
+                    library_name=library.name,
+                    item_id=entry.source_item_id,
+                    exported_at=exported_at,
+                ),
+            )
+            for _, entry, _ in prepared
+        ),
+    )
+
+
 def _prepare(
     entry: ExportEntry, index: int, fingerprints: Mapping[str, ModelFingerprint]
 ) -> tuple[str, ExportEntry, dict]:

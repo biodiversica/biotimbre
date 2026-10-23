@@ -598,6 +598,141 @@ class TestPreview:
             receiver.inspect_bundle(broken)
 
 
+class TestImportLibrary:
+    """Importing every item of another library on the same machine."""
+
+    def test_every_item_arrives(self, library):
+        sender = library("sender")
+        add(sender, taxa="cicadidae")
+        add(sender, ZAMTYM_WAV, taxa="orthoptera")
+
+        receiver = library("receiver")
+        report = receiver.import_library(sender.settings.data_dir, policy=OFFLINE)
+
+        assert len(report.added) == 2
+        assert {item.taxa for item in receiver.list_items()} == {
+            ("cicadidae",),
+            ("orthoptera",),
+        }
+
+    def test_the_other_library_is_left_alone(self, library):
+        sender = library("sender")
+        item = add(sender)
+        audio = sender.settings.absolute_audio_path(item.audio_path)
+
+        receiver = library("receiver")
+        added = receiver.import_library(
+            sender.settings.data_dir, policy=OFFLINE
+        ).added[0]
+
+        assert audio.is_file()
+        assert len(sender.list_items()) == 1
+        stored = receiver.settings.absolute_audio_path(added.item.audio_path)
+        assert stored.is_relative_to(receiver.settings.audio_dir)
+
+    def test_identity_label_and_provenance_come_along(self, library):
+        sender = library("sender")
+        item = add(sender, taxa="cicadidae")
+        sender.set_biotimbre_label(item.biotimbre_id, "Big green one")
+
+        receiver = library("receiver")
+        outcome = receiver.import_library(
+            sender.settings.data_dir, policy=OFFLINE
+        ).added[0]
+
+        assert outcome.item.biotimbre_id == item.biotimbre_id
+        assert receiver.get_biotimbre_label(item.biotimbre_id) == "Big green one"
+        assert outcome.provenance.library_name == "sender"
+        assert outcome.provenance.item_id == item.item_id
+
+    def test_matching_vectors_are_reused(self, library):
+        sender = library("sender")
+        item = add(sender)
+        rows = embed(sender, item.item_id)
+
+        receiver = library("receiver")
+        added = receiver.import_library(
+            sender.settings.data_dir, policy=OFFLINE
+        ).added[0]
+
+        stored = receiver.repo.get_embeddings(added.item.item_id, FAKE_MODEL)
+        assert len(stored) == len(rows)
+        assert np.array_equal(stored[0][3], rows[0][2])
+
+    def test_a_second_import_skips_everything(self, library):
+        sender = library("sender")
+        add(sender)
+        add(sender, ZAMTYM_WAV)
+
+        receiver = library("receiver")
+        receiver.import_library(sender.settings.data_dir, policy=OFFLINE)
+        report = receiver.import_library(sender.settings.data_dir, policy=OFFLINE)
+
+        assert len(report.added) == 0
+        assert len(report.skipped) == 2
+        assert len(receiver.list_items()) == 2
+
+    def test_species_join_the_local_biotimbre(self, library):
+        sender = library("sender")
+        add(sender, taxa="guyalna bonaerensis")
+
+        receiver = library("receiver")
+        mine = add(receiver, ZAMTYM_WAV, taxa="guyalna bonaerensis")
+        outcome = receiver.import_library(
+            sender.settings.data_dir, policy=OFFLINE
+        ).added[0]
+
+        assert outcome.item.biotimbre_id == mine.biotimbre_id
+
+    def test_the_preview_changes_nothing_and_matches(self, library):
+        sender = library("sender")
+        add(sender)
+        add(sender, ZAMTYM_WAV)
+
+        receiver = library("receiver")
+        external = receiver.open_external_library(sender.settings.data_dir)
+        preview = receiver.inspect_library(external, policy=OFFLINE)
+
+        assert len(preview.to_add) == 2
+        assert receiver.list_items() == []
+        report = receiver.import_library(external, policy=OFFLINE)
+        assert [o.action for o in report.outcomes] == [
+            p.action for p in preview.plans
+        ]
+
+    def test_an_item_without_audio_is_left_out(self, library):
+        sender = library("sender")
+        gone = add(sender)
+        kept = add(sender, ZAMTYM_WAV)
+        sender.settings.absolute_audio_path(gone.audio_path).unlink()
+
+        receiver = library("receiver")
+        external = receiver.open_external_library(sender.settings.data_dir)
+
+        assert external.missing_audio == (gone.item_id,)
+        assert [e.provenance.item_id for e in external.bundle.entries] == [
+            kept.item_id
+        ]
+
+    def test_refuses_the_open_library(self, library):
+        receiver = library("receiver")
+        add(receiver)
+        with pytest.raises(ValidationError, match="already open"):
+            receiver.open_external_library(receiver.settings.data_dir)
+
+    def test_refuses_a_directory_without_a_library(self, library, tmp_path):
+        receiver = library("receiver")
+        (tmp_path / "nothing").mkdir()
+        with pytest.raises(ValidationError, match="No biotimbre library"):
+            receiver.open_external_library(tmp_path / "nothing")
+
+    def test_refuses_an_empty_library(self, library):
+        sender = library("sender")
+        receiver = library("receiver")
+        with pytest.raises(ValidationError, match="no items"):
+            receiver.open_external_library(sender.settings.data_dir)
+
+
 class TestPolicyValidation:
     def test_rejects_an_unknown_duplicate_policy(self):
         with pytest.raises(ValidationError, match="duplicate_audio"):

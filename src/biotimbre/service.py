@@ -28,11 +28,12 @@ from typing import Mapping, Sequence
 
 import numpy as np
 
-from biotimbre.config import Settings, load_settings
+from biotimbre.config import DEFAULT_DB_NAME, Settings, load_settings
 from biotimbre.db.connection import (
     LibraryIdentity,
     get_library_identity,
     initialize,
+    open_read_only,
     set_library_name,
 )
 from biotimbre.db.repository import Repository
@@ -56,6 +57,7 @@ from biotimbre.io.bundle import (
     ExportEntry,
     ModelFingerprint,
     SourceLibrary,
+    bundle_from_entries,
     read_bundle,
     write_bundle,
 )
@@ -265,6 +267,25 @@ class IngestResult:
     duplicate_of: tuple[int, ...] = ()
     warnings: tuple[str, ...] = ()
     joined_species: str | None = None
+
+
+@dataclass(frozen=True)
+class ExternalLibrary:
+    """Another library's items, read for importing into this one.
+
+    See :meth:`LibraryService.open_external_library`.
+
+    Attributes:
+        data_dir: Where that library lives.
+        bundle: Every item that has its audio, as an unwritten bundle whose
+            entries point at that library's own files.
+        missing_audio: Item ids (in that library) left out because their
+            stored audio is missing from disk.
+    """
+
+    data_dir: Path
+    bundle: Bundle
+    missing_audio: tuple[int, ...] = ()
 
 
 class LibraryService:
@@ -1374,15 +1395,159 @@ class LibraryService:
             ValidationError: If the file is not a readable bundle. A failure
                 in a single entry is reported rather than raised.
         """
-        resolved = policy or ImportPolicy()
         with tempfile.TemporaryDirectory(prefix="biotimbre-import-") as staging:
-            bundle = read_bundle(path, into=staging)
-            self._register_for_import(bundle)
-            preview = plan_import(self.repo, bundle, resolved)
-            outcomes = tuple(
-                self._import_entry(plan, resolved) for plan in preview.plans
-            )
+            return self._import_opened(read_bundle(path, into=staging), policy)
+
+    def _import_opened(
+        self, bundle: Bundle, policy: ImportPolicy | None
+    ) -> ImportReport:
+        """Plan an opened bundle against this library as it is now, and carry it out."""
+        resolved = policy or ImportPolicy()
+        self._register_for_import(bundle)
+        preview = plan_import(self.repo, bundle, resolved)
+        outcomes = tuple(self._import_entry(plan, resolved) for plan in preview.plans)
         return ImportReport(bundle=bundle, policy=resolved, outcomes=outcomes)
+
+    def open_external_library(
+        self, data_dir: str | Path, *, include_embeddings: bool = True
+    ) -> ExternalLibrary:
+        """Read every item of another library on this machine, for importing here.
+
+        The other library is opened read-only and left exactly as it was. Its
+        items come back as a bundle that was never written — the one
+        :meth:`export_bundle` would produce for all of them — whose entries
+        point at that library's own audio files, so nothing is copied until an
+        import stores it. What happens to each entry is then decided exactly as
+        for a bundle someone sent (see :mod:`biotimbre.sharing`): recordings
+        already here are skipped, species join their local biotimbre, vectors
+        from a model registered differently are recomputed.
+
+        An item whose stored audio is missing from disk is left out and
+        reported rather than failing the whole import: there is nothing to
+        import for it, and the rest of the library is no less worth having.
+
+        Args:
+            data_dir: The other library's directory, the one holding its
+                ``library.db``.
+            include_embeddings: Carry its vectors across. False recomputes
+                everything here.
+
+        Returns:
+            An :class:`ExternalLibrary`.
+
+        Raises:
+            ValidationError: If the directory is this library, holds no
+                library, or has no item that can be imported.
+            BiotimbreError: If its database cannot be opened, e.g. because it
+                needs a schema upgrade first.
+        """
+        source_dir = Path(data_dir).expanduser()
+        db_path = source_dir / DEFAULT_DB_NAME
+        if not db_path.is_file():
+            raise ValidationError(
+                f"No biotimbre library in {source_dir}: there is no "
+                f"{DEFAULT_DB_NAME} there.",
+                "library",
+            )
+        if db_path.resolve() == self.settings.db_path.resolve():
+            raise ValidationError(
+                "That is the library already open; there is nothing to import from it.",
+                "library",
+            )
+
+        settings = replace(
+            self.settings,
+            data_dir=source_dir,
+            db_path=db_path,
+            audio_dir=source_dir / "audio",
+        )
+        connection = open_read_only(db_path)
+        try:
+            source = LibraryService(settings, connection=connection, read_only=True)
+            items = sorted(source.repo.list_items(), key=lambda item: item.item_id)
+            present: list[int] = []
+            missing: list[int] = []
+            for item in items:
+                audio = settings.absolute_audio_path(item.audio_path)
+                (present if audio.is_file() else missing).append(item.item_id)
+            if not present:
+                raise ValidationError(
+                    f"The library in {source_dir} has no items to import"
+                    + (
+                        f" ({len(missing)} item(s) have no audio on disk)."
+                        if missing
+                        else "."
+                    ),
+                    "library",
+                )
+            entries, models = source._export_entries(present, include_embeddings)
+            bundle = bundle_from_entries(
+                entries, models=models, source_library=source._source_library()
+            )
+        finally:
+            connection.close()
+        return ExternalLibrary(
+            data_dir=source_dir, bundle=bundle, missing_audio=tuple(missing)
+        )
+
+    def inspect_library(
+        self,
+        source: str | Path | ExternalLibrary,
+        *,
+        policy: ImportPolicy | None = None,
+    ) -> BundlePreview:
+        """Say what importing another library's items would do, without doing it.
+
+        The library-sized counterpart of :meth:`inspect_bundle`.
+
+        Args:
+            source: The other library's directory, or one already opened with
+                :meth:`open_external_library` — which a caller re-planning
+                under changing choices should pass, so the other library is
+                read once.
+            policy: The choices to plan under; defaults apply if omitted.
+
+        Returns:
+            A :class:`~biotimbre.sharing.BundlePreview`.
+
+        Raises:
+            ValidationError: As :meth:`open_external_library`.
+        """
+        external = self._external(source)
+        self._register_for_import(external.bundle)
+        return plan_import(self.repo, external.bundle, policy)
+
+    def import_library(
+        self,
+        source: str | Path | ExternalLibrary,
+        *,
+        policy: ImportPolicy | None = None,
+    ) -> ImportReport:
+        """Add every item of another library to this one.
+
+        The library-sized counterpart of :meth:`import_bundle`, with the same
+        bargain: each item is its own transaction, so one that cannot be stored
+        does not undo the others. The other library is not changed.
+
+        Args:
+            source: The other library's directory, or one already opened with
+                :meth:`open_external_library`.
+            policy: The choices to import under; defaults apply if omitted.
+
+        Returns:
+            An :class:`~biotimbre.sharing.ImportReport`, one outcome per item
+            that had audio. Items without audio are in
+            :attr:`ExternalLibrary.missing_audio`, not here.
+
+        Raises:
+            ValidationError: As :meth:`open_external_library`.
+        """
+        return self._import_opened(self._external(source).bundle, policy)
+
+    def _external(self, source: str | Path | ExternalLibrary) -> ExternalLibrary:
+        if isinstance(source, ExternalLibrary):
+            return source
+        return self.open_external_library(source)
 
     def _import_entry(self, plan: EntryPlan, policy: ImportPolicy) -> ImportOutcome:
         """Carry out one entry's plan. See :meth:`import_bundle`."""

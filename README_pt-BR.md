@@ -104,9 +104,10 @@ A página Biblioteca é dividida em três seções.
   filtrada e normalizada antes de ser armazenada (consulte
   [Preparação do Áudio](#preparação-do-áudio)). Erros de validação são
   exibidos no campo correspondente.
-- **Importar um item compartilhado** — carrega um pacote `.btz` de outra
-  biblioteca, com uma prévia do resultado que pode ser ajustada antes que
-  qualquer item seja adicionado (consulte
+- **Importar itens** — carrega um pacote `.btz` de outra biblioteca, ou
+  adiciona todos os itens de outra biblioteca no mesmo computador, com uma
+  prévia do resultado que pode ser ajustada antes que qualquer item seja
+  adicionado (consulte
   [Compartilhamento de Itens entre Bibliotecas](#compartilhamento-de-itens-entre-bibliotecas)).
 
 O local da gravação é informado em um único campo, no formato
@@ -225,6 +226,7 @@ biotimbre export-npy ITEM_ID MODEL_ID SAIDA [--with-audio]
 biotimbre export-csv SAIDA                     # metadados de todos os itens em CSV
 biotimbre export-bundle ITEM_ID... -o ARQUIVO [--no-embeddings]
 biotimbre import-bundle ARQUIVO [--dry-run] [opções]
+biotimbre import-library DIR [--dry-run] [opções]    # adiciona os itens de outra biblioteca a esta
 biotimbre stats
 biotimbre gui [--host H] [--port P] [--no-browser] [--no-map] [--search-only]
 ```
@@ -464,7 +466,7 @@ biotimbre export-bundle 12 13 14 -o batch.btz      # vários itens
 biotimbre export-bundle 12 -o small.btz --no-embeddings
 ```
 
-O destinatário pode importar o pacote na seção *Importar um item compartilhado*
+O destinatário pode importar o pacote na seção *Importar itens*
 da página Biblioteca, que exibe primeiro uma prévia, ou pela linha de comando.
 Uma simulação (`--dry-run`) informa o que aconteceria sem alterar nada:
 
@@ -510,6 +512,31 @@ importado pode ser encontrado em buscas imediatamente. `--no-embeddings` deixa
 essas lacunas para serem preenchidas posteriormente com `backfill`, o que é
 útil para importações em grande volume em uma máquina sem os arquivos dos
 modelos.
+
+### Importando de Outra Biblioteca
+
+Todos os itens de outra biblioteca no mesmo computador podem ser importados de
+uma só vez, sem criar um pacote antes. Na seção *Importar itens* da página
+Biblioteca, **Importar de outra biblioteca** recebe o diretório da outra
+biblioteca (o que contém seu `library.db`), digitado ou escolhido com
+**Procurar**, e **Prévia da importação** abre a mesma prévia e as mesmas
+configurações de um pacote. Pela linha de comando, `import-library` aceita as
+mesmas opções que `import-bundle`:
+
+```bash
+biotimbre import-library ~/campo-2024 --dry-run
+biotimbre import-library ~/campo-2024
+```
+
+A outra biblioteca é aberta somente para leitura e não é alterada. Cada um de
+seus itens é tratado como uma entrada de um pacote vindo dessa biblioteca, de
+modo que as [regras de importação](#regras-de-importação) acima se aplicam sem
+alteração: gravações já presentes são ignoradas, o que torna seguro repetir uma
+importação; espécies são incorporadas ao biotimbre local; e os vetores só são
+reaproveitados quando as assinaturas dos modelos coincidem. Itens cujo áudio
+armazenado não está no disco ficam de fora e são listados. A outra biblioteca
+precisa estar na versão atual do esquema; uma mais antiga é atualizada ao ser
+aberta uma vez.
 
 ### Segurança
 
