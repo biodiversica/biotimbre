@@ -26,9 +26,13 @@ jobs:
           enable-cache: true
       - name: Install
         run: uv sync --locked --extra dev --extra gui
-      # The models-marked tests download Perch and BirdNET (about 70 MB) from
-      # Hugging Face and run them; the suite is about two minutes, so they run
-      # everywhere.
+      # The models-marked tests run Perch and BirdNET. Fetching them (about
+      # 70 MB from Hugging Face) as a step of its own keeps a slow download out
+      # of any one test's time limit, and says plainly when the network is the
+      # problem.
+      - name: Fetch the models
+        shell: bash
+        run: uv run biotimbre --data-dir "$RUNNER_TEMP/models" init --name fetch
       - name: Test
         run: uv run pytest
 

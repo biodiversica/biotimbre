@@ -1033,9 +1033,16 @@ class TestLanguageSelect:
         assert select._props["color"] == "white"
 
 
+@pytest.mark.models
 @pytest.mark.usefixtures("installed_state")
 class TestSpeciesJoinsItsBiotimbre:
     """One species, one biotimbre — through the page that adds items."""
+
+    @pytest.fixture(autouse=True)
+    def _models_ready(self, installed_state):
+        # Adding an item embeds it. Loading the models first keeps a cold
+        # cache's download out of the page's wait for the item to appear.
+        installed_state.warm_models()
 
     @staticmethod
     async def _add(user: User, taxon: str) -> None:

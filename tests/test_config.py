@@ -61,17 +61,19 @@ class TestDataDirResolution:
         assert settings.data_dir == nested / "mylib"
 
     def test_absolute_paths_are_used_as_given(self, tmp_path):
+        # Single quotes: a TOML literal string, so a Windows path's backslashes
+        # are not read as escapes.
         config = write_config(
-            tmp_path, f'[library]\ndata_dir = "{tmp_path / "abs"}"\n'
+            tmp_path, f"[library]\ndata_dir = '{tmp_path / 'abs'}'\n"
         )
         assert load_settings(config).data_dir == tmp_path / "abs"
 
     def test_db_and_audio_can_be_placed_independently(self, tmp_path):
         config = write_config(
             tmp_path,
-            f'[library]\ndata_dir = "{tmp_path / "lib"}"\n'
-            f'db_path = "{tmp_path / "fast" / "library.db"}"\n'
-            f'audio_dir = "{tmp_path / "bulk" / "audio"}"\n',
+            f"[library]\ndata_dir = '{tmp_path / 'lib'}'\n"
+            f"db_path = '{tmp_path / 'fast' / 'library.db'}'\n"
+            f"audio_dir = '{tmp_path / 'bulk' / 'audio'}'\n",
         )
         settings = load_settings(config)
         assert settings.db_path == tmp_path / "fast" / "library.db"

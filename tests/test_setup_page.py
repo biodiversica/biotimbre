@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
 import pytest
 
 pytest.importorskip("nicegui", reason="needs the 'gui' extra")
@@ -46,7 +49,8 @@ class TestListing:
         # Libraries live on external drives and mounted archives; confining the
         # picker to $HOME would put them out of reach.
         listing = list_directory("/")
-        assert listing["path"] == "/"
+        # The filesystem root: "/" here, the current drive's root on Windows.
+        assert listing["path"] == str(Path("/").resolve())
         assert listing["parent"] is None
 
     def test_rejects_what_is_not_a_directory(self, tmp_path):
@@ -55,6 +59,10 @@ class TestListing:
         with pytest.raises(NotFoundError, match="No such directory"):
             list_directory(str(target))
 
+    @pytest.mark.skipif(
+        sys.platform == "win32",
+        reason="chmod cannot take away read access on Windows",
+    )
     def test_reports_an_unreadable_directory(self, tmp_path):
         import os
 
