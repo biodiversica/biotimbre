@@ -147,7 +147,7 @@ def open_read_only(
         conn.close()
         raise BiotimbreError(
             f"Database {path} has schema version {found}, but this software "
-            f"understands at most {SCHEMA_VERSION}. Upgrade biotimbre-library."
+            f"understands at most {SCHEMA_VERSION}. Upgrade biotimbre."
         )
     if found < SCHEMA_VERSION:
         # Migrating is a write, and this connection has none to give.
@@ -263,7 +263,7 @@ def _migrate(conn: sqlite3.Connection, found: int, path: Path) -> None:
                 f"(see SCHEMA_VERSION's docstring for what changed between "
                 f"versions). Move this data_dir aside and run `biotimbre "
                 f"init` to start a fresh library, or reinstall an older "
-                f"biotimbre-library version to keep using this one."
+                f"biotimbre version to keep using this one."
             )
         step(conn)
         found += 1
@@ -314,7 +314,7 @@ def initialize(
                 raise BiotimbreError(
                     f"Database {path} has schema version {found}, but this "
                     f"software understands at most {SCHEMA_VERSION}. "
-                    f"Upgrade biotimbre-library."
+                    f"Upgrade biotimbre."
                 )
             elif found < SCHEMA_VERSION:
                 _migrate(conn, found, path)

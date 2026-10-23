@@ -94,6 +94,14 @@ class TestArgumentParsing:
         args = build_parser().parse_args(["add", "x.wav"])
         assert args.speed == 1.0
 
+    def test_version_matches_the_package(self, capsys):
+        from biotimbre import __version__
+
+        with pytest.raises(SystemExit) as exit_info:
+            build_parser().parse_args(["--version"])
+        assert exit_info.value.code == 0
+        assert capsys.readouterr().out.strip() == f"biotimbre {__version__}"
+
     def test_command_is_required(self):
         with pytest.raises(SystemExit):
             build_parser().parse_args([])

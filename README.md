@@ -1,6 +1,6 @@
 # Biotimbre
 
-*English · [Português (Brasil)](README_pt-BR.md)*
+*English · [Português (Brasil)](https://github.com/biodiversica/biotimbre/blob/main/README_pt-BR.md)*
 
 Biotimbre is a tool for building and managing libraries of animal sound
 templates, with similarity search based on audio embeddings. Embeddings are

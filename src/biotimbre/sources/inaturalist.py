@@ -33,7 +33,7 @@ API_ROOT = "https://api.inaturalist.org/v1"
 OBSERVATION_URL = "https://www.inaturalist.org/observations/{id}"
 
 #: iNaturalist asks callers to identify themselves.
-USER_AGENT = "biotimbre-library (local research tool)"
+USER_AGENT = "biotimbre (local research tool)"
 
 #: Seconds to wait on the API and on a download.
 TIMEOUT_S = 20.0

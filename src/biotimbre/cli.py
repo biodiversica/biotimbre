@@ -13,6 +13,7 @@ import dataclasses
 import sys
 from pathlib import Path
 
+from biotimbre import __version__
 from biotimbre.config import load_settings
 from biotimbre.domain.errors import BiotimbreError, ValidationError
 from biotimbre.domain.item import FilteredBand, ItemDraft, Location, SampleWindow
@@ -659,6 +660,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="biotimbre",
         description="Local library of animal vocalizations with similarity search.",
+    )
+    parser.add_argument(
+        "--version", action="version", version=f"biotimbre {__version__}"
     )
     parser.add_argument("--config", help="Path to a biotimbre.toml config file.")
     parser.add_argument("--data-dir", help="Override the library data directory.")
