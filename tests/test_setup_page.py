@@ -136,6 +136,7 @@ class TestSetupPage:
             await user.open("/")
             await user.should_see("Choose a library")
             await user.should_see("no library open")
+            assert user.client.title == "no library open"
         finally:
             state.close_library()
 

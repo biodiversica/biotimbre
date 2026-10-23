@@ -268,22 +268,29 @@ def page(active: str):
     ui.colors(dark_page="var(--bt-page-bg)", **theme_variables())
     ui.query("body").style("background: var(--bt-page-bg); color: var(--bt-text)")
 
+    state = get_state()
+    identity = state.service.identity() if state.is_open else None
+    library_name = (
+        (identity.name or t("app.unnamed_library"))
+        if identity is not None
+        else t("setup.no_library")
+    )
+    # The browser tab says which library, like the header does: with two open
+    # side by side, "Library" twice tells them apart no better than nothing.
+    ui.page_title(library_name)
+
     # Pinned to the window like the footer. No ``relative`` class: Quasar
     # already positions the header (fixed), which is what the centred name
     # below anchors to, and ``relative`` would undo the pinning.
     with ui.header().classes(
         "items-center justify-between px-4 py-2 shadow-sm"
     ).style("background: var(--bt-header-bg)"):
-        state = get_state()
-        identity = state.service.identity() if state.is_open else None
         with ui.row().classes(
             "absolute left-1/2 items-baseline gap-2"
         ).style("transform: translateX(-50%)"):
-            ui.label(
-                (identity.name or t("app.unnamed_library"))
-                if identity is not None
-                else t("setup.no_library")
-            ).classes("text-sm font-medium").style("color: var(--bt-header-text)")
+            ui.label(library_name).classes("text-sm font-medium").style(
+                "color: var(--bt-header-text)"
+            )
             if identity is not None:
                 ui.label(f"#{identity.uuid[:8]}").classes(
                     "text-xs font-mono"

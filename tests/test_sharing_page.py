@@ -149,6 +149,10 @@ class TestImportCard:
         await user.should_see("Import items")
         await user.should_see("Choose a bundle")
 
+    async def test_the_tab_is_titled_with_the_library_name(self, user: User):
+        await user.open("/")
+        assert user.client.title == "Receiver"
+
     async def test_the_importer_accepts_only_bundles(self, user: User):
         await user.open("/")
         uploader = next(iter(user.find(marker="upload-bundle").elements))

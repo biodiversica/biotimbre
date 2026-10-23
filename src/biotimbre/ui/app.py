@@ -207,7 +207,9 @@ def run(
     ui.run(
         host=host,
         port=port,
-        title="Biotimbre Library",
+        # Only a fallback: every page sets its own title to the library's name
+        # (biotimbre.ui.layout.page).
+        title="biotimbre",
         favicon="🦗",
         show=False,
         reload=reload,
