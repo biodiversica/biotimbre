@@ -162,6 +162,9 @@ class AppState:
             :attr:`Settings.search_only` joins them on its own, whether it came
             from a flag or a config file: it is the one setting whose quiet
             reversal would hand out more access than was intended.
+        suggested_library: A directory the chooser offers first, without
+            opening it — a config file's ``data_dir`` on a run that was not
+            given ``--data-dir``.
     """
 
     def __init__(
@@ -169,8 +172,10 @@ class AppState:
         settings: Settings | None = None,
         *,
         overrides: Mapping[str, object] | None = None,
+        suggested_library: Path | None = None,
     ):
         self.overrides = dict(overrides or {})
+        self.suggested_library = suggested_library
         self.settings = settings if settings is not None else load_settings()
         if self.settings.search_only:
             # Sticky, however it was asked for. Opening a library re-reads the

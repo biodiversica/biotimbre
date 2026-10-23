@@ -180,12 +180,24 @@ search_only = true
 
 ### Selecting a Library at Startup
 
-When `biotimbre gui` is started without `--data-dir` and without a configured
-data directory, it does not create a library in the launch directory. Instead,
-the first page is a library chooser: a path can be typed or browsed to, a
-folder can be created, and the library can be named and opened. An existing
-library opens unchanged, and directories that already contain one are marked.
+When `biotimbre gui` is started without `--data-dir`, it does not open or
+create a library on its own. The first page asks, with two choices:
+
+- **Create a new library** takes a name and a location. The library is
+  created in a new folder of its own inside that location, named after it
+  (*Atlantic Forest Cicadas* becomes `atlantic-forest-cicadas`), and the full
+  path is shown before anything is created. A folder that already exists and
+  is not empty is refused.
+- **Open an existing library** browses to a library; folders that contain one
+  are marked. A folder without a library is reported rather than turned into
+  a new one, so a mistyped path cannot produce an empty library by accident.
+
 Libraries opened from the same browser are offered again on the next visit.
+A `data_dir` in a configuration file does not skip this page: the library it
+names is offered first, or, if it does not exist yet, offered for creation at
+that path. Only `--data-dir` opens a library directly. The other commands, and
+`gui --search-only`, which has no chooser, still use the configured
+`data_dir`.
 
 Browsing is not restricted to `$HOME`, since libraries are often kept on
 external drives and mounted archives. Because this listing is the only part

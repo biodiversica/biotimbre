@@ -194,13 +194,25 @@ search_only = true
 
 ### Seleção da Biblioteca na Inicialização
 
-Quando `biotimbre gui` é iniciado sem `--data-dir` e sem um diretório de dados
-configurado, ele não cria uma biblioteca no diretório de onde foi executado.
-Em vez disso, a primeira página é um seletor de bibliotecas: é possível digitar
-ou navegar até um caminho, criar uma pasta, nomear a biblioteca e abri-la. Uma
-biblioteca existente é aberta sem alterações, e os diretórios que já contêm uma
-biblioteca são sinalizados. As bibliotecas abertas a partir do mesmo navegador
-são oferecidas novamente no acesso seguinte.
+Quando `biotimbre gui` é iniciado sem `--data-dir`, ele não abre nem cria uma
+biblioteca por conta própria. A primeira página pergunta, com duas opções:
+
+- **Criar uma nova biblioteca** recebe um nome e um local. A biblioteca é
+  criada em uma pasta própria dentro desse local, com o nome dela (*Cigarras
+  da Mata Atlântica* vira `cigarras-da-mata-atlântica`), e o caminho completo
+  é exibido antes que qualquer coisa seja criada. Uma pasta que já existe e
+  não está vazia é recusada.
+- **Abrir uma biblioteca existente** navega até uma biblioteca; as pastas que
+  contêm uma são sinalizadas. Uma pasta sem biblioteca é informada, em vez de
+  ser transformada em uma nova, de modo que um caminho digitado errado não
+  produz uma biblioteca vazia por acidente.
+
+As bibliotecas abertas a partir do mesmo navegador são oferecidas novamente no
+acesso seguinte. Um `data_dir` em um arquivo de configuração não pula esta
+página: a biblioteca indicada é oferecida primeiro ou, se ainda não existir,
+oferecida para ser criada nesse caminho. Apenas `--data-dir` abre uma
+biblioteca diretamente. Os demais comandos, e `gui --search-only`, que não tem
+seletor, continuam usando o `data_dir` configurado.
 
 A navegação não se restringe a `$HOME`, pois as bibliotecas são frequentemente
 mantidas em unidades externas e arquivos montados. Como essa listagem é a única

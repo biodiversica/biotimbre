@@ -14,7 +14,9 @@ from nicegui.testing import User  # noqa: E402
 
 from biotimbre.config import load_settings  # noqa: E402
 from biotimbre.domain.errors import BiotimbreError, NotFoundError  # noqa: E402
+from biotimbre.service import LibraryService  # noqa: E402
 from biotimbre.ui.routes import list_directory  # noqa: E402
+from biotimbre.ui.setup import library_folder_name, new_library_problem  # noqa: E402
 from biotimbre.ui.state import AppState, get_state, set_state  # noqa: E402
 
 
@@ -131,44 +133,190 @@ class TestOpening:
         assert unset.settings.data_dir == tmp_path / "two"
 
 
+class TestNewLibraryFolder:
+    def test_the_folder_is_named_after_the_library(self):
+        assert library_folder_name("Atlantic Forest Cicadas") == (
+            "atlantic-forest-cicadas"
+        )
+
+    def test_what_a_filesystem_might_refuse_becomes_hyphens(self):
+        assert library_folder_name('  Bats: São Paulo / 2024?  ') == (
+            "bats-são-paulo-2024"
+        )
+
+    def test_a_name_with_nothing_usable_still_gets_a_folder(self):
+        assert library_folder_name("!!!") == "library"
+
+    def test_a_name_windows_reserves_is_avoided(self):
+        assert library_folder_name("Con") == "con-library"
+
+    def test_an_absent_or_empty_folder_is_fine(self, tmp_path):
+        assert new_library_problem(tmp_path / "absent") is None
+        (tmp_path / "empty").mkdir()
+        assert new_library_problem(tmp_path / "empty") is None
+
+    def test_a_folder_in_use_is_refused(self, tmp_path):
+        (tmp_path / "used").mkdir()
+        (tmp_path / "used" / "notes.txt").write_text("x")
+        assert new_library_problem(tmp_path / "used") == "not_empty"
+
+    def test_a_library_is_refused(self, tmp_path):
+        (tmp_path / "lib").mkdir()
+        (tmp_path / "lib" / "library.db").write_bytes(b"")
+        assert new_library_problem(tmp_path / "lib") == "already_library"
+
+
+def make_library(directory: Path, name: str) -> Path:
+    """An existing library, as an earlier run would have left it."""
+    service = LibraryService(load_settings(data_dir=directory))
+    service.rename(name)
+    service.close()
+    return directory
+
+
+def _field(user: User, marker: str):
+    return next(iter(user.find(marker=marker).elements))
+
+
 @pytest.mark.usefixtures("shared_pool")
 class TestSetupPage:
+    @pytest.fixture
+    def chooser(self, tmp_path, monkeypatch):
+        """Install state started without a library, optionally suggesting one."""
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.delenv("BIOTIMBRE_CONFIG", raising=False)
+        states = []
+
+        def make(suggested: Path | None = None) -> AppState:
+            state = AppState(load_settings(), suggested_library=suggested)
+            set_state(state)
+            states.append(state)
+            return state
+
+        yield make
+        for state in states:
+            state.close_library()
+
     async def test_the_page_asks_instead_of_showing_a_library(
-        self, user: User, tmp_path, monkeypatch
+        self, user: User, chooser
     ):
-        monkeypatch.chdir(tmp_path)
-        state = AppState(load_settings())
-        set_state(state)
+        chooser()
+        await user.open("/")
+        await user.should_see("Choose a library")
+        await user.should_see("Create a new library")
+        await user.should_see("Open an existing library")
+        await user.should_see("no library open")
+        assert user.client.title == "no library open"
 
-        try:
-            await user.open("/")
-            await user.should_see("Choose a library")
-            await user.should_see("no library open")
-            assert user.client.title == "no library open"
-        finally:
-            state.close_library()
-
-    async def test_opening_from_the_page_reaches_the_library(
-        self, user: User, tmp_path, monkeypatch
+    async def test_with_nothing_to_open_it_offers_to_create(
+        self, user: User, chooser
     ):
-        monkeypatch.chdir(tmp_path)
-        state = AppState(load_settings())
-        set_state(state)
+        chooser()
+        await user.open("/")
+        panels = next(iter(user.find(ui.tab_panels).elements))
+        assert panels.value == "create"
 
-        try:
-            await user.open("/")
-            await user.should_see("Choose a library")
+    async def test_creating_makes_a_named_folder_and_opens_it(
+        self, user: User, chooser, tmp_path
+    ):
+        state = chooser()
+        await user.open("/")
+        _field(user, "setup-name").value = "Atlantic Forest Cicadas"
+        _field(user, "setup-location").value = str(tmp_path / "libraries")
+        target = tmp_path / "libraries" / "atlantic-forest-cicadas"
+        await user.should_see(f"Creates {target}")
 
-            inputs = {
-                element._props.get("label"): element
-                for element in user.find(ui.input).elements
-            }
-            inputs["Library directory"].value = str(tmp_path / "chosen")
-            inputs["Library name"].value = "Chosen"
-            user.find("Open library").click()
-            await user.should_see("Library items", retries=200)
+        user.find(marker="setup-create").click()
+        await user.should_see("Library items", retries=200)
 
-            assert state.is_open is True
-            assert state.service.identity().name == "Chosen"
-        finally:
-            state.close_library()
+        assert state.is_open is True
+        assert state.settings.data_dir == target
+        assert state.service.identity().name == "Atlantic Forest Cicadas"
+
+    async def test_creating_needs_a_name(self, user: User, chooser):
+        state = chooser()
+        await user.open("/")
+        user.find(marker="setup-create").click()
+        await user.should_see("Give the library a name.")
+        assert state.is_open is False
+
+    async def test_creating_refuses_a_folder_in_use(
+        self, user: User, chooser, tmp_path
+    ):
+        state = chooser()
+        (tmp_path / "cicadas").mkdir()
+        (tmp_path / "cicadas" / "field-notes.txt").write_text("x")
+
+        await user.open("/")
+        _field(user, "setup-name").value = "Cicadas"
+        _field(user, "setup-location").value = str(tmp_path)
+        user.find(marker="setup-create").click()
+
+        await user.should_see("already exists and is not empty")
+        assert state.is_open is False
+        assert not (tmp_path / "cicadas" / "library.db").exists()
+
+    async def test_creating_where_a_library_is_says_to_open_it(
+        self, user: User, chooser, tmp_path
+    ):
+        state = chooser()
+        make_library(tmp_path / "cicadas", "Cicadas")
+
+        await user.open("/")
+        _field(user, "setup-name").value = "Cicadas"
+        _field(user, "setup-location").value = str(tmp_path)
+        user.find(marker="setup-create").click()
+
+        await user.should_see("already holds a library")
+        assert state.is_open is False
+
+    async def test_opening_an_existing_library(self, user: User, chooser, tmp_path):
+        state = chooser()
+        existing = make_library(tmp_path / "existing", "Existing")
+
+        await user.open("/")
+        _field(user, "setup-path").value = str(existing)
+        user.find(marker="setup-open").click()
+        await user.should_see("Library items", retries=200)
+
+        assert state.is_open is True
+        assert state.service.identity().name == "Existing"
+
+    async def test_opening_a_folder_without_a_library_creates_nothing(
+        self, user: User, chooser, tmp_path
+    ):
+        state = chooser()
+        (tmp_path / "nothing").mkdir()
+
+        await user.open("/")
+        _field(user, "setup-path").value = str(tmp_path / "nothing")
+        user.find(marker="setup-open").click()
+
+        await user.should_see("There is no library in")
+        assert state.is_open is False
+        assert not (tmp_path / "nothing" / "library.db").exists()
+
+    async def test_a_configured_library_is_offered_to_open(
+        self, user: User, chooser, tmp_path
+    ):
+        existing = make_library(tmp_path / "configured", "Configured")
+        state = chooser(suggested=existing)
+
+        await user.open("/")
+        panels = next(iter(user.find(ui.tab_panels).elements))
+        assert panels.value == "open"
+        assert _field(user, "setup-path").value == str(existing)
+        # Offered, not opened.
+        assert state.is_open is False
+
+    async def test_a_configured_folder_not_made_yet_is_offered_to_create(
+        self, user: User, chooser, tmp_path
+    ):
+        chooser(suggested=tmp_path / "data")
+
+        await user.open("/")
+        panels = next(iter(user.find(ui.tab_panels).elements))
+        assert panels.value == "create"
+        assert _field(user, "setup-name").value == "data"
+        assert _field(user, "setup-location").value == str(tmp_path)
+        await user.should_see(f"Creates {tmp_path / 'data'}")

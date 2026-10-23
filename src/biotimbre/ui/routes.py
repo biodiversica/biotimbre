@@ -36,6 +36,19 @@ MAX_HEIGHT = 800
 BROWSE_ROUTE = "/setup/browse"
 
 
+def holds_library(directory: Path) -> bool:
+    """Whether a directory already holds a library.
+
+    A directory that cannot be read is still a place to go — /lost+found is on
+    the way to an external drive's contents — so an unreadable one answers "not
+    that I can tell" rather than refusing the whole listing.
+    """
+    try:
+        return (directory / DEFAULT_DB_NAME).is_file()
+    except OSError:
+        return False
+
+
 def list_directory(path: str | None = None) -> dict:
     """What is in one directory, for the library chooser.
 
@@ -63,18 +76,6 @@ def list_directory(path: str | None = None) -> dict:
         raise BiotimbreError(f"Permission denied: {target}") from exc
     except OSError as exc:
         raise BiotimbreError(f"Could not read {target}: {exc}") from exc
-
-    def holds_library(directory: Path) -> bool:
-        """Whether a directory already holds a library.
-
-        A directory that cannot be read is still a place to go — /lost+found
-        is on the way to an external drive's contents — so an unreadable one
-        answers "not that I can tell" rather than refusing the whole listing.
-        """
-        try:
-            return (directory / DEFAULT_DB_NAME).is_file()
-        except OSError:
-            return False
 
     directories = []
     for entry in entries:

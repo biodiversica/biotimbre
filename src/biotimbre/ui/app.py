@@ -204,6 +204,7 @@ def create_app(
     settings: Settings | None = None,
     *,
     overrides: Mapping[str, object] | None = None,
+    suggested_library: Path | None = None,
 ) -> AppState:
     """Build application state, register routes, and start warming models.
 
@@ -212,11 +213,15 @@ def create_app(
         overrides: Settings fields given on the command line. Passed on so
             they survive the reader opening a different library, which re-reads
             the configuration.
+        suggested_library: Directory the chooser offers first; see
+            :class:`~biotimbre.ui.state.AppState`.
 
     Returns:
         The installed :class:`~biotimbre.ui.state.AppState`.
     """
-    state = AppState(settings, overrides=overrides)
+    state = AppState(
+        settings, overrides=overrides, suggested_library=suggested_library
+    )
     set_state(state)
     routes.register(app)
     if not state.is_open and not state.settings.search_only:
@@ -241,6 +246,7 @@ def run(
     show: bool = True,
     reload: bool = False,
     overrides: Mapping[str, object] | None = None,
+    suggested_library: Path | None = None,
 ) -> None:
     """Start the interface.
 
@@ -252,10 +258,13 @@ def run(
         reload: Enable NiceGUI's auto-reload (development only).
         overrides: Settings fields given on the command line, which outrank
             any config file the reader later opens a library beside.
+        suggested_library: Directory the chooser offers first; see
+            :class:`~biotimbre.ui.state.AppState`.
     """
     create_app(
         settings if settings is not None else load_settings(),
         overrides=overrides,
+        suggested_library=suggested_library,
     )
     state_dir = user_state_dir()
     # NiceGUI otherwise keeps it in ./.nicegui, i.e. wherever it was started.

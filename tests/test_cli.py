@@ -635,6 +635,47 @@ class TestSidecarAddDefersEmbedding:
         assert line and line[0].split()[-1] == "none"
 
 
+class TestGuiStartup:
+    """Only --data-dir opens a library straight away; a config file suggests one."""
+
+    @staticmethod
+    def _run_gui(monkeypatch, argv):
+        import biotimbre.ui.app as ui_app
+
+        seen = {}
+
+        def fake_run(settings, **kwargs):
+            seen["settings"] = settings
+            seen["suggested"] = kwargs.get("suggested_library")
+
+        monkeypatch.setattr(ui_app, "run", fake_run)
+        assert main(argv) == 0
+        return seen
+
+    def test_the_flag_opens_the_library(self, data_dir, monkeypatch):
+        seen = self._run_gui(monkeypatch, ["--data-dir", data_dir, "gui"])
+        assert seen["settings"].data_dir_chosen is True
+        assert seen["suggested"] is None
+
+    def test_a_config_file_only_suggests_its_library(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.delenv("BIOTIMBRE_CONFIG", raising=False)
+        (tmp_path / "biotimbre.toml").write_text('[library]\ndata_dir = "mine"\n')
+
+        seen = self._run_gui(monkeypatch, ["gui"])
+        assert seen["settings"].data_dir_chosen is False
+        assert seen["suggested"] == tmp_path / "mine"
+        # Asking first means nothing was made yet.
+        assert not (tmp_path / "mine").exists()
+
+    def test_nothing_configured_suggests_nothing(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.delenv("BIOTIMBRE_CONFIG", raising=False)
+        seen = self._run_gui(monkeypatch, ["gui"])
+        assert seen["settings"].data_dir_chosen is False
+        assert seen["suggested"] is None
+
+
 class TestGuiMapFlag:
     """``gui --no-map``: refusing the map for one run, without a config file."""
 

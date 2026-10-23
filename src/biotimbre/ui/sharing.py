@@ -31,7 +31,7 @@ from biotimbre.i18n import Translator
 from biotimbre.io.bundle import BUNDLE_SUFFIX
 from biotimbre.sharing import BundlePreview, EntryPlan, ImportPolicy, ImportReport
 from biotimbre.ui.layout import notify_error
-from biotimbre.ui.routes import list_directory
+from biotimbre.ui.browser import DirectoryBrowser
 from biotimbre.ui.sections import foldable_card
 from biotimbre.ui.setup import recent_libraries
 from biotimbre.ui.state import get_state
@@ -107,9 +107,9 @@ def import_card(t: Translator, on_imported) -> None:
 def _library_controls(t: Translator, on_imported) -> None:
     """Pick another library on this machine and preview importing all of it.
 
-    The directory listing is read on the server, as the library chooser reads
-    it (see :mod:`biotimbre.ui.setup`), and through the same function — not the
-    chooser's HTTP route, which is withdrawn once a library is open.
+    The folder listing is the chooser's own (:mod:`biotimbre.ui.browser`),
+    read on the server rather than through the chooser's HTTP route, which is
+    withdrawn once a library is open.
     """
     state = get_state()
 
@@ -142,62 +142,16 @@ def _library_controls(t: Translator, on_imported) -> None:
                     path, on_click=lambda p=path: path_input.set_value(p)
                 ).props("flat dense no-caps size=sm").classes("font-mono")
 
-    listing = ui.column().classes("w-full gap-1")
-    listing.set_visibility(False)
-
-    async def show(path: str | None) -> None:
-        """Draw one directory's subdirectories, libraries marked."""
-        listing.clear()
-        listing.set_visibility(True)
-        try:
-            data = await state.run(list_directory, path)
-        except Exception as exc:  # noqa: BLE001 — a bad path is user input
-            with listing:
-                ui.label(str(exc)).classes("text-sm text-notice")
-            return
-
+    def follow(data: dict) -> None:
         if data["is_library"]:
             path_input.set_value(data["path"])
-        with listing:
-            with ui.row().classes("items-center gap-2 flex-wrap w-full"):
-                ui.label(data["path"]).classes("text-sm font-mono grow")
-                if data["parent"]:
-                    ui.button(
-                        t("setup.parent"),
-                        icon="arrow_upward",
-                        on_click=lambda p=data["parent"]: show(p),
-                    ).props("flat dense no-caps")
-                ui.button(
-                    t("setup.home"), icon="home", on_click=lambda: show(None)
-                ).props("flat dense no-caps")
-                ui.button(
-                    icon="close", on_click=lambda: listing.set_visibility(False)
-                ).props("flat dense round")
-            if not data["directories"]:
-                ui.label(t("setup.empty")).classes("text-xs text-muted")
-            with ui.column().classes(
-                "w-full gap-0 max-h-64 overflow-auto rounded bg-surface p-1"
-            ):
-                for entry in data["directories"]:
-                    with ui.row().classes("items-center gap-2 w-full px-2 py-1"):
-                        ui.icon(
-                            "folder_special" if entry["is_library"] else "folder",
-                            size="1.1rem",
-                        ).classes(
-                            "text-link" if entry["is_library"] else "text-muted"
-                        )
-                        ui.button(
-                            entry["name"],
-                            on_click=lambda p=entry["path"]: show(p),
-                        ).props("flat dense no-caps").classes("grow justify-start")
-                        if entry["is_library"]:
-                            ui.label(t("setup.is_library")).classes(
-                                "text-xs text-muted"
-                            )
+
+    browser = DirectoryBrowser(t, follow, closable=True)
+    browser.hide()
 
     async def browse() -> None:
         typed = (path_input.value or "").strip()
-        await show(typed or str(state.settings.data_dir.resolve().parent))
+        await browser.show(typed or str(state.settings.data_dir.resolve().parent))
 
     async def preview() -> None:
         path = (path_input.value or "").strip()
@@ -212,7 +166,7 @@ def _library_controls(t: Translator, on_imported) -> None:
             return
         finally:
             preview_button.props(remove="loading")
-        listing.set_visibility(False)
+        browser.hide()
         await _open_preview(
             t,
             lambda policy: state.service.inspect_library(external, policy=policy),

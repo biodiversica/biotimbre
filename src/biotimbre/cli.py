@@ -561,6 +561,16 @@ def cmd_gui(args: argparse.Namespace) -> int:
     if overrides:
         settings = dataclasses.replace(settings, **overrides)
 
+    # Only --data-dir opens a library straight away. A config file's data_dir
+    # is where a library might be, not a decision to open it, so the chooser
+    # asks and offers it first. A search-only run has no chooser to ask with,
+    # and keeps opening what its configuration names.
+    suggested = None
+    if args.data_dir is None and not settings.search_only:
+        if settings.data_dir_chosen:
+            suggested = settings.data_dir
+        settings = dataclasses.replace(settings, data_dir_chosen=False)
+
     if settings.search_only and not settings.data_dir_chosen:
         # The chooser is what a run without a library falls back on, and a
         # search-only run does not have one: it may not open a library, let
@@ -588,6 +598,7 @@ def cmd_gui(args: argparse.Namespace) -> int:
         show=not args.no_browser,
         reload=args.reload,
         overrides=overrides,
+        suggested_library=suggested,
     )
     return 0
 
