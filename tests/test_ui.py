@@ -167,6 +167,13 @@ class TestStatusRoute:
         assert payload["ready"] is False
         assert payload["items"] == 0
 
+    def test_answers_before_a_library_is_open(self, client, state):
+        # A first run starts at the chooser, with nothing open yet.
+        state.close_library()
+        response = client.get("/media/status")
+        assert response.status_code == 200
+        assert response.json()["items"] is None
+
 
 @pytest.mark.models
 class TestMediaRoutes:

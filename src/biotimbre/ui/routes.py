@@ -300,11 +300,19 @@ def register(app) -> None:
 
     @app.get("/media/status")
     async def status():
-        """Model warm-up state, polled by the page while models load."""
+        """Model warm-up state, polled by the page while models load.
+
+        ``items`` is ``None`` until a library is open: a first run starts at
+        the chooser, and the models warm up there all the same.
+        """
         state = get_state()
         return {
             "ready": state.models.ready,
             "failed": state.models.failed,
             "dimensions": state.models.dimensions,
-            "items": await state.run(state.service.repo.count_items),
+            "items": (
+                await state.run(state.service.repo.count_items)
+                if state.is_open
+                else None
+            ),
         }
