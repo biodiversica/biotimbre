@@ -5,6 +5,8 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  schedule:
+    - cron: "0 6 * * 1"  # Mondays
   # release.yml runs this first, and publishes the wheel built here.
   workflow_call:
 
@@ -32,6 +34,21 @@ jobs:
       # problem.
       - name: Fetch the models
         shell: bash
+        run: uv run biotimbre --data-dir "$RUNNER_TEMP/models" init --name fetch
+      - name: Test
+        run: uv run pytest
+
+  # The installer ignores uv.lock and takes the newest releases, so test those
+  # too. The weekly run catches a dependency release between commits.
+  tests-latest:
+    name: tests / newest dependencies
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+      - name: Install
+        run: uv sync --upgrade --extra dev --extra gui
+      - name: Fetch the models
         run: uv run biotimbre --data-dir "$RUNNER_TEMP/models" init --name fetch
       - name: Test
         run: uv run pytest
