@@ -22,7 +22,7 @@ novamente atualiza a instalação.
 No Windows, abra o PowerShell e execute:
 
 ```powershell
-powershell -ExecutionPolicy ByPass -c "irm https://github.com/biodiversica/biotimbre/releases/latest/download/install.ps1 | iex"
+powershell -ExecutionPolicy ByPass -c "irm https://github.com/biodiversica/biotimbre/releases/latest/download/install.ps1 | Out-String | iex"
 ```
 
 No macOS e no Linux, abra um terminal e execute:
