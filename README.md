@@ -21,7 +21,7 @@ Running it again upgrades the installation.
 On Windows, open PowerShell and run:
 
 ```powershell
-powershell -ExecutionPolicy ByPass -c "irm https://github.com/biodiversica/biotimbre/releases/latest/download/install.ps1 | iex"
+powershell -ExecutionPolicy ByPass -c "irm https://github.com/biodiversica/biotimbre/releases/latest/download/install.ps1 | Out-String | iex"
 ```
 
 On macOS and Linux, open a terminal and run:
