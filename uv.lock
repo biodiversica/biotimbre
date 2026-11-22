@@ -201,12 +201,14 @@ dev = [
     { name = "pytest-cov" },
 ]
 gui = [
+    { name = "httpx" },
     { name = "nicegui" },
     { name = "pillow" },
 ]
 
 [package.metadata]
 requires-dist = [
+    { name = "httpx", marker = "extra == 'gui'", specifier = ">=0.28" },
     { name = "huggingface-hub", specifier = ">=0.20" },
     { name = "nicegui", marker = "extra == 'gui'", specifier = ">=3.12" },
     { name = "numpy", specifier = ">=1.26" },
