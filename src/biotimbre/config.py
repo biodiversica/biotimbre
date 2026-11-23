@@ -84,29 +84,29 @@ class Theme:
     correctly for colour-blind viewers.
     """
 
-    primary: str = "#118b50"
-    secondary: str = "#5ba98c"
+    primary: str = "#20460a"
+    secondary: str = "#fcfee5"
     accent: str = "#e9b44c"
-    dark: str = "#1d1d1d"
+    dark: str = "#20460a"
     positive: str = "#118b50"
     negative: str = "#c62828"
     info: str = "#2f6f9f"
     warning: str = "#e9b44c"
-    button_text: str = "#ffffff"
-    page_bg: str = "#ffffff"
-    text: str = "#1a1a1a"
-    header_bg: str = "#118b50"
-    header_text: str = "#ffffff"
+    button_text: str = "#fcfee5"
+    page_bg: str = "#f4f6ef"
+    text: str = "#1a2712"
+    header_bg: str = "#1b2516"
+    header_text: str = "#fcfee5"
     header_inactive_text: str = "rgba(255, 255, 255, 0.65)"
     header_active_bg: str = "rgba(255, 255, 255, 0.2)"
     card: str = "#ffffff"
-    link: str = "#3b82f6"
-    muted: str = "#64748b"
+    link: str = "#118b50"
+    muted: str = "#5b6b52"
     notice: str = "#92400e"
-    surface: str = "#f1f5f9"
-    chip: str = "#e2e8f0"
-    marker_border: str = "rgba(255, 255, 255, 0.8)"
-    marker_fill: str = "rgba(255, 255, 255, 0.25)"
+    surface: str = "#eef1e6"
+    chip: str = "#dde4d1"
+    marker_border: str = "rgba(252, 254, 229, 0.8)"
+    marker_fill: str = "rgba(252, 254, 229, 0.25)"
     #: Spectrogram colour ramp, quiet to loud. Must stay in sync with
     #: :data:`biotimbre.viz.DEFAULT_SPECTROGRAM_COLORS` — duplicated rather than
     #: imported so loading settings doesn't require the viz/PIL stack.
@@ -123,34 +123,38 @@ class Theme:
 #: Palette used when the interface resolves to dark, field for field the same
 #: as :class:`Theme`'s light defaults. Overridable from ``[ui.dark_theme]``.
 #:
+#: Charcoal, moss and linen: near-black greys for every surface, a sage green
+#: for buttons and highlights, warm beige for text. Grounds step up in value
+#: from page to cards to chips. The header matches the light theme's.
+#:
 #: ``spectrogram_colors`` is deliberately absent from the reasoning here: the
 #: images are rendered and cached server-side, where the reader's theme is not
 #: known, so the ramp in ``[ui.theme]`` serves both. It is a dark image either
 #: way.
 DEFAULT_DARK_THEME = Theme(
-    primary="#5a9c3e",
-    secondary="#26331b",
-    accent="#e9b44c",
-    dark="#171d10",
-    positive="#4ade80",
-    negative="#f87171",
-    info="#60a5fa",
-    warning="#fbbf24",
-    button_text="#0f1a08",
-    page_bg="#111509",
-    text="#e7ecdc",
-    header_bg="#0d1a05",
+    primary="#6f9a7a",
+    secondary="#2f4a3c",
+    accent="#cbb98f",
+    dark="#161a18",
+    positive="#6fae80",
+    negative="#d0705f",
+    info="#7fa3b5",
+    warning="#d9b56a",
+    button_text="#0e100f",
+    page_bg="#0e100f",
+    text="#d6cdb8",
+    header_bg="#1b2516",
     header_text="#fcfee5",
-    header_inactive_text="rgba(252, 254, 229, 0.6)",
-    header_active_bg="rgba(252, 254, 229, 0.15)",
-    card="#171d10",
-    link="#8bd17a",
-    muted="#9aa88f",
-    notice="#f0b46a",
-    surface="#1a2113",
-    chip="#26301c",
-    marker_border="rgba(252, 254, 229, 0.8)",
-    marker_fill="rgba(252, 254, 229, 0.2)",
+    header_inactive_text="rgba(255, 255, 255, 0.65)",
+    header_active_bg="rgba(255, 255, 255, 0.2)",
+    card="#161a18",
+    link="#8cbf98",
+    muted="#8f9189",
+    notice="#d9b06a",
+    surface="#1c211e",
+    chip="#232a26",
+    marker_border="rgba(214, 205, 184, 0.8)",
+    marker_fill="rgba(214, 205, 184, 0.18)",
 )
 
 

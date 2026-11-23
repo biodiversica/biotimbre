@@ -25,9 +25,9 @@ from PIL import Image, ImageDraw
 
 TEXT = "((-))"
 FONT = "/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf"
-# The dark theme's header (header_bg and header_text of DEFAULT_DARK_THEME in
-# src/biotimbre/config.py).
-BACKGROUND = "#0d1a05"
+# The header's colours, the same in both themes (header_bg and header_text of
+# Theme and of DEFAULT_DARK_THEME in src/biotimbre/config.py).
+BACKGROUND = "#1b2516"
 FOREGROUND = "#fcfee5"
 
 SIZE = 512  # design grid; everything below is in its units

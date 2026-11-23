@@ -777,32 +777,32 @@ enabled = true
 # padrões. As cores são valores CSS (hexadecimal, rgb(a) ou nomeadas).
 # primary..warning definem a paleta do Quasar; as demais chaves estilizam o
 # cabeçalho diretamente.
-primary = "#118b50"
-secondary = "#5ba98c"
+primary = "#20460a"
+secondary = "#fcfee5"
 accent = "#e9b44c"
-dark = "#1d1d1d"
+dark = "#20460a"
 positive = "#118b50"
 negative = "#c62828"
 info = "#2f6f9f"
 warning = "#e9b44c"
-button_text = "#ffffff"        # cor do texto em botões preenchidos com a cor primária
-page_bg = "#ffffff"            # fundo da página abaixo do cabeçalho
-text = "#1a1a1a"               # cor padrão dos textos
-header_bg = "#118b50"
-header_text = "#ffffff"
+button_text = "#fcfee5"        # cor do texto em botões preenchidos com a cor primária
+page_bg = "#f4f6ef"            # fundo da página abaixo do cabeçalho
+text = "#1a2712"               # cor padrão dos textos
+header_bg = "#1b2516"
+header_text = "#fcfee5"
 header_inactive_text = "rgba(255, 255, 255, 0.65)"
 header_active_bg = "rgba(255, 255, 255, 0.2)"
 
 # As chaves a seguir estilizam componentes cujas cores o Quasar e o Tailwind
 # fixam independentemente de ui.colors():
 card = "#ffffff"               # fundo dos cartões (janela do item, formulários)
-link = "#3b82f6"               # hiperlinks (por exemplo, "abrir gravação completa")
-muted = "#64748b"              # texto secundário (dicas, horários, IDs)
+link = "#118b50"               # hiperlinks (por exemplo, "abrir gravação completa")
+muted = "#5b6b52"              # texto secundário (dicas, horários, IDs)
 notice = "#92400e"             # avisos em linha (velocidade alterada, limite da consulta etc.)
-surface = "#f1f5f9"            # fundo dos blocos de estatísticas na página Biblioteca
-chip = "#e2e8f0"               # fundo das pequenas etiquetas de ID
-marker_border = "rgba(255, 255, 255, 0.8)"  # contorno da janela correspondente no espectrograma
-marker_fill = "rgba(255, 255, 255, 0.25)"
+surface = "#eef1e6"            # fundo dos blocos de estatísticas na página Biblioteca
+chip = "#dde4d1"               # fundo das pequenas etiquetas de ID
+marker_border = "rgba(252, 254, 229, 0.8)"  # contorno da janela correspondente no espectrograma
+marker_fill = "rgba(252, 254, 229, 0.25)"
 
 # Cores das próprias imagens de espectrograma. Pontos #rrggbb igualmente
 # espaçados, do mais silencioso (primeiro) ao mais intenso (último); são
@@ -816,10 +816,10 @@ spectrogram_colors = ["#0c0826", "#400c60", "#941a60", "#de5234", "#fca83c", "#f
 # A paleta escura, com as mesmas chaves e significados. Chaves omitidas
 # recorrem aos padrões escuros embutidos, e nunca aos valores claros acima, de
 # modo que alterar uma cor não traz a paleta clara para o tema escuro.
-# primary = "#5a9c3e"
-# page_bg = "#111509"
-# text = "#e7ecdc"
-# card = "#171d10"
+# primary = "#6f9a7a"
+# page_bg = "#0e100f"
+# text = "#d6cdb8"
+# card = "#161a18"
 # spectrogram_colors não é lido aqui: as imagens são renderizadas e mantidas em
 # cache no servidor, onde o tema do usuário não é conhecido, portanto a
 # sequência de [ui.theme] é utilizada para ambos.

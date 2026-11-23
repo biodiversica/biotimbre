@@ -458,9 +458,9 @@ def page(active: str):
                 ).props(
                     # The header is dark, so the field and its popup are too. On a
                     # dark popup Quasar marks the current option with the primary
-                    # colour, which is the same green as the header and all but
-                    # disappears; accent reads against both. ``color`` keeps the
-                    # focus ring off primary green as well.
+                    # colour, a dark green like the popup's own background, which
+                    # all but disappears; accent reads against both. ``color``
+                    # keeps the focus ring off primary green as well.
                     'dense outlined dark options-dense color=white'
                     ' options-selected-class="text-accent"'
                 ).style(

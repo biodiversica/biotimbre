@@ -729,32 +729,32 @@ enabled = true
 # The light palette. Every key is optional; the values shown are the defaults.
 # Colours are CSS values (hex, rgb(a) or named). primary..warning set Quasar's
 # palette; the remaining keys style the header directly.
-primary = "#118b50"
-secondary = "#5ba98c"
+primary = "#20460a"
+secondary = "#fcfee5"
 accent = "#e9b44c"
-dark = "#1d1d1d"
+dark = "#20460a"
 positive = "#118b50"
 negative = "#c62828"
 info = "#2f6f9f"
 warning = "#e9b44c"
-button_text = "#ffffff"        # label colour on filled primary buttons
-page_bg = "#ffffff"            # page background below the header
-text = "#1a1a1a"               # default label colour
-header_bg = "#118b50"
-header_text = "#ffffff"
+button_text = "#fcfee5"        # label colour on filled primary buttons
+page_bg = "#f4f6ef"            # page background below the header
+text = "#1a2712"               # default label colour
+header_bg = "#1b2516"
+header_text = "#fcfee5"
 header_inactive_text = "rgba(255, 255, 255, 0.65)"
 header_active_bg = "rgba(255, 255, 255, 0.2)"
 
 # The following keys style components whose colours Quasar and Tailwind
 # otherwise fix regardless of ui.colors():
 card = "#ffffff"               # card backgrounds (item dialog, forms)
-link = "#3b82f6"               # hyperlinks (e.g. "open full recording")
-muted = "#64748b"              # secondary text (hints, timestamps, IDs)
+link = "#118b50"               # hyperlinks (e.g. "open full recording")
+muted = "#5b6b52"              # secondary text (hints, timestamps, IDs)
 notice = "#92400e"             # inline warnings (speed shift, query limit, etc.)
-surface = "#f1f5f9"            # statistics tile backgrounds on the Library page
-chip = "#e2e8f0"               # small ID badge backgrounds
-marker_border = "rgba(255, 255, 255, 0.8)"  # matched-window outline on a spectrogram
-marker_fill = "rgba(255, 255, 255, 0.25)"
+surface = "#eef1e6"            # statistics tile backgrounds on the Library page
+chip = "#dde4d1"               # small ID badge backgrounds
+marker_border = "rgba(252, 254, 229, 0.8)"  # matched-window outline on a spectrogram
+marker_fill = "rgba(252, 254, 229, 0.25)"
 
 # Colours of the spectrogram images themselves. Evenly spaced #rrggbb stops
 # from quiet (first) to loud (last); at least two are required. The ramp
@@ -767,10 +767,10 @@ spectrogram_colors = ["#0c0826", "#400c60", "#941a60", "#de5234", "#fca83c", "#f
 # The dark palette, with the same keys and meanings. Omitted keys fall back to
 # the built-in dark defaults, never to the light values above, so overriding
 # one colour does not bring the light palette into the dark theme.
-# primary = "#5a9c3e"
-# page_bg = "#111509"
-# text = "#e7ecdc"
-# card = "#171d10"
+# primary = "#6f9a7a"
+# page_bg = "#0e100f"
+# text = "#d6cdb8"
+# card = "#161a18"
 # spectrogram_colors is not read here: the images are rendered and cached on
 # the server, where the viewer's theme is not known, so the [ui.theme] ramp
 # is used for both.
