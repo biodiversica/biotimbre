@@ -99,7 +99,7 @@ jobs:
       - name: Run install.sh
         if: runner.os != 'Windows'
         run: |
-          BIOTIMBRE_PACKAGE="biotimbre[gui] @ $(ls "$PWD"/dist/*.whl)" sh scripts/install.sh
+          BIOTIMBRE_YES=1 BIOTIMBRE_PACKAGE="biotimbre[gui] @ $(ls "$PWD"/dist/*.whl)" sh scripts/install.sh
       # The README's command, as typed, in Windows PowerShell 5.1 (the one
       # every Windows machine has), on this checkout's script served as a
       # release serves it. See .github/scripts/readme-command.ps1.
@@ -107,6 +107,7 @@ jobs:
         if: runner.os == 'Windows'
         shell: powershell
         run: |
+          $env:BIOTIMBRE_YES = "1"
           $env:BIOTIMBRE_PACKAGE = "biotimbre[gui] @ $((Get-ChildItem dist\*.whl).FullName)"
           powershell -NoProfile -ExecutionPolicy ByPass -File .github\scripts\readme-command.ps1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -149,10 +150,14 @@ jobs:
           esac
           # Made by the interface's first start, so there is something to take.
           test -d "$state"
-          BIOTIMBRE_UNINSTALL=all sh scripts/install.sh
+          BIOTIMBRE_YES=1 BIOTIMBRE_UNINSTALL=all sh scripts/install.sh
           test ! -e "$HOME/.local/bin/biotimbre"
           test ! -e "$launcher"
           test ! -e "$state"
+          if [ "$RUNNER_OS" = Linux ]; then
+            test ! -e "$HOME/.local/share/icons/hicolor/scalable/apps/biotimbre.svg"
+            test ! -e "$HOME/.local/share/icons/hicolor/512x512/apps/biotimbre.png"
+          fi
           for name in Perch BirdNET; do
             test ! -e "$HOME/.cache/huggingface/hub/models--biodiversica--$name-onnx-backbone"
           done
@@ -165,12 +170,14 @@ jobs:
           # running program.
           Get-Process biotimbre, python -ErrorAction SilentlyContinue | Stop-Process -Force
           Start-Sleep 2
+          $env:BIOTIMBRE_YES = "1"
           powershell -NoProfile -ExecutionPolicy ByPass -File .github\scripts\readme-command.ps1 -Uninstall
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $Gone = @(
               (Join-Path $HOME ".local\bin\biotimbre.exe"),
               (Join-Path ([Environment]::GetFolderPath("Desktop")) "biotimbre.lnk"),
-              (Join-Path ([Environment]::GetFolderPath("Programs")) "biotimbre.lnk")
+              (Join-Path ([Environment]::GetFolderPath("Programs")) "biotimbre.lnk"),
+              (Join-Path $env:LOCALAPPDATA "biotimbre\biotimbre.ico")
           )
           foreach ($Path in $Gone) {
               if (Test-Path $Path) { throw "still there after uninstalling: $Path" }

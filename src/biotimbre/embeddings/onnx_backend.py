@@ -21,6 +21,7 @@ from pathlib import Path
 import numpy as np
 
 from biotimbre.domain.errors import EmbeddingError
+from biotimbre.embeddings.runtime import onnxruntime_problem
 
 #: Threads per inference session. ``0`` leaves the choice to onnxruntime.
 #:
@@ -97,6 +98,12 @@ class OnnxEmbedder:
         """Create the inference session and inspect the graph, once."""
         if self._session is not None:
             return
+
+        # Before the import, which on a machine without a recent enough Visual
+        # C++ runtime crashes the process rather than raising.
+        problem = onnxruntime_problem()
+        if problem:
+            raise EmbeddingError(problem)
 
         try:
             import onnxruntime as ort

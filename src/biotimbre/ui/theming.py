@@ -57,8 +57,8 @@ _QUASAR_DARK_TEXT = (
 )
 
 #: File pickers title their box in primary, which on a dark page is a light
-#: sage that shouts beside everything else; they take the header's green
-#: instead. Light pages keep primary, already that green.
+#: sage that shouts beside everything else; they take the header's colours
+#: instead. Light pages keep primary, a dark green close to the header's.
 _QUASAR_DARK_UPLOADER = (
     f"{_DARK} .q-uploader__header"
     " { background-color: var(--bt-header-bg); color: var(--bt-header-text); }\n"

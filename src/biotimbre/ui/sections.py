@@ -40,7 +40,7 @@ def foldable(
     name: str,
     heading: str,
     *,
-    heading_class: str = "text-lg font-medium",
+    heading_class: str = "text-base font-medium",
     default: bool = True,
 ) -> ui.expansion:
     """An expansion headed by ``heading`` that remembers being opened or closed.

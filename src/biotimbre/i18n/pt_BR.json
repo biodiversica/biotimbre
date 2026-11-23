@@ -235,7 +235,7 @@
   },
   "search": {
     "upload": "Escolha uma gravação para buscar",
-    "upload_hint": "Encontre itens da biblioteca com som parecido com a sua gravação. Escolha uma gravação de até {seconds} s (para um arquivo mais longo, selecione um segmento abaixo) e clique em Buscar.",
+    "upload_hint": "Escolha uma gravação de até {seconds} s (para um arquivo mais longo, selecione um segmento abaixo) e clique em Buscar.",
     "query_optional": "Opcional: sem uma gravação, os filtros abaixo buscam na biblioteca sozinhos.",
     "segment": "Segmento utilizado na ferramenta de busca",
     "segment_hint": "Arraste para escolher no máximo {seconds} s. O espectrograma mostra o arquivo inteiro, incluindo conteúdo acima da faixa audível.",

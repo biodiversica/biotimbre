@@ -59,7 +59,7 @@ def import_card(t: Translator, on_imported) -> None:
     state = get_state()
 
     with foldable_card("import", t("share.import_heading")):
-        ui.label(t("share.import_hint")).classes("text-sm text-muted")
+        ui.label(t("share.import_hint")).classes("text-xs text-muted")
 
         async def handle_upload(event) -> None:
             # The file has to outlive the upload: the dialog reads it again on
@@ -113,8 +113,8 @@ def _library_controls(t: Translator, on_imported) -> None:
     """
     state = get_state()
 
-    ui.label(t("share.library_heading")).classes("text-base font-medium")
-    ui.label(t("share.library_hint")).classes("text-sm text-muted")
+    ui.label(t("share.library_heading")).classes("text-sm font-medium")
+    ui.label(t("share.library_hint")).classes("text-xs text-muted")
 
     current = state.settings.data_dir.resolve()
     others = [

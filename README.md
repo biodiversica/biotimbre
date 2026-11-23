@@ -30,16 +30,20 @@ On macOS and Linux, open a terminal and run:
 curl -LsSf https://github.com/biodiversica/biotimbre/releases/latest/download/install.sh | sh
 ```
 
-The installer performs the following steps:
+The installer first lists what it is going to do and asks for confirmation
+before changing anything. It then performs the following steps:
 
 1. Installs [uv](https://docs.astral.sh/uv/) into `~/.local/bin` if it is not
    already present. uv downloads its own Python, so no prior installation is
    required, and any existing Python installation is left unchanged.
-2. Runs `uv tool install --python 3.12 "biotimbre[gui]"`, which installs
+2. On Windows, installs the current Microsoft Visual C++ Redistributable (x64)
+   if the one present is older than 14.40, the version the models need.
+   Windows asks for an administrator's permission for this step.
+3. Runs `uv tool install --python 3.12 "biotimbre[gui]"`, which installs
    biotimbre with its web interface and adds `biotimbre` to the PATH.
-3. Creates a working folder, `~/biotimbre`, in which the interface starts and
+4. Creates a working folder, `~/biotimbre`, in which the interface starts and
    offers to create the first library.
-4. Adds a **biotimbre** launcher that runs `biotimbre gui` in that folder: a
+5. Adds a **biotimbre** launcher that runs `biotimbre gui` in that folder: a
    Desktop and Start menu shortcut on Windows, `biotimbre.command` on the
    macOS Desktop, and an applications menu entry on Linux. The launcher opens a
    terminal window next to the browser. This window runs the server, and
@@ -47,10 +51,12 @@ The installer performs the following steps:
 
 Two environment variables change the installer's defaults: `BIOTIMBRE_PACKAGE`
 (the package to install, for example `biotimbre` without the interface) and
-`BIOTIMBRE_WORKDIR` (the working folder).
+`BIOTIMBRE_WORKDIR` (the working folder). `BIOTIMBRE_YES=1` skips the
+confirmation, for installing or uninstalling from a script.
 
-**Uninstalling.** Run the installer again with `BIOTIMBRE_UNINSTALL` set. On
-Windows, close the biotimbre window first, then run in PowerShell:
+**Uninstalling.** Run the installer again with `BIOTIMBRE_UNINSTALL` set. It
+lists what it is going to remove and asks for confirmation first. On Windows,
+close the biotimbre window first, then run in PowerShell:
 
 ```powershell
 powershell -ExecutionPolicy ByPass -c '$env:BIOTIMBRE_UNINSTALL=1; irm https://github.com/biodiversica/biotimbre/releases/latest/download/install.ps1 | Out-String | iex'
@@ -78,6 +84,11 @@ uv tool install --python 3.12 "biotimbre[gui]"   # with the web interface
 uv tool install --python 3.12 biotimbre          # command line only
 pip install "biotimbre[gui]"                     # or with pip, into the current environment
 ```
+
+On Windows, the models need a current
+[Microsoft Visual C++ Redistributable](https://aka.ms/vs/17/release/vc_redist.x64.exe)
+(14.40 or newer). Without it, biotimbre still runs, but the models fail to
+load and the interface and command line say why.
 
 `uv tool upgrade biotimbre` upgrades and `uv tool uninstall biotimbre`
 uninstalls. To work on biotimbre itself, see [Development](#development); from
@@ -748,35 +759,32 @@ enabled = true
 # The light palette. Every key is optional; the values shown are the defaults.
 # Colours are CSS values (hex, rgb(a) or named). primary..warning set Quasar's
 # palette; the remaining keys style the header directly.
-primary = "#118b50"
-secondary = "#5ba98c"
+primary = "#20460a"
+secondary = "#fcfee5"
 accent = "#e9b44c"
-dark = "#1d1d1d"
+dark = "#20460a"
 positive = "#118b50"
 negative = "#c62828"
 info = "#2f6f9f"
 warning = "#e9b44c"
-button_text = "#ffffff"        # label colour on filled primary buttons
-page_bg = "#ffffff"            # page background below the header
-text = "#1a1a1a"               # default label colour
-header_bg = "#118b50"
-header_text = "#ffffff"
+button_text = "#fcfee5"        # label colour on filled primary buttons
+page_bg = "#f4f6ef"            # page background below the header
+text = "#1a2712"               # default label colour
+header_bg = "#1b2516"
+header_text = "#fcfee5"
 header_inactive_text = "rgba(255, 255, 255, 0.65)"
 header_active_bg = "rgba(255, 255, 255, 0.2)"
-header_status_ready = "#a8e6a1"    # "Models ready" badge
-header_status_loading = "#ffd166"  # "Loading models…" badge
-header_status_failed = "#ff8a8a"   # model loading error badge
 
 # The following keys style components whose colours Quasar and Tailwind
 # otherwise fix regardless of ui.colors():
 card = "#ffffff"               # card backgrounds (item dialog, forms)
-link = "#3b82f6"               # hyperlinks (e.g. "open full recording")
-muted = "#64748b"              # secondary text (hints, timestamps, IDs)
+link = "#118b50"               # hyperlinks (e.g. "open full recording")
+muted = "#5b6b52"              # secondary text (hints, timestamps, IDs)
 notice = "#92400e"             # inline warnings (speed shift, query limit, etc.)
-surface = "#f1f5f9"            # statistics tile backgrounds on the Library page
-chip = "#e2e8f0"               # small ID badge backgrounds
-marker_border = "rgba(255, 255, 255, 0.8)"  # matched-window outline on a spectrogram
-marker_fill = "rgba(255, 255, 255, 0.25)"
+surface = "#eef1e6"            # statistics tile backgrounds on the Library page
+chip = "#dde4d1"               # small ID badge backgrounds
+marker_border = "rgba(252, 254, 229, 0.8)"  # matched-window outline on a spectrogram
+marker_fill = "rgba(252, 254, 229, 0.25)"
 
 # Colours of the spectrogram images themselves. Evenly spaced #rrggbb stops
 # from quiet (first) to loud (last); at least two are required. The ramp
@@ -789,10 +797,10 @@ spectrogram_colors = ["#0c0826", "#400c60", "#941a60", "#de5234", "#fca83c", "#f
 # The dark palette, with the same keys and meanings. Omitted keys fall back to
 # the built-in dark defaults, never to the light values above, so overriding
 # one colour does not bring the light palette into the dark theme.
-# primary = "#5a9c3e"
-# page_bg = "#111509"
-# text = "#e7ecdc"
-# card = "#171d10"
+# primary = "#6f9a7a"
+# page_bg = "#0e100f"
+# text = "#d6cdb8"
+# card = "#161a18"
 # spectrogram_colors is not read here: the images are rendered and cached on
 # the server, where the viewer's theme is not known, so the [ui.theme] ramp
 # is used for both.

@@ -107,48 +107,55 @@ def _take_carried() -> dict[str, Any]:
     return get_state().carried.pop(token, {})
 
 
-@ui.refreshable
-def _model_badge(t: Translator) -> None:
-    """Show whether models are ready, loading, or failed."""
+def _model_status(t: Translator) -> None:
+    """Say how the models are doing in a passing notice rather than in the header.
+
+    Ready by the time the page opens is the usual case, and says nothing.
+    Otherwise a notice with a spinner stays while they load, then turns into
+    one saying they are ready, which leaves by itself, or into the error,
+    which stays until it is closed: without the models nothing can be
+    searched. One notice changed in place rather than one replacing another,
+    so the reader sees it turn rather than flicker.
+    """
     status = get_state().models
-
-    if status.failed:
-        with ui.row().classes("items-center gap-1").style(
-            "color: var(--bt-header-status-failed)"
-        ):
-            ui.icon("error_outline", size="1.1rem")
-            ui.label(t("error.generic", message=status.failed)).classes(
-                "text-xs max-w-64 truncate"
-            ).tooltip(status.failed)
-        return
-
     if status.ready:
-        with ui.row().classes("items-center gap-1").style(
-            "color: var(--bt-header-status-ready)"
-        ):
-            ui.icon("check_circle_outline", size="1.1rem")
-            summary = ", ".join(
-                f"{model} {dim}d" for model, dim in sorted(status.dimensions.items())
-            )
-            ui.label(t("app.models_ready")).classes("text-xs").tooltip(summary)
         return
+    notice = ui.notification(position="top", timeout=None)
+    if status.failed:
+        _show_failure(t, notice, status.failed)
+        return
+    notice.props["options"]["caption"] = t("app.loading_models_hint")
+    notice.spinner = True
+    notice.message = t("app.loading_models")
 
-    with ui.row().classes("items-center gap-2").style(
-        "color: var(--bt-header-status-loading)"
-    ):
-        ui.spinner(size="1rem")
-        ui.label(t("app.loading_models")).classes("text-xs").tooltip(
-            t("app.loading_models_hint")
-        )
-    # Poll until warm-up finishes, then redraw the badge. Only the badge: a
-    # reload would throw away whatever the reader has started on meanwhile.
-
+    # Poll until warm-up finishes. Only the notice changes: a reload would
+    # throw away whatever the reader has started on meanwhile.
     def poll() -> None:
         status = get_state().models
-        if status.ready or status.failed:
-            _model_badge.refresh()
+        if not (status.ready or status.failed):
+            return
+        timer.cancel()
+        notice.spinner = False
+        if status.failed:
+            _show_failure(t, notice, status.failed)
+            return
+        notice.props["options"]["caption"] = ", ".join(
+            f"{model} {dim}d" for model, dim in sorted(status.dimensions.items())
+        )
+        notice.type = "positive"
+        notice.timeout = 5
+        notice.message = t("app.models_ready")
 
-    ui.timer(1.5, poll)
+    timer = ui.timer(1.5, poll)
+
+
+def _show_failure(t: Translator, notice: ui.notification, error: str) -> None:
+    """Turn ``notice`` into the models' failure, kept until it is closed."""
+    notice.props["options"].pop("caption", None)
+    notice.type = "negative"
+    notice.multi_line = True
+    notice.close_button = True
+    notice.message = t("error.generic", message=error)
 
 
 def _theme_toggle(t: Translator, mode: str, dark_mode: ui.dark_mode) -> None:
@@ -368,91 +375,115 @@ def page(active: str):
     ui.page_title(library_name)
 
     # Pinned to the window like the footer. No ``relative`` class: Quasar
-    # already positions the header (fixed), which is what the centred name
-    # below anchors to, and ``relative`` would undo the pinning.
-    with ui.header().classes(
-        "items-center justify-between px-4 py-2 shadow-sm"
-    ).style("background: var(--bt-header-bg)"):
-        with ui.row().classes(
-            "absolute left-1/2 items-baseline gap-2"
-        ).style("transform: translateX(-50%)"):
-            ui.label(library_name).classes("text-sm font-medium").style(
-                "color: var(--bt-header-text)"
-            )
-            if identity is not None:
-                ui.label(f"#{identity.uuid[:8]}").classes(
-                    "text-xs font-mono"
-                ).style("color: var(--bt-header-inactive-text)").tooltip(
-                    identity.uuid
+    # already positions the header (fixed), and ``relative`` would undo the
+    # pinning.
+    #
+    # Two lines: the title on its own, centred; below it, on the left, the
+    # library's name and the tabs, and on the right the settings. The name
+    # gives way first: it is cut short as the window narrows, down to a
+    # minimum, and only below that does the line wrap, the settings going to
+    # a line of their own.
+    with ui.header().classes("px-4 py-2 gap-1 shadow-sm").style(
+        "background: var(--bt-header-bg); flex-direction: column;"
+        " align-items: stretch"
+    ):
+        ui.label(t("app.title")).classes(
+            "self-center text-base font-medium font-mono"
+        ).style("color: var(--bt-header-text)")
+
+        with ui.row().classes("w-full items-center justify-between gap-4"):
+            # Starting from nothing rather than from its content, so wrapping
+            # waits until the name is down to its minimum. Wrapping itself, on
+            # a phone, which puts the tabs below the name.
+            with ui.row().classes("items-center gap-x-6 gap-y-1").style(
+                "flex: 1 1 0"
+            ):
+                # Only once a library is open: before that there is no name to
+                # show, and the page below is where one is chosen.
+                if identity is not None:
+                    name_part = ui.row(wrap=False).classes("items-baseline gap-2")
+                    with name_part.style(
+                        # Also from nothing, up to its content, so the tabs follow
+                        # it rather than the end of the line.
+                        "flex: 1 1 0; min-width: 8rem; max-width: max-content"
+                    ):
+                        ui.label(library_name).classes(
+                            "text-sm font-medium truncate"
+                        ).style("color: var(--bt-header-text); min-width: 0").tooltip(
+                            library_name
+                        )
+                        ui.label(f"#{identity.uuid[:8]}").classes(
+                            "text-xs font-mono shrink-0"
+                        ).style("color: var(--bt-header-inactive-text)").tooltip(
+                            identity.uuid
+                        )
+                        if settings.search_only:
+                            # Beside the library's name, because that is the
+                            # question this answers: which library, and in what
+                            # capacity. Without it the only evidence is a
+                            # missing tab, which reads as a bug.
+                            with ui.row(wrap=False).classes(
+                                "items-center gap-1 shrink-0"
+                            ).style("color: var(--bt-header-inactive-text)"):
+                                ui.icon("lock", size="0.9rem")
+                                ui.label(t("app.search_only")).classes(
+                                    "text-xs"
+                                ).tooltip(t("app.search_only_hint"))
+
+                with ui.row(wrap=False).classes("items-center gap-1 shrink-0"):
+                    names = list(VIEW_PATHS)
+                    if settings.search_only:
+                        # The library page is not served on this run, so a tab
+                        # pointing at it would be a link to a redirect.
+                        names.remove("admin")
+                    icons = {"admin": "library_music", "search": "search"}
+                    for name in names:
+                        tab = ui.button(
+                            t(f"app.nav.{name}"),
+                            icon=icons[name],
+                            color=None,
+                            on_click=lambda name=name: views.show(name),
+                        ).props("flat dense no-caps")
+                        views.add_tab(name, tab)
+
+            # Pushed right, on a line of its own too.
+            with ui.row(wrap=False).classes("items-center gap-4 shrink-0").style(
+                "margin-left: auto"
+            ):
+                _theme_toggle(t, mode, dark_mode)
+                ui.select(
+                    {code: LANGUAGE_NAMES[code] for code in LANGUAGES},
+                    value=t.language or DEFAULT_LANGUAGE,
+                    on_change=lambda event: set_language(event.value),
+                ).props(
+                    # The header is dark, so the field and its popup are too. On a
+                    # dark popup Quasar marks the current option with the primary
+                    # colour, a dark green like the popup's own background, which
+                    # all but disappears; accent reads against both. ``color``
+                    # keeps the focus ring off primary green as well.
+                    'dense outlined dark options-dense color=white'
+                    ' options-selected-class="text-accent"'
+                ).style(
+                    # Wide enough for the longest name, plus the field's padding
+                    # and dropdown arrow.
+                    f"width: calc({max(map(len, LANGUAGE_NAMES.values()))}ch + 3.5rem)"
+                ).tooltip(
+                    t("app.language")
                 )
-            if settings.search_only:
-                # Beside the library's name, because that is the question this
-                # answers: which library, and in what capacity. Without it the
-                # only evidence is a missing tab, which reads as a bug.
-                with ui.row().classes("items-center gap-1").style(
-                    "color: var(--bt-header-inactive-text)"
-                ):
-                    ui.icon("lock", size="0.9rem")
-                    ui.label(t("app.search_only")).classes("text-xs").tooltip(
-                        t("app.search_only_hint")
-                    )
 
-        with ui.row().classes("items-center gap-6"):
-            # Monospace, and set apart from the tabs by six of its own
-            # characters on top of the row's gap.
-            ui.label(t("app.title")).classes("text-lg font-medium font-mono").style(
-                "color: var(--bt-header-text); margin-right: 6ch"
-            )
-            with ui.row().classes("gap-1"):
-                names = list(VIEW_PATHS)
-                if settings.search_only:
-                    # The library page is not served on this run, so a tab
-                    # pointing at it would be a link to a redirect.
-                    names.remove("admin")
-                icons = {"admin": "library_music", "search": "search"}
-                for name in names:
-                    tab = ui.button(
-                        t(f"app.nav.{name}"),
-                        icon=icons[name],
-                        color=None,
-                        on_click=lambda name=name: views.show(name),
-                    ).props("flat dense no-caps")
-                    views.add_tab(name, tab)
+    # Back and forward move between views without leaving the page,
+    # so they have to be told apart from a real navigation.
+    ui.add_body_html(
+        "<script>window.addEventListener('popstate', () =>"
+        " emitEvent('bt_view', location.pathname));</script>"
+    )
+    paths = {path: name for name, path in VIEW_PATHS.items()}
+    ui.on(
+        "bt_view",
+        lambda event: views.show(paths.get(event.args, "search"), push=False),
+    )
 
-            # Back and forward move between views without leaving the page,
-            # so they have to be told apart from a real navigation.
-            ui.add_body_html(
-                "<script>window.addEventListener('popstate', () =>"
-                " emitEvent('bt_view', location.pathname));</script>"
-            )
-            paths = {path: name for name, path in VIEW_PATHS.items()}
-            ui.on(
-                "bt_view",
-                lambda event: views.show(paths.get(event.args, "search"), push=False),
-            )
-
-        with ui.row().classes("items-center gap-4"):
-            _model_badge(t)
-            _theme_toggle(t, mode, dark_mode)
-            ui.select(
-                {code: LANGUAGE_NAMES[code] for code in LANGUAGES},
-                value=t.language or DEFAULT_LANGUAGE,
-                on_change=lambda event: set_language(event.value),
-            ).props(
-                # The header is dark, so the field and its popup are too. On a
-                # dark popup Quasar marks the current option with the primary
-                # colour, which is the same green as the header and all but
-                # disappears; accent reads against both. ``color`` keeps the
-                # focus ring off primary green as well.
-                'dense outlined dark options-dense color=white'
-                ' options-selected-class="text-accent"'
-            ).style(
-                # Wide enough for the longest name, plus the field's padding
-                # and dropdown arrow.
-                f"width: calc({max(map(len, LANGUAGE_NAMES.values()))}ch + 3.5rem)"
-            ).tooltip(
-                t("app.language")
-            )
+    _model_status(t)
 
     with ui.column().classes("w-full max-w-6xl mx-auto p-4 gap-4"):
         yield t

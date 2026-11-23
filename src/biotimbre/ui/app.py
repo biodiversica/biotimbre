@@ -18,6 +18,7 @@ what makes this a guarantee rather than a convention.
 
 from __future__ import annotations
 
+import asyncio
 import os
 import secrets
 import socket
@@ -148,6 +149,26 @@ def open_browser(host: str, port: int, timeout: float = BROWSER_TIMEOUT) -> None
     browser.open(f"http://{target}:{port}/")
 
 
+def _ignore_connection_resets(
+    loop: asyncio.AbstractEventLoop, context: dict
+) -> None:
+    """Pass every loop error on, except a connection the browser reset.
+
+    On Windows, asyncio's Proactor transport logs a traceback when it shuts
+    down a socket the other end has already reset, which is what a browser
+    does to an audio stream it no longer wants: on every change to a staged
+    recording, say. Nothing is wrong, and nothing is lost by not saying so.
+    """
+    if isinstance(context.get("exception"), ConnectionResetError):
+        return
+    loop.default_exception_handler(context)
+
+
+async def _quiet_connection_resets() -> None:
+    """Install :func:`_ignore_connection_resets` on the running loop."""
+    asyncio.get_running_loop().set_exception_handler(_ignore_connection_resets)
+
+
 @ui.page("/")
 async def admin_page() -> Response | None:
     """Library page: add, inspect, edit and delete items.
@@ -234,6 +255,8 @@ def create_app(
     # Warm in the background so the server answers immediately; a first run has
     # 70 MB to download and the page should say so rather than appear to hang.
     app.on_startup(state.start_warming)
+    if sys.platform == "win32":
+        app.on_startup(_quiet_connection_resets)
     app.on_shutdown(state.close)
     return state
 
@@ -281,7 +304,8 @@ def run(
         # Only a fallback: every page sets its own title to the library's name
         # (biotimbre.ui.layout.page).
         title="biotimbre",
-        favicon="🦗",
+        # PNG rather than the SVG: Safari still ignores SVG favicons.
+        favicon=Path(__file__).parent.parent / "assets" / "biotimbre.png",
         show=False,
         reload=reload,
         # Per-browser storage holds interface preferences and recent libraries,

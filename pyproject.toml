@@ -1,7 +1,7 @@
 [project]
 name = "biotimbre"
 version = "0.1.0"
-description = "Local library of animal vocalization samples with embedding-based similarity search."
+description = "Tool for building and managing libraries of animal vocalization templates with embedding-based similarity search."
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
