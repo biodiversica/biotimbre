@@ -46,6 +46,17 @@ _FOOTNOTE_CSS = """
 .bt-footnote:hover { color: var(--bt-header-text); }
 """
 
+#: One typeface for the whole interface: the system's own monospace, so
+#: nothing is downloaded and the page works offline. Quasar's controls inherit
+#: it from the body; Leaflet names a font of its own for the map's labels.
+_FONT_CSS = """
+:root {
+  --bt-font: ui-monospace, SFMono-Regular, Menlo, Consolas, "DejaVu Sans Mono",
+             "Liberation Mono", monospace;
+}
+body, .leaflet-container { font-family: var(--bt-font); }
+"""
+
 
 def translator() -> Translator:
     """Translator for the current browser session."""
@@ -261,6 +272,7 @@ def page(active: str):
     # leaving it to the app would flash the other theme.
     ui.add_head_html(theme_css(settings.theme, settings.dark_theme))
     ui.add_head_html(apply_mode_script(mode))
+    ui.add_css(_FONT_CSS)
     # Quasar's own dark flag, which restyles its components from the inside.
     dark_mode = ui.dark_mode(value=quasar_dark(mode))
     # Quasar's brand colours point at those variables rather than at literals,
@@ -310,8 +322,10 @@ def page(active: str):
                     )
 
         with ui.row().classes("items-center gap-6"):
-            ui.label(t("app.title")).classes("text-lg font-medium").style(
-                "color: var(--bt-header-text)"
+            # Monospace, and set apart from the tabs by six of its own
+            # characters on top of the row's gap.
+            ui.label(t("app.title")).classes("text-lg font-medium font-mono").style(
+                "color: var(--bt-header-text); margin-right: 6ch"
             )
             with ui.row().classes("gap-1"):
                 names = list(VIEW_PATHS)
@@ -356,7 +370,11 @@ def page(active: str):
                 # focus ring off primary green as well.
                 'dense outlined dark options-dense color=white'
                 ' options-selected-class="text-accent"'
-            ).classes("w-40").tooltip(
+            ).style(
+                # Wide enough for the longest name, plus the field's padding
+                # and dropdown arrow.
+                f"width: calc({max(map(len, LANGUAGE_NAMES.values()))}ch + 3.5rem)"
+            ).tooltip(
                 t("app.language")
             )
 

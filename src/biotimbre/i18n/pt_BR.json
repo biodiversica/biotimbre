@@ -1,6 +1,6 @@
 {
   "app": {
-    "title": "((-)) biotimbre ((-))",
+    "title": "((-)) biotimbre",
     "nav": {
       "admin": "Biblioteca",
       "search": "Ferramenta de busca"
@@ -163,7 +163,6 @@
     "segment_of": "Mantendo {start}–{end} s de {duration} s",
     "will_store": "O que será armazenado ({duration} s)",
     "over_range": "O trecho selecionado atinge pico de {peak} ({dbfs} dBFS), acima da escala cheia, então será armazenado normalizado com pico em {target} dBFS.",
-    "model_limits": "As linhas tracejadas marcam o limite de frequência de cada modelo; conteúdo acima delas não é visto por esse modelo.",
     "recompute": "Recalcular embeddings",
     "recomputed": "Embeddings recalculados.",
     "handoff_taken": "Trazida da Ferramenta de busca com suas configurações. Revise-as, preencha os detalhes e salve.",
@@ -241,7 +240,6 @@
     "query_optional": "Opcional: sem uma gravação, os filtros abaixo buscam na biblioteca sozinhos.",
     "segment": "Segmento utilizado na ferramenta de busca",
     "segment_hint": "Arraste para escolher no máximo {seconds} s. O espectrograma mostra o arquivo inteiro, incluindo conteúdo acima da faixa audível.",
-    "filter_hint": "Filtra o áudio de busca antes da comparação (Butterworth). Deixe ambos em branco para buscar sem filtro. No espectrograma, as áreas escurecidas são o que o filtro remove.",
     "will_search": "O que será usado na busca ({duration} s)",
     "normalise_help": "Ajusta o áudio de busca para que a amostra mais alta atinja esse nível, aumentando ou diminuindo o volume, depois do corte e do filtro.",
     "segment_of": "{start}–{end} s de {duration} s",
@@ -289,8 +287,6 @@
     "no_query": "Escolha uma gravação para buscar, ou defina um filtro para buscar por metadados.",
     "rank": "#",
     "copy_id": "{biotimbre_id} (clique para copiar)",
-    "compare_hint": "Reproduza a busca e depois cada resultado para julgar a correspondência de ouvido.",
-    "marker_hint": "A faixa mais clara marca a janela que gerou a pontuação.",
     "to_library": "Adicionar à biblioteca…",
     "to_library_hint": "Ainda não está na biblioteca? Abre o formulário de adição da página Biblioteca com esta gravação e estas configurações, para revisar e salvar."
   },

@@ -26,7 +26,6 @@ from biotimbre.domain.errors import BiotimbreError, ValidationError
 from biotimbre.domain.item import DEFAULT_SPEED, MAX_SPEED, MIN_SPEED
 from biotimbre.embeddings import audio as audio_io
 from biotimbre.i18n import Translator
-from biotimbre.models_registry import get_spec
 from biotimbre.ui.forms import _blank_to_none
 from biotimbre.ui.layout import notify_error
 from biotimbre.ui.playback import play_described, speed_audio
@@ -284,13 +283,15 @@ def _over_range_args(peak: float) -> dict[str, str]:
     }
 
 
-def _nyquist_lines(t: Translator) -> str:
-    """Describe where each model's limit falls, for a spectrogram caption."""
-    limits = ", ".join(
-        f"{model_id} {get_spec(model_id).nyquist_hz / 1000:g} kHz"
-        for model_id in get_state().settings.active_models
-    )
-    return f"{t('admin.model_limits')} ({limits})"
+def _label_width(label: str, *, suffix: bool = False) -> str:
+    """Width that shows a field's label whole, as a CSS length.
+
+    Quasar cuts a long label short with an ellipsis, and some run long in
+    some languages. The extra room is the field's padding, and the unit
+    when the field shows one.
+    """
+    # Never narrower than ten characters, room enough for any value typed.
+    return f"calc({max(len(label), 10)}ch + {4 if suffix else 2}rem)"
 
 
 def _spectrogram_of(path: Path, *, width: int = 860, height: int = 170) -> str:
@@ -345,7 +346,8 @@ class ClipWording:
 
     segment_of: str
     trim_hint: str
-    filter_hint: str
+    #: Said under the filter controls, if anything.
+    filter_hint: str | None
     result: str
     over_range: str
     normalise_help: str
@@ -369,7 +371,7 @@ LIBRARY_WORDING = ClipWording(
 SEARCH_WORDING = ClipWording(
     segment_of="search.segment_of",
     trim_hint="search.segment_hint",
-    filter_hint="search.filter_hint",
+    filter_hint=None,
     result="search.will_search",
     over_range="search.over_range",
     normalise_help="search.normalise_help",
@@ -516,8 +518,6 @@ async def clip_editor(
             )
 
     await draw_source_view()
-    ui.label(_nyquist_lines(t)).classes("text-xs text-muted")
-
     seconds = f"{max_span:g}" if max_span is not None else ""
     if wording.too_long and max_span is not None and props.duration_s > max_span:
         ui.label(t(wording.too_long, seconds=seconds)).classes("text-xs text-notice")
@@ -542,9 +542,9 @@ async def clip_editor(
             step=0.05,
             min=MIN_SPEED,
             max=MAX_SPEED,
-        ).props("dense outlined").classes("grow").tooltip(
-            t(wording.speed_help)
-        ).mark("apply-speed")
+        ).props("dense outlined").style(
+            f"width: {_label_width(t(wording.speed))}"
+        ).tooltip(t(wording.speed_help)).mark("apply-speed")
         if bind_speed is not None:
             speed_input.bind_value(bind_speed)
         speed_input.on_value_change(lambda _: follow_speed())
@@ -555,21 +555,28 @@ async def clip_editor(
         highpass = ui.number(
             t("field.highpass"), value=clip.highpass, step=100,
             suffix=t("common.hertz"),
-        ).props("dense outlined").classes("grow").mark("apply-highpass")
+        ).props("dense outlined").classes("grow").style(
+            f"min-width: {_label_width(t('field.highpass'), suffix=True)}"
+        ).mark("apply-highpass")
         lowpass = ui.number(
             t("field.lowpass"), value=clip.lowpass, step=100,
             suffix=t("common.hertz"),
-        ).props("dense outlined").classes("grow").mark("apply-lowpass")
+        ).props("dense outlined").classes("grow").style(
+            f"min-width: {_label_width(t('field.lowpass'), suffix=True)}"
+        ).mark("apply-lowpass")
         order = ui.number(
             t("field.filter_order"), value=clip.filter_order, step=1, min=1,
-        ).props("dense outlined").classes("grow").mark("apply-order")
+        ).props("dense outlined").style(
+            f"width: {_label_width(t('field.filter_order'))}"
+        ).mark("apply-order")
         normalise = ui.checkbox(
             t("admin.normalise", target=f"{audio_io.NORMALISED_PEAK_DBFS:g}"),
             value=clip.normalise,
         ).props("dense").classes("self-center").tooltip(
             t(wording.normalise_help)
         ).mark("apply-normalise")
-    ui.label(t(wording.filter_hint)).classes("text-xs text-muted")
+    if wording.filter_hint is not None:
+        ui.label(t(wording.filter_hint)).classes("text-xs text-muted")
 
     def shade_band() -> None:
         """Dim what the cut-offs remove, as they are typed.

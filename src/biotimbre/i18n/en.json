@@ -1,6 +1,6 @@
 {
   "app": {
-    "title": "((-)) biotimbre ((-))",
+    "title": "((-)) biotimbre",
     "nav": {
       "admin": "Library",
       "search": "Search"
@@ -163,7 +163,6 @@
     "segment_of": "Keeping {start}–{end} s of {duration} s",
     "will_store": "What will be stored ({duration} s)",
     "over_range": "The selection peaks at {peak} ({dbfs} dBFS), beyond full scale, so it will be stored normalised to peak at {target} dBFS.",
-    "model_limits": "Dashed lines mark each model's frequency limit; content above them is not seen by that model.",
     "recompute": "Recompute embeddings",
     "recomputed": "Embeddings recomputed.",
     "handoff_taken": "Brought over from Search with its settings. Review them, fill in the details, and save.",
@@ -241,7 +240,6 @@
     "query_optional": "Optional: with no recording, the filters below search the library on their own.",
     "segment": "Segment to search",
     "segment_hint": "Drag to choose at most {seconds} s. The spectrogram shows the whole file, including any content above hearing range.",
-    "filter_hint": "Filters the query before it is searched with (Butterworth). Leave both blank to search unfiltered. On the spectrogram, the dimmed areas are what the filter removes.",
     "will_search": "What will be searched with ({duration} s)",
     "normalise_help": "Scales the query so its loudest sample peaks at this level, louder or quieter, after the cut and the filter.",
     "segment_of": "{start}–{end} s of {duration} s",
@@ -289,8 +287,6 @@
     "no_query": "Choose a recording to search with, or set a filter to search by metadata.",
     "rank": "#",
     "copy_id": "{biotimbre_id} (click to copy)",
-    "compare_hint": "Play the query, then each result, to judge the match by ear.",
-    "marker_hint": "The lighter band marks the window that produced the score.",
     "to_library": "Add to library…",
     "to_library_hint": "Not in the library yet? Opens the Library page's add form with this recording and these settings, to review and save."
   },

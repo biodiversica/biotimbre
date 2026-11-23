@@ -485,15 +485,13 @@ async def render(t: Translator) -> None:
                 # returned: that waits on the first restage, and the button
                 # should not arrive a moment after everything else.
                 if not state.settings.search_only:
-                    with ui.row().classes("items-center gap-2"):
-                        ui.button(
-                            t("search.to_library"),
-                            icon="library_add",
-                            on_click=to_library,
-                        ).props("flat dense no-caps").mark("to-library")
-                        ui.label(t("search.to_library_hint")).classes(
-                            "text-xs text-muted"
-                        )
+                    ui.button(
+                        t("search.to_library"),
+                        icon="library_add",
+                        on_click=to_library,
+                    ).props("flat dense no-caps").tooltip(
+                        t("search.to_library_hint")
+                    ).mark("to-library")
 
             editor["controls"] = None
             query_area.clear()
@@ -758,9 +756,6 @@ async def render(t: Translator) -> None:
                 ).mark("export-results-csv")
             if not scored:
                 ui.label(t("search.metadata_only")).classes("text-xs text-muted")
-            else:
-                ui.label(t("search.compare_hint")).classes("text-xs text-muted")
-                ui.label(t("search.marker_hint")).classes("text-xs text-muted")
             for rank, hit in enumerate(hits, start=1):
                 await _result_card(t, hit, rank, counts.get(hit.item.item_id, {}))
             if any(h.query_speed != 1.0 for h in hits):
