@@ -99,7 +99,7 @@ jobs:
       - name: Run install.sh
         if: runner.os != 'Windows'
         run: |
-          BIOTIMBRE_PACKAGE="biotimbre[gui] @ $(ls "$PWD"/dist/*.whl)" sh scripts/install.sh
+          BIOTIMBRE_YES=1 BIOTIMBRE_PACKAGE="biotimbre[gui] @ $(ls "$PWD"/dist/*.whl)" sh scripts/install.sh
       # The command from the README, as typed, in Windows PowerShell 5.1 (the
       # one every Windows machine has). Release assets are served as
       # application/octet-stream, and 5.1's irm hands such a script to iex line
@@ -108,6 +108,7 @@ jobs:
         if: runner.os == 'Windows'
         shell: powershell
         run: |
+          $env:BIOTIMBRE_YES = "1"
           $env:BIOTIMBRE_PACKAGE = "biotimbre[gui] @ $((Get-ChildItem dist\*.whl).FullName)"
           $Release = "https://github.com/biodiversica/biotimbre/releases/latest/download/install.ps1"
           $Local = "http://localhost:8766/install.ps1"

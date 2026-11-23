@@ -7,9 +7,12 @@
 # beforehand), installs biotimbre as an isolated tool, and adds a launcher that
 # opens the interface from a work folder. Run it again to upgrade.
 #
+# It says what it is about to do and asks before doing any of it.
+#
 # Environment overrides:
 #   BIOTIMBRE_PACKAGE   what to install                 (default: biotimbre[gui])
 #   BIOTIMBRE_WORKDIR   folder the interface starts in  (default: ~/biotimbre)
+#   BIOTIMBRE_YES=1     install without asking, e.g. from a script or CI
 set -eu
 
 PACKAGE="${BIOTIMBRE_PACKAGE:-biotimbre[gui]}"
@@ -27,12 +30,55 @@ case "$(uname -s)" in
   *) die "unsupported system $(uname -s); on Windows use install.ps1." ;;
 esac
 
-# ── uv ───────────────────────────────────────────────────────────────────────
 if command -v uv >/dev/null 2>&1; then
   UV=$(command -v uv)
 elif [ -x "$HOME/.local/bin/uv" ]; then
   UV="$HOME/.local/bin/uv"
 else
+  UV=
+fi
+
+# ── confirmation ─────────────────────────────────────────────────────────────
+if [ "$OS" = macos ]; then
+  LAUNCHER_TEXT="biotimbre.command on your Desktop"
+else
+  LAUNCHER_TEXT="a biotimbre entry in your applications menu, with its icon"
+fi
+if [ -n "$UV" ]; then
+  UV_TEXT="use uv, already installed at $UV"
+else
+  UV_TEXT="install uv, the tool that installs biotimbre, into ~/.local/bin"
+fi
+cat <<EOF
+This installs biotimbre, a tool for building and searching libraries of
+animal sounds, with its interface in the browser. It will:
+
+  - $UV_TEXT
+  - install $PACKAGE with uv, isolated, along with a Python $PYTHON
+    of its own; your other Pythons are not touched (if biotimbre is already
+    installed, it is upgraded)
+  - add uv's tools folder to your PATH, in your shell's startup file
+  - create the folder $WORKDIR, where the interface starts
+  - add $LAUNCHER_TEXT
+
+The first start of the interface downloads the models (about 70 MB), once.
+
+EOF
+if [ "${BIOTIMBRE_YES:-}" != 1 ]; then
+  # Asked of the terminal: under "curl ... | sh" standard input is the script.
+  if ! (: </dev/tty) 2>/dev/null; then
+    die "there is no terminal to ask in; set BIOTIMBRE_YES=1 to install without asking."
+  fi
+  printf 'Continue? [y/N] '
+  read -r ANSWER </dev/tty || ANSWER=
+  case "$ANSWER" in
+    [yY] | [yY][eE][sS]) ;;
+    *) echo "Nothing was installed."; exit 0 ;;
+  esac
+fi
+
+# ── uv ───────────────────────────────────────────────────────────────────────
+if [ -z "$UV" ]; then
   say "Installing uv"
   if command -v curl >/dev/null 2>&1; then
     curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR="$HOME/.local/bin" sh

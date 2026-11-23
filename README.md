@@ -30,7 +30,8 @@ On macOS and Linux, open a terminal and run:
 curl -LsSf https://github.com/biodiversica/biotimbre/releases/latest/download/install.sh | sh
 ```
 
-The installer performs the following steps:
+The installer first lists what it is going to do and asks for confirmation
+before changing anything. It then performs the following steps:
 
 1. Installs [uv](https://docs.astral.sh/uv/) into `~/.local/bin` if it is not
    already present. uv downloads its own Python, so no prior installation is
@@ -47,7 +48,8 @@ The installer performs the following steps:
 
 Two environment variables change the installer's defaults: `BIOTIMBRE_PACKAGE`
 (the package to install, for example `biotimbre` without the interface) and
-`BIOTIMBRE_WORKDIR` (the working folder). To uninstall, run
+`BIOTIMBRE_WORKDIR` (the working folder). `BIOTIMBRE_YES=1` skips the
+confirmation, for installing from a script. To uninstall, run
 `uv tool uninstall biotimbre` and delete the launcher; libraries are not
 removed.
 

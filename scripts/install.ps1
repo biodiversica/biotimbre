@@ -10,6 +10,9 @@
 # Environment overrides:
 #   BIOTIMBRE_PACKAGE   what to install                 (default: biotimbre[gui])
 #   BIOTIMBRE_WORKDIR   folder the interface starts in  (default: %USERPROFILE%\biotimbre)
+#   BIOTIMBRE_YES=1     install without asking, e.g. from a script or CI
+#
+# It says what it is about to do and asks before doing any of it.
 #
 # Keep this file ASCII: Windows PowerShell 5.1 reads a BOM-less script as ANSI.
 
@@ -23,10 +26,42 @@ $Python = "3.12"
 
 function Say($Message) { Write-Host "==> $Message" }
 
-# --- uv ----------------------------------------------------------------------
 $Found = Get-Command uv -ErrorAction SilentlyContinue
 $Uv = if ($Found) { $Found.Source } else { Join-Path $HOME ".local\bin\uv.exe" }
-if (-not (Test-Path $Uv)) {
+$HaveUv = Test-Path $Uv
+
+# --- confirmation ------------------------------------------------------------
+$UvText = if ($HaveUv) { "use uv, already installed at $Uv" } else { "install uv, the tool that installs biotimbre, into $(Join-Path $HOME '.local\bin')" }
+Write-Host @"
+This installs biotimbre, a tool for building and searching libraries of
+animal sounds, with its interface in the browser. It will:
+
+  - $UvText
+  - install $Package with uv, isolated, along with a Python $Python
+    of its own; your other Pythons are not touched (if biotimbre is already
+    installed, it is upgraded)
+  - add uv's tools folder to your user PATH
+  - create the folder $WorkDir, where the interface starts
+  - add biotimbre shortcuts, with its icon, to your Desktop and Start menu
+
+The first start of the interface downloads the models (about 70 MB), once.
+
+"@
+if ($env:BIOTIMBRE_YES -ne "1") {
+    if ([Console]::IsInputRedirected) {
+        throw "there is no console to ask in; set BIOTIMBRE_YES=1 to install without asking."
+    }
+    $Answer = Read-Host "Continue? [y/N]"
+    if ($Answer -notmatch '^\s*(y|yes)\s*$') {
+        Write-Host "Nothing was installed."
+        # Ends this script only, also when it runs through iex in an open
+        # PowerShell, where exit would close the window.
+        return
+    }
+}
+
+# --- uv ----------------------------------------------------------------------
+if (-not $HaveUv) {
     Say "Installing uv"
     $env:UV_INSTALL_DIR = Join-Path $HOME ".local\bin"
     # A separate process, so an exit in uv's installer cannot end this one.
