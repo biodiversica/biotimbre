@@ -47,6 +47,20 @@ if (-not (Test-Path $Exe)) { throw "biotimbre was not installed where uv said it
 
 New-Item -ItemType Directory -Force -Path $WorkDir | Out-Null
 
+# --- icon --------------------------------------------------------------------
+# Copied out of the tool's environment, which uv may rebuild on an upgrade, to
+# a place that stays put for as long as the shortcuts point at it. A package
+# from before the logo has none, and the shortcuts then keep the default icon.
+$ToolDir = (& $Uv tool dir | Out-String).Trim()
+$PackagedIcon = Join-Path $ToolDir "biotimbre\Lib\site-packages\biotimbre\assets\biotimbre.ico"
+$Icon = $null
+if (Test-Path $PackagedIcon) {
+    $IconDir = Join-Path $env:LOCALAPPDATA "biotimbre"
+    New-Item -ItemType Directory -Force -Path $IconDir | Out-Null
+    $Icon = Join-Path $IconDir "biotimbre.ico"
+    Copy-Item -Force $PackagedIcon $Icon
+}
+
 # --- shortcuts ---------------------------------------------------------------
 # They open a console window: it shows the address and is where Ctrl+C stops
 # the interface.
@@ -58,6 +72,7 @@ foreach ($Folder in $Places) {
     $Link.Arguments = "gui"
     $Link.WorkingDirectory = $WorkDir
     $Link.Description = "Build and search libraries of animal sounds in the browser"
+    if ($Icon) { $Link.IconLocation = "$Icon,0" }
     $Link.Save()
 }
 

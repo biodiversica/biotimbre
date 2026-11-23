@@ -53,6 +53,13 @@ BIOTIMBRE="$("$UV" tool dir --bin)/biotimbre"
 
 mkdir -p "$WORKDIR"
 
+# The logo, from the tool's environment. A package from before the logo has
+# none, and the launcher then keeps the default icon.
+ASSETS=
+for dir in "$("$UV" tool dir)"/biotimbre/lib/python*/site-packages/biotimbre/assets; do
+  if [ -f "$dir/biotimbre.png" ]; then ASSETS="$dir"; fi
+done
+
 # ── launcher ─────────────────────────────────────────────────────────────────
 # Both open a terminal: it shows the address and is where Ctrl+C stops the
 # interface.
@@ -64,11 +71,32 @@ if [ "$OS" = macos ]; then
 cd "$WORKDIR" && exec "$BIOTIMBRE" gui
 EOF
   chmod +x "$LAUNCHER"
+  # A .command file has no icon setting of its own; Finder shows the one
+  # attached to the file, which keeps its own copy of the image.
+  if [ -n "$ASSETS" ]; then
+    osascript -l JavaScript -e '
+      function run(argv) {
+        ObjC.import("AppKit");
+        var image = $.NSImage.alloc.initWithContentsOfFile(argv[0]);
+        $.NSWorkspace.sharedWorkspace.setIconForFileOptions(image, argv[1], 0);
+      }' "$ASSETS/biotimbre.png" "$LAUNCHER" >/dev/null 2>&1 || true
+  fi
   WHERE="double-click biotimbre on your Desktop"
 else
   APPS="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
   LAUNCHER="$APPS/biotimbre.desktop"
   mkdir -p "$APPS"
+  # Copied into the user's icon theme, which the launcher names: the tool's
+  # environment may be rebuilt on an upgrade.
+  ICON=audio-x-generic
+  if [ -n "$ASSETS" ]; then
+    ICONS="${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor"
+    mkdir -p "$ICONS/scalable/apps" "$ICONS/512x512/apps"
+    cp "$ASSETS/biotimbre.svg" "$ICONS/scalable/apps/biotimbre.svg"
+    cp "$ASSETS/biotimbre.png" "$ICONS/512x512/apps/biotimbre.png"
+    touch "$ICONS"  # so menus notice the theme changed
+    ICON=biotimbre
+  fi
   cat > "$LAUNCHER" <<EOF
 [Desktop Entry]
 Type=Application
@@ -77,7 +105,7 @@ Comment=Build and search libraries of animal sounds in the browser
 Exec="$BIOTIMBRE" gui
 Path=$WORKDIR
 Terminal=true
-Icon=audio-x-generic
+Icon=$ICON
 Categories=Science;
 EOF
   WHERE="open biotimbre from your applications menu"

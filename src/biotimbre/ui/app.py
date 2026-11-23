@@ -281,7 +281,8 @@ def run(
         # Only a fallback: every page sets its own title to the library's name
         # (biotimbre.ui.layout.page).
         title="biotimbre",
-        favicon="🦗",
+        # PNG rather than the SVG: Safari still ignores SVG favicons.
+        favicon=Path(__file__).parent.parent / "assets" / "biotimbre.png",
         show=False,
         reload=reload,
         # Per-browser storage holds interface preferences and recent libraries,
