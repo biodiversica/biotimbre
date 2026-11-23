@@ -346,8 +346,6 @@ class ClipWording:
 
     segment_of: str
     trim_hint: str
-    #: Said under the filter controls, if anything.
-    filter_hint: str | None
     result: str
     over_range: str
     normalise_help: str
@@ -360,7 +358,6 @@ class ClipWording:
 LIBRARY_WORDING = ClipWording(
     segment_of="admin.segment_of",
     trim_hint="admin.trim_hint",
-    filter_hint="admin.filter_hint",
     result="admin.will_store",
     over_range="admin.over_range",
     normalise_help="admin.normalise_help",
@@ -371,7 +368,6 @@ LIBRARY_WORDING = ClipWording(
 SEARCH_WORDING = ClipWording(
     segment_of="search.segment_of",
     trim_hint="search.segment_hint",
-    filter_hint=None,
     result="search.will_search",
     over_range="search.over_range",
     normalise_help="search.normalise_help",
@@ -575,8 +571,6 @@ async def clip_editor(
         ).props("dense").classes("self-center").tooltip(
             t(wording.normalise_help)
         ).mark("apply-normalise")
-    if wording.filter_hint is not None:
-        ui.label(t(wording.filter_hint)).classes("text-xs text-muted")
 
     def shade_band() -> None:
         """Dim what the cut-offs remove, as they are typed.

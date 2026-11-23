@@ -156,7 +156,6 @@
     "no_file": "Nenhum arquivo escolhido ainda.",
     "file_chosen": "{name} — {duration} s, {rate} Hz, {channels} ch",
     "trim_hint": "Arraste para manter apenas parte da gravação.",
-    "filter_hint": "Filtra o áudio antes de armazená-lo (Butterworth). Deixe ambos em branco para armazenar sem filtro. No espectrograma, as áreas escurecidas são o que o filtro remove.",
     "normalise": "Normalizar para {target} dBFS",
     "normalise_help": "Ajusta a cópia armazenada para que a amostra mais alta atinja esse nível, aumentando ou diminuindo o volume, depois do corte e do filtro. Uma nota sobre isso é adicionada às notas.",
     "normalised_note": "Normalizado com pico em {target} dBFS (ganho de {gain} dB).",
