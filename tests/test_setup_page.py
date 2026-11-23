@@ -205,7 +205,9 @@ class TestSetupPage:
         await user.should_see("Choose a library")
         await user.should_see("Create a new library")
         await user.should_see("Open an existing library")
-        await user.should_see("no library open")
+        # Not in the header, which names a library only once one is open;
+        # the browser tab still says so.
+        await user.should_not_see("no library open")
         assert user.client.title == "no library open"
 
     async def test_with_nothing_to_open_it_offers_to_create(
@@ -232,6 +234,7 @@ class TestSetupPage:
         assert state.is_open is True
         assert state.settings.data_dir == target
         assert state.service.identity().name == "Atlantic Forest Cicadas"
+        await user.should_see("Atlantic Forest Cicadas")  # now in the header
 
     async def test_creating_needs_a_name(self, user: User, chooser):
         state = chooser()
