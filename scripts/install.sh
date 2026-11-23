@@ -7,22 +7,46 @@
 # beforehand), installs biotimbre as an isolated tool, and adds a launcher that
 # opens the interface from a work folder. Run it again to upgrade.
 #
-# It says what it is about to do and asks before doing any of it.
+# To uninstall, run it with BIOTIMBRE_UNINSTALL set:
+#
+#   curl -LsSf https://github.com/biodiversica/biotimbre/releases/latest/download/install.sh | BIOTIMBRE_UNINSTALL=1 sh
+#
+# Either way, it says what it is about to do and asks before doing any of it.
 #
 # Environment overrides:
-#   BIOTIMBRE_PACKAGE   what to install                 (default: biotimbre[gui])
-#   BIOTIMBRE_WORKDIR   folder the interface starts in  (default: ~/biotimbre)
-#   BIOTIMBRE_YES=1     install without asking, e.g. from a script or CI
+#   BIOTIMBRE_PACKAGE    what to install                 (default: biotimbre[gui])
+#   BIOTIMBRE_WORKDIR    folder the interface starts in  (default: ~/biotimbre)
+#   BIOTIMBRE_UNINSTALL  1 removes biotimbre and its launcher; all also removes
+#                        the downloaded models and the interface's remembered
+#                        settings. Libraries are never removed, nor is uv.
+#   BIOTIMBRE_YES=1      go ahead without asking, e.g. from a script or CI
 set -eu
 
 PACKAGE="${BIOTIMBRE_PACKAGE:-biotimbre[gui]}"
 WORKDIR="${BIOTIMBRE_WORKDIR:-$HOME/biotimbre}"
+UNINSTALL="${BIOTIMBRE_UNINSTALL:-}"
 # The version CI tests on. Pinning it keeps a newer system Python, which
 # onnxruntime may not publish wheels for yet, from being picked.
 PYTHON=3.12
 
 say() { printf '==> %s\n' "$*"; }
 die() { printf 'error: %s\n' "$*" >&2; exit 1; }
+
+# Ask before going on, unless BIOTIMBRE_YES=1. $1 is what to say if the answer
+# is no, $2 what is being done, for the message when there is no one to ask.
+confirm() {
+  if [ "${BIOTIMBRE_YES:-}" = 1 ]; then return 0; fi
+  # Asked of the terminal: under "curl ... | sh" standard input is the script.
+  if ! (: </dev/tty) 2>/dev/null; then
+    die "there is no terminal to ask in; set BIOTIMBRE_YES=1 to $2 without asking."
+  fi
+  printf 'Continue? [y/N] '
+  read -r ANSWER </dev/tty || ANSWER=
+  case "$ANSWER" in
+    [yY] | [yY][eE][sS]) ;;
+    *) echo "$1"; exit 0 ;;
+  esac
+}
 
 case "$(uname -s)" in
   Darwin) OS=macos ;;
@@ -36,6 +60,76 @@ elif [ -x "$HOME/.local/bin/uv" ]; then
   UV="$HOME/.local/bin/uv"
 else
   UV=
+fi
+
+# Where the launcher goes, where its icon is copied to (Linux), and where the
+# interface remembers its settings (biotimbre.ui.app.user_state_dir).
+if [ "$OS" = macos ]; then
+  LAUNCHER="$HOME/Desktop/biotimbre.command"
+  STATE="$HOME/Library/Application Support/biotimbre"
+else
+  APPS="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
+  LAUNCHER="$APPS/biotimbre.desktop"
+  ICONS="${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor"
+  STATE="${XDG_STATE_HOME:-$HOME/.local/state}/biotimbre"
+fi
+
+# ── uninstall ────────────────────────────────────────────────────────────────
+remove() {
+  if [ -e "$1" ]; then
+    rm -rf "$1"
+    say "Removed $2 ($1)"
+  fi
+}
+
+if [ -n "$UNINSTALL" ]; then
+  case "$UNINSTALL" in
+    1|all) ;;
+    *) die "BIOTIMBRE_UNINSTALL must be 1 or all, not '$UNINSTALL'." ;;
+  esac
+  # Only biotimbre's own models: the cache is shared with other programs.
+  HUB="${HF_HUB_CACHE:-${HF_HOME:-$HOME/.cache/huggingface}/hub}"
+  ALL_TEXT=
+  if [ "$UNINSTALL" = all ]; then
+    ALL_TEXT="
+  - remove what the interface remembers (language, theme, recent
+    libraries), in $STATE
+  - remove biotimbre's downloaded models from $HUB"
+  fi
+  cat <<EOF
+This uninstalls biotimbre. It will:
+
+  - remove biotimbre, with uv (uv itself stays)
+  - remove the launcher, $LAUNCHER$ALL_TEXT
+
+Libraries are not removed, including any in $WORKDIR.
+
+EOF
+  confirm "Nothing was removed." uninstall
+
+  if [ -n "$UV" ] && "$UV" tool list 2>/dev/null | grep -q '^biotimbre '; then
+    say "Uninstalling biotimbre"
+    "$UV" tool uninstall biotimbre
+  fi
+  remove "$LAUNCHER" launcher
+  if [ "$OS" = linux ]; then
+    remove "$ICONS/scalable/apps/biotimbre.svg" icon
+    remove "$ICONS/512x512/apps/biotimbre.png" icon
+  fi
+  if [ "$UNINSTALL" = all ]; then
+    remove "$STATE" "remembered settings"
+    for name in models--biodiversica--Perch-onnx-backbone models--biodiversica--BirdNET-onnx-backbone; do
+      remove "$HUB/$name" model
+      remove "$HUB/.locks/$name" "model lock"
+    done
+  fi
+  say "Done. biotimbre is uninstalled."
+  cat <<EOF
+
+  Libraries were left where they are, including any in $WORKDIR.
+  Delete them yourself if you no longer want them.
+EOF
+  exit 0
 fi
 
 # ── confirmation ─────────────────────────────────────────────────────────────
@@ -64,18 +158,7 @@ animal sounds, with its interface in the browser. It will:
 The first start of the interface downloads the models (about 70 MB), once.
 
 EOF
-if [ "${BIOTIMBRE_YES:-}" != 1 ]; then
-  # Asked of the terminal: under "curl ... | sh" standard input is the script.
-  if ! (: </dev/tty) 2>/dev/null; then
-    die "there is no terminal to ask in; set BIOTIMBRE_YES=1 to install without asking."
-  fi
-  printf 'Continue? [y/N] '
-  read -r ANSWER </dev/tty || ANSWER=
-  case "$ANSWER" in
-    [yY] | [yY][eE][sS]) ;;
-    *) echo "Nothing was installed."; exit 0 ;;
-  esac
-fi
+confirm "Nothing was installed." install
 
 # ── uv ───────────────────────────────────────────────────────────────────────
 if [ -z "$UV" ]; then
@@ -110,7 +193,6 @@ done
 # Both open a terminal: it shows the address and is where Ctrl+C stops the
 # interface.
 if [ "$OS" = macos ]; then
-  LAUNCHER="$HOME/Desktop/biotimbre.command"
   mkdir -p "$HOME/Desktop"
   cat > "$LAUNCHER" <<EOF
 #!/bin/sh
@@ -129,14 +211,11 @@ EOF
   fi
   WHERE="double-click biotimbre on your Desktop"
 else
-  APPS="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
-  LAUNCHER="$APPS/biotimbre.desktop"
   mkdir -p "$APPS"
   # Copied into the user's icon theme, which the launcher names: the tool's
   # environment may be rebuilt on an upgrade.
   ICON=audio-x-generic
   if [ -n "$ASSETS" ]; then
-    ICONS="${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor"
     mkdir -p "$ICONS/scalable/apps" "$ICONS/512x512/apps"
     cp "$ASSETS/biotimbre.svg" "$ICONS/scalable/apps/biotimbre.svg"
     cp "$ASSETS/biotimbre.png" "$ICONS/512x512/apps/biotimbre.png"

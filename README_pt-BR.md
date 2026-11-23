@@ -55,9 +55,28 @@ alterar qualquer coisa. Em seguida, executa as seguintes etapas:
 Duas variáveis de ambiente alteram os padrões do instalador:
 `BIOTIMBRE_PACKAGE` (o pacote a instalar, por exemplo `biotimbre` sem a
 interface) e `BIOTIMBRE_WORKDIR` (a pasta de trabalho). `BIOTIMBRE_YES=1`
-dispensa a confirmação, para instalar a partir de um script. Para desinstalar,
-execute `uv tool uninstall biotimbre` e apague o atalho; as bibliotecas não
-são removidas.
+dispensa a confirmação, para instalar ou desinstalar a partir de um script.
+
+**Desinstalação.** Execute o instalador novamente com `BIOTIMBRE_UNINSTALL`
+definida. Ele lista o que vai remover e pede confirmação antes. No Windows,
+feche antes a janela do biotimbre e execute no PowerShell:
+
+```powershell
+powershell -ExecutionPolicy ByPass -c '$env:BIOTIMBRE_UNINSTALL=1; irm https://github.com/biodiversica/biotimbre/releases/latest/download/install.ps1 | Out-String | iex'
+```
+
+No macOS e no Linux:
+
+```sh
+curl -LsSf https://github.com/biodiversica/biotimbre/releases/latest/download/install.sh | BIOTIMBRE_UNINSTALL=1 sh
+```
+
+Isso remove o biotimbre e o atalho. Com `BIOTIMBRE_UNINSTALL=all` no lugar de
+`1`, remove também os modelos baixados e o que a interface lembra (idioma,
+tema, bibliotecas recentes). As bibliotecas nunca são removidas, nem o uv, que
+outros programas podem usar. Um simples `uv tool uninstall biotimbre` remove
+apenas o programa e deixa um atalho que não funciona mais: apague-o à mão (no
+Windows, **biotimbre** na Área de Trabalho e no menu Iniciar).
 
 **Com uv ou pip.** A interface web é um extra opcional, de modo que uma
 instalação sem interface ou apenas de linha de comando continua pequena:

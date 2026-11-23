@@ -100,57 +100,17 @@ jobs:
         if: runner.os != 'Windows'
         run: |
           BIOTIMBRE_YES=1 BIOTIMBRE_PACKAGE="biotimbre[gui] @ $(ls "$PWD"/dist/*.whl)" sh scripts/install.sh
-      # The command from the README, as typed, in Windows PowerShell 5.1 (the
-      # one every Windows machine has). Release assets are served as
-      # application/octet-stream, and 5.1's irm hands such a script to iex line
-      # by line, so this script is served the same way from a local server.
+      # The README's command, as typed, in Windows PowerShell 5.1 (the one
+      # every Windows machine has), on this checkout's script served as a
+      # release serves it. See .github/scripts/readme-command.ps1.
       - name: Run install.ps1 with the README command
         if: runner.os == 'Windows'
         shell: powershell
         run: |
           $env:BIOTIMBRE_YES = "1"
           $env:BIOTIMBRE_PACKAGE = "biotimbre[gui] @ $((Get-ChildItem dist\*.whl).FullName)"
-          $Release = "https://github.com/biodiversica/biotimbre/releases/latest/download/install.ps1"
-          $Local = "http://localhost:8766/install.ps1"
-
-          $Server = Start-Job -ArgumentList (Resolve-Path scripts\install.ps1).Path {
-              param($Path)
-              $Bytes = [IO.File]::ReadAllBytes($Path)
-              $Listener = New-Object System.Net.HttpListener
-              $Listener.Prefixes.Add("http://localhost:8766/")
-              $Listener.Start()
-              while ($true) {
-                  $Context = $Listener.GetContext()
-                  $Context.Response.ContentType = "application/octet-stream"
-                  $Context.Response.OutputStream.Write($Bytes, 0, $Bytes.Length)
-                  $Context.Response.Close()
-              }
-          }
-          try {
-              $Ready = $false
-              foreach ($i in 1..30) {
-                  try { $null = Invoke-RestMethod $Local; $Ready = $true; break } catch { Start-Sleep 1 }
-              }
-              if (-not $Ready) { Receive-Job $Server; throw "the local server did not start" }
-
-              # What irm returns, here and from the real release, for the log.
-              foreach ($Url in $Local, $Release) {
-                  try {
-                      $Body = Invoke-RestMethod $Url
-                      Write-Host ("irm {0} -> {1}, {2} item(s)" -f $Url, $Body.GetType().FullName, @($Body).Count)
-                  } catch { Write-Host "irm $Url failed: $_" }
-              }
-
-              $Line = (Select-String -Path README.md -SimpleMatch "irm $Release").Line
-              if (-not $Line) { throw "README.md has no install command fetching $Release" }
-              $Command = $Line.Replace($Release, $Local)
-              Write-Host "> $Command"
-              Invoke-Expression $Command
-              if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          } finally {
-              Stop-Job $Server
-              Remove-Job $Server -Force
-          }
+          powershell -NoProfile -ExecutionPolicy ByPass -File .github\scripts\readme-command.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: The launcher is in place
         run: |
@@ -173,3 +133,54 @@ jobs:
             sleep 1
           done
           curl -fsS http://127.0.0.1:8765/ | grep -q "Choose a library" || { cat gui.log; exit 1; }
+
+      # Uninstalling never takes the libraries. "all" also takes the models and
+      # the remembered settings; "1", the README's Windows command, keeps them.
+      - name: Uninstall with install.sh
+        if: runner.os != 'Windows'
+        run: |
+          pkill -f "biotimbre gui" || true
+          case "$RUNNER_OS" in
+            Linux)
+              launcher="$HOME/.local/share/applications/biotimbre.desktop"
+              state="${XDG_STATE_HOME:-$HOME/.local/state}/biotimbre" ;;
+            macOS)
+              launcher="$HOME/Desktop/biotimbre.command"
+              state="$HOME/Library/Application Support/biotimbre" ;;
+          esac
+          # Made by the interface's first start, so there is something to take.
+          test -d "$state"
+          BIOTIMBRE_YES=1 BIOTIMBRE_UNINSTALL=all sh scripts/install.sh
+          test ! -e "$HOME/.local/bin/biotimbre"
+          test ! -e "$launcher"
+          test ! -e "$state"
+          if [ "$RUNNER_OS" = Linux ]; then
+            test ! -e "$HOME/.local/share/icons/hicolor/scalable/apps/biotimbre.svg"
+            test ! -e "$HOME/.local/share/icons/hicolor/512x512/apps/biotimbre.png"
+          fi
+          for name in Perch BirdNET; do
+            test ! -e "$HOME/.cache/huggingface/hub/models--biodiversica--$name-onnx-backbone"
+          done
+          test -d "$HOME/biotimbre"
+      - name: Uninstall with the README command
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          # The interface the step above started: Windows will not delete a
+          # running program.
+          Get-Process biotimbre, python -ErrorAction SilentlyContinue | Stop-Process -Force
+          Start-Sleep 2
+          $env:BIOTIMBRE_YES = "1"
+          powershell -NoProfile -ExecutionPolicy ByPass -File .github\scripts\readme-command.ps1 -Uninstall
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $Gone = @(
+              (Join-Path $HOME ".local\bin\biotimbre.exe"),
+              (Join-Path ([Environment]::GetFolderPath("Desktop")) "biotimbre.lnk"),
+              (Join-Path ([Environment]::GetFolderPath("Programs")) "biotimbre.lnk"),
+              (Join-Path $env:LOCALAPPDATA "biotimbre\biotimbre.ico")
+          )
+          foreach ($Path in $Gone) {
+              if (Test-Path $Path) { throw "still there after uninstalling: $Path" }
+          }
+          if (-not (Test-Path (Join-Path $HOME "biotimbre"))) { throw "the work folder went too" }
+          if (-not (Test-Path (Join-Path $env:LOCALAPPDATA "biotimbre"))) { throw "the remembered settings went too" }
