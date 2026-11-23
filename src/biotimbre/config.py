@@ -63,10 +63,7 @@ class Theme:
     shares ``header_text`` and has no background to set it apart.
     ``button_text`` is the label colour on filled ``color="primary"``
     buttons (e.g. Save, Search) — Quasar defaults these to white and
-    ignores ``ui.colors()`` for it. ``header_status_*`` are the model-status
-    badge next to the language switcher (ready / loading / failed); Quasar's
-    own Tailwind-style ``text-green-700`` etc. assume a light background and
-    vanish against a dark header. ``page_bg`` is the body background behind
+    ignores ``ui.colors()`` for it. ``page_bg`` is the body background behind
     the page content, below the header. ``text`` is the default (unstyled)
     label colour — Quasar sets no ``color`` on ``body``/``html`` at all, so
     every plain ``ui.label()`` otherwise falls back to the browser's black.
@@ -99,9 +96,6 @@ class Theme:
     page_bg: str = "#ffffff"
     text: str = "#1a1a1a"
     header_bg: str = "#118b50"
-    header_status_ready: str = "#a8e6a1"
-    header_status_loading: str = "#ffd166"
-    header_status_failed: str = "#ff8a8a"
     header_text: str = "#ffffff"
     header_inactive_text: str = "rgba(255, 255, 255, 0.65)"
     header_active_bg: str = "rgba(255, 255, 255, 0.2)"
@@ -146,9 +140,6 @@ DEFAULT_DARK_THEME = Theme(
     page_bg="#111509",
     text="#e7ecdc",
     header_bg="#0d1a05",
-    header_status_ready="#a8e6a1",
-    header_status_loading="#ffd166",
-    header_status_failed="#ff8a8a",
     header_text="#fcfee5",
     header_inactive_text="rgba(252, 254, 229, 0.6)",
     header_active_bg="rgba(252, 254, 229, 0.15)",

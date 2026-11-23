@@ -744,9 +744,6 @@ header_bg = "#118b50"
 header_text = "#ffffff"
 header_inactive_text = "rgba(255, 255, 255, 0.65)"
 header_active_bg = "rgba(255, 255, 255, 0.2)"
-header_status_ready = "#a8e6a1"    # "Models ready" badge
-header_status_loading = "#ffd166"  # "Loading models…" badge
-header_status_failed = "#ff8a8a"   # model loading error badge
 
 # The following keys style components whose colours Quasar and Tailwind
 # otherwise fix regardless of ui.colors():

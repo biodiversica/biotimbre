@@ -792,9 +792,6 @@ header_bg = "#118b50"
 header_text = "#ffffff"
 header_inactive_text = "rgba(255, 255, 255, 0.65)"
 header_active_bg = "rgba(255, 255, 255, 0.2)"
-header_status_ready = "#a8e6a1"    # indicador "Carregamento de modelos concluído"
-header_status_loading = "#ffd166"  # indicador "Carregando modelos…"
-header_status_failed = "#ff8a8a"   # indicador de erro no carregamento dos modelos
 
 # As chaves a seguir estilizam componentes cujas cores o Quasar e o Tailwind
 # fixam independentemente de ui.colors():
