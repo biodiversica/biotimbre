@@ -235,7 +235,7 @@
   },
   "search": {
     "upload": "Choose a recording to search with",
-    "upload_hint": "Find library items that sound like your recording. Choose a recording of up to {seconds} s (for a longer file, select a segment below), then press Search.",
+    "upload_hint": "Choose a recording of up to {seconds} s (for a longer file, select a segment below), then press Search.",
     "query_optional": "Optional: with no recording, the filters below search the library on their own.",
     "segment": "Segment to search",
     "segment_hint": "Drag to choose at most {seconds} s. The spectrogram shows the whole file, including any content above hearing range.",
