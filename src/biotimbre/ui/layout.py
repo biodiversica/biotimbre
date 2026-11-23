@@ -8,11 +8,15 @@ configuration.
 
 from __future__ import annotations
 
+import logging
+import secrets
 from collections.abc import Awaitable, Callable
 from contextlib import contextmanager
+from typing import Any
 
 from nicegui import app, ui
 
+from biotimbre.domain.errors import BiotimbreError
 from biotimbre.i18n import DEFAULT_LANGUAGE, LANGUAGE_NAMES, LANGUAGES, Translator
 from biotimbre.ui.state import get_state
 from biotimbre.ui.theming import (
@@ -27,6 +31,11 @@ from biotimbre.ui.theming import (
 )
 
 _LANGUAGE_KEY = "language"
+
+#: User storage key of the token a reloading tab left its work under.
+_CARRY_KEY = "carry"
+
+log = logging.getLogger(__name__)
 
 #: Where each view lives. Both are served by the same shell, so either URL
 #: opens the app on that view, and reload or a bookmark lands where it was.
@@ -70,11 +79,32 @@ def translator() -> Translator:
     return Translator(language)
 
 
-def set_language(language: str) -> None:
-    """Persist the session's language and reload so every label re-renders."""
-    if language in LANGUAGES:
-        app.storage.user[_LANGUAGE_KEY] = language
-        ui.navigate.reload()
+async def set_language(language: str) -> None:
+    """Persist the session's language and reload so every label re-renders.
+
+    Every label is translated as the page is built, so a new language means a
+    new page. What is on the old one -- a loaded recording, typed fields,
+    results -- is carried over rather than lost with it.
+    """
+    if language not in LANGUAGES:
+        return
+    views = current_views()
+    if views is not None:
+        await views.carry()
+    app.storage.user[_LANGUAGE_KEY] = language
+    ui.navigate.reload()
+
+
+def _take_carried() -> dict[str, Any]:
+    """What the previous page of this browser left before reloading, if any."""
+    try:
+        token = app.storage.user.pop(_CARRY_KEY, None)
+    except RuntimeError:
+        # Storage is unavailable outside a request.
+        return {}
+    if token is None:
+        return {}
+    return get_state().carried.pop(token, {})
 
 
 @ui.refreshable
@@ -177,6 +207,9 @@ class Views:
         self._built: set[str] = set()
         self._hooks: dict[str, list[Callable[[], None]]] = {}
         self._tabs: dict[str, ui.button] = {}
+        self._keepers: dict[str, Callable[[], Awaitable[Any]]] = {}
+        #: Work the previous page left, by view, until each view is built.
+        self._carried = _take_carried()
 
     def add(self, name: str, build: Callable[[], Awaitable[None]]) -> None:
         """Give a view a pane in the current container, to build when first shown.
@@ -193,6 +226,49 @@ class Views:
         """Register the header tab for ``name``, so it follows the switches."""
         self._tabs[name] = tab
         _style_tab(tab, name == self.active)
+
+    async def keep(
+        self,
+        name: str,
+        snapshot: Callable[[], Awaitable[Any]],
+        restore: Callable[[Any], Awaitable[None]],
+    ) -> None:
+        """Keep a view's work across a reload for a change of language.
+
+        Called once the view is built: if the page before this one left work
+        for it, it is restored now.
+
+        Args:
+            name: A key of :data:`VIEW_PATHS`.
+            snapshot: Returns what to carry over, or ``None`` for nothing.
+            restore: Puts back what ``snapshot`` returned, on the new page.
+        """
+        self._keepers[name] = snapshot
+        carried = self._carried.pop(name, None)
+        if carried is not None:
+            await restore(carried)
+
+    async def carry(self) -> None:
+        """Leave every view's work for the page that replaces this one.
+
+        A view not yet built holds on to what the page before left for it,
+        so a second change of language does not drop it either.
+        """
+        carried = dict(self._carried)
+        for name, snapshot in self._keepers.items():
+            try:
+                kept = await snapshot()
+            except BiotimbreError:
+                # A view that cannot be kept is rebuilt empty, as it always
+                # was; the change of language goes ahead regardless.
+                log.exception("could not keep the %s view's work", name)
+                continue
+            if kept is not None:
+                carried[name] = kept
+        if carried:
+            token = secrets.token_urlsafe(16)
+            get_state().carried[token] = carried
+            app.storage.user[_CARRY_KEY] = token
 
     def when_shown(self, name: str, hook: Callable[[], None]) -> None:
         """Run ``hook`` every time ``name`` is switched to after being built."""

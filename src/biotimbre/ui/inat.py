@@ -86,6 +86,17 @@ class FetchPanel:
     picker: ui.row
     field: ui.input
     provenance: ui.column
+    #: Draws the provenance line for an observation and one of its recordings.
+    report: Callable[[Observation, Sound], None]
+    #: What the provenance line describes, if anything.
+    shown: tuple[Observation, Sound] | None = None
+
+    def show(self, observation: Observation, sound: Sound) -> None:
+        """Describe the recording now loaded, and the observation it is from."""
+        self.provenance.clear()
+        with self.provenance:
+            self.report(observation, sound)
+        self.shown = (observation, sound)
 
     def set_picking(self, picking: bool) -> None:
         """Show the observation field, or hide it while a recording is loaded.
@@ -98,6 +109,7 @@ class FetchPanel:
         self.picker.set_visibility(picking)
         if picking:
             self.provenance.clear()
+            self.shown = None
             self.field.value = ""
 
 
@@ -164,13 +176,12 @@ def fetch_panel(
     async def switch_sound(observation: Observation, sound: Sound) -> None:
         """Take a different recording from the same observation."""
         if await use_sound(observation, sound):
-            provenance.clear()
-            with provenance:
-                observation_report(t, observation, sound, on_sound=switch_sound)
+            panel.show(observation, sound)
 
     async def fetch() -> None:
         """Fetch the observation named in the field."""
         provenance.clear()
+        panel.shown = None
         try:
             observation_id = inaturalist.parse_observation_id(field.value)
         except BiotimbreError as exc:
@@ -206,8 +217,7 @@ def fetch_panel(
             return
         if after is not None:
             after(observation)
-        with provenance:
-            observation_report(t, observation, sound, on_sound=switch_sound)
+        panel.show(observation, sound)
 
     picker = ui.row().classes("items-center gap-2 w-full")
     with picker:
@@ -226,4 +236,12 @@ def fetch_panel(
     progress_row.set_visibility(False)
 
     provenance = ui.column().classes("w-full gap-1")
-    return FetchPanel(picker=picker, field=field, provenance=provenance)
+    panel = FetchPanel(
+        picker=picker,
+        field=field,
+        provenance=provenance,
+        report=lambda observation, sound: observation_report(
+            t, observation, sound, on_sound=switch_sound
+        ),
+    )
+    return panel

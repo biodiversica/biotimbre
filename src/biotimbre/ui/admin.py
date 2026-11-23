@@ -13,7 +13,7 @@ from __future__ import annotations
 from nicegui import app, ui
 
 from biotimbre.domain.errors import BiotimbreError, ValidationError
-from biotimbre.domain.item import LibraryItem
+from biotimbre.domain.item import DEFAULT_SPEED, LibraryItem
 from biotimbre.embeddings import audio as audio_io
 from biotimbre.i18n import Translator
 from biotimbre.sources import inaturalist
@@ -31,9 +31,10 @@ from biotimbre.ui.clip_editor import (
     StagedMedia,
     Upload,
     clip_editor,
+    hand_over,
     take_over,
 )
-from biotimbre.ui.forms import metadata_form
+from biotimbre.ui.forms import input_values, metadata_form, set_inputs
 from biotimbre.ui.layout import current_views, notify_error
 from biotimbre.ui.state import get_state
 
@@ -211,7 +212,7 @@ async def _summary_row(t: Translator) -> None:
 # ── add ───────────────────────────────────────────────────────────────────────
 
 
-def _add_card(t: Translator, on_added) -> None:
+async def _add_card(t: Translator, on_added) -> None:
     """The add-a-sample form."""
     state = get_state()
     add_state = ClipState()
@@ -457,6 +458,41 @@ def _add_card(t: Translator, on_added) -> None:
         views = current_views()
         if views is not None:
             views.when_shown("admin", take_pending)
+
+        async def snapshot() -> dict:
+            """The form's work, to carry across a change of language."""
+            kept = {"form": input_values(form.inputs), "staged": None, "shown": None}
+            if add_state.upload is not None:
+                controls = editor["controls"]
+                if controls is not None:
+                    # A cut-off typed and not yet committed counts as chosen.
+                    await controls.settle()
+                speed = float(form.inputs["speed"].value or DEFAULT_SPEED)
+                kept["staged"] = await hand_over(add_state, speed=speed)
+                if inat_panel is not None:
+                    kept["shown"] = inat_panel.shown
+            return kept
+
+        async def restore(kept: dict) -> None:
+            """Put back what :func:`snapshot` kept, on the page that replaced it."""
+            set_inputs(form.inputs, kept["form"])
+            if kept["staged"] is None:
+                return
+            try:
+                taken = await take_over(kept["staged"], add_state)
+            except BiotimbreError as exc:
+                notify_error(t, exc)
+                return
+            if taken is None:
+                return
+            add_panel.value = True
+            upload, _handoff = taken
+            await show_staged(upload)
+            if kept["shown"] is not None and inat_panel is not None:
+                inat_panel.show(*kept["shown"])
+
+        if views is not None:
+            await views.keep("admin", snapshot, restore)
 
 
 def _pending_handoff() -> str | None:
@@ -798,7 +834,7 @@ async def render(t: Translator) -> None:
             ui.timer(0.1, redraw, once=True)
 
     with add_container:
-        _add_card(t, refresh)
+        await _add_card(t, refresh)
     with import_container:
         import_card(t, refresh)
     await redraw()

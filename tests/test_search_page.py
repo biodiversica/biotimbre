@@ -1511,3 +1511,72 @@ class TestCopyBiotimbreId:
         chip = await self._one_result(user, installed_state)
         UserInteraction(user, {chip}, None).trigger("click", False)
         await user.should_see("Could not copy automatically")
+
+
+@pytest.mark.usefixtures("installed_state")
+class TestChangingLanguage:
+    """A change of language rebuilds the page; the work on it comes along."""
+
+    @staticmethod
+    def _choose(user: User, code: str) -> None:
+        select = next(
+            element
+            for element in user.find(ui.select).elements
+            if isinstance(element.options, dict) and code in element.options
+        )
+        select.value = code
+
+    async def test_filters_and_results_survive(self, user: User, installed_state):
+        await TestMetadataOnlySearch._open(user, installed_state)
+        TestMetadataOnlySearch._taxa_input(user).value = ["cicadidae"]
+        TestMetadataOnlySearch._run_search(user)
+        await user.should_see("1 match(es)")
+
+        self._choose(user, "pt_BR")
+
+        # Drawn again from what was found, in the new language.
+        await user.should_see("1 correspondência(s)", retries=100)
+        taxa = next(
+            element
+            for element in user.find(ui.select).elements
+            if element._props.get("label") == "Táxons"
+        )
+        assert taxa.value == ["cicadidae"]
+
+    async def test_a_staged_query_and_its_settings_survive(
+        self, user: User, long_wav
+    ):
+        await TestSegmentPicker._stage(user, long_wav)
+        highpass = next(iter(user.find(marker="apply-highpass").elements))
+        # Typed and not yet committed: the switch counts it as chosen.
+        highpass.value = 2000
+
+        self._choose(user, "pt_BR")
+
+        await user.should_see("O que será usado na busca (15.00 s)", retries=200)
+        await user.should_see(long_wav.name)
+        restored = next(iter(user.find(marker="apply-highpass").elements))
+        assert restored is not highpass
+        assert restored.value == 2000
+        # Still loaded, so the upload box stays away. find() skips hidden
+        # elements, so it is read off the live registry.
+        uploaders = [
+            element
+            for element in user.client.elements.values()
+            if isinstance(element, ui.upload)
+        ]
+        assert uploaders
+        assert not any(element.visible for element in uploaders)
+
+    async def test_a_fetched_recording_keeps_its_provenance(
+        self, user: User, installed_state, monkeypatch
+    ):
+        observation = await TestObservationFetch()._fetch(user, monkeypatch)
+        await user.should_see(f"inat-{observation.id}.wav", retries=200)
+        await user.should_see("some rights reserved")
+
+        self._choose(user, "pt_BR")
+
+        await user.should_see(f"inat-{observation.id}.wav", retries=200)
+        # The attribution goes with the recording: the licence asks for it.
+        await user.should_see("some rights reserved")

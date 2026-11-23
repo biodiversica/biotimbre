@@ -201,6 +201,10 @@ class AppState:
         #: their file is staged under in :attr:`queries`. See
         #: :func:`biotimbre.ui.clip_editor.hand_over`.
         self.handoffs: dict[str, Any] = {}
+        #: Each view's work, left by a tab about to reload for a change of
+        #: language, by a token kept in that browser's storage. See
+        #: :meth:`biotimbre.ui.layout.Views.carry`.
+        self.carried: dict[str, dict[str, Any]] = {}
 
         self._connection = None
         self._service: LibraryService | None = None
@@ -418,6 +422,7 @@ class AppState:
         with self._lock:
             self.queries.clear()
             self.handoffs.clear()
+            self.carried.clear()
             if self._service is not None:
                 self._service.close()
             self.pool.close()

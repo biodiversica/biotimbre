@@ -1738,3 +1738,55 @@ class TestLibrarySummary:
         await user.should_see("The library is empty. Add an item to begin.")
         await user.should_not_see(marker="summary-speeds")
         await user.should_not_see(marker="summary-taxa")
+
+
+@pytest.mark.usefixtures("installed_state")
+class TestChangingLanguageKeepsTheForm:
+    """A change of language rebuilds the page; the add form's work comes along."""
+
+    async def test_the_staged_file_and_typed_fields_survive(self, user: User):
+        from nicegui.elements.upload_files import SmallFileUpload
+
+        await user.open("/")
+        uploader = next(iter(user.find(marker="upload-audio").elements))
+        await uploader.handle_uploads(
+            [SmallFileUpload("GUYVIR.wav", "audio/wav", GUYVIR.read_bytes())]
+        )
+        await user.should_see("Remove file", retries=60)
+        notes = next(
+            element
+            for element in user.find(ui.textarea).elements
+            if element._props.get("label") == "Notes"
+        )
+        notes.value = "two calls, the second fainter"
+
+        _choose_language(user, "pt_BR")
+
+        await user.should_see("GUYVIR.wav", retries=200)
+        await user.should_see("Remover arquivo", retries=60)
+        restored = next(
+            element
+            for element in user.find(ui.textarea).elements
+            if element._props.get("label") == "Observações"
+        )
+        assert restored is not notes
+        assert restored.value == "two calls, the second fainter"
+        # Still loaded, so the upload box stays away. find() skips hidden
+        # elements, so it is read off the live registry.
+        uploaders = [
+            element
+            for element in user.client.elements.values()
+            if "upload-audio" in element._markers
+        ]
+        assert uploaders
+        assert not any(element.visible for element in uploaders)
+
+
+def _choose_language(user: User, code: str) -> None:
+    """Pick a language in the header, as a reader does."""
+    select = next(
+        element
+        for element in user.find(ui.select).elements
+        if isinstance(element.options, dict) and code in element.options
+    )
+    select.value = code

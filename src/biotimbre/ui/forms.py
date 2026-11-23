@@ -15,6 +15,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
 from nicegui import ui
+from nicegui.elements.mixins.value_element import ValueElement
 
 from biotimbre.domain.errors import ValidationError
 from biotimbre.domain.item import (
@@ -61,6 +62,33 @@ _FIELD_TO_INPUT: dict[str, str] = {
 
 #: Inputs shown above the fold; every other one lives in the optional panel.
 _REQUIRED_INPUTS = frozenset({"date", "time", "location"})
+
+
+def input_values(inputs: dict[str, ui.element]) -> dict[str, object]:
+    """What each input holds, by name, for putting back with :func:`set_inputs`.
+
+    Args:
+        inputs: Inputs by name; any that hold no value, a plain container
+            say, are left out.
+    """
+    return {
+        name: element.value
+        for name, element in inputs.items()
+        if isinstance(element, ValueElement)
+    }
+
+
+def set_inputs(inputs: dict[str, ui.element], values: dict[str, object]) -> None:
+    """Put back what :func:`input_values` read, ignoring names no longer there.
+
+    Args:
+        inputs: Inputs by name.
+        values: From :func:`input_values`.
+    """
+    for name, value in values.items():
+        element = inputs.get(name)
+        if isinstance(element, ValueElement):
+            element.value = value
 
 
 def _blank_to_none(value: object) -> object | None:

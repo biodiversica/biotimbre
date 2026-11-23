@@ -33,12 +33,14 @@ from biotimbre.ui.clip_editor import (
     Upload,
     clip_editor,
     hand_over,
+    take_over,
 )
 from biotimbre.ui.clipboard import copy_on_click
 from biotimbre.ui.coordinates import CoordinatesInput
 from biotimbre.ui.details import open_detail
 from biotimbre.ui import inat, maps
 from biotimbre.ui.exports import export_button
+from biotimbre.ui.forms import input_values, set_inputs
 from biotimbre.ui.layout import current_views, notify_error
 from biotimbre.ui.playback import item_player
 from biotimbre.ui.visuals import ViewChoice, audio_view, view_toggle
@@ -449,6 +451,9 @@ async def render(t: Translator) -> None:
     #: The iNaturalist observation the query was fetched from, if it was, for
     #: the library's add form to take the metadata from.
     origin: dict = {"observation": None}
+    #: The results on screen, as :func:`draw_results` takes them, so a change
+    #: of language can draw them again rather than search again.
+    shown_results: dict = {"value": None}
 
     with ui.card().classes("w-full p-4 gap-3 bg-card"):
         ui.label(t("search.upload_hint", seconds=f"{cap:g}")).classes(
@@ -471,6 +476,7 @@ async def render(t: Translator) -> None:
             show_pickers(True)
             query_area.clear()
             results_area.clear()
+            shown_results["value"] = None
             if result_map is not None:
                 # The dots answered the query that just went away.
                 result_map.show(())
@@ -712,6 +718,7 @@ async def render(t: Translator) -> None:
         run_button.disable()
         spinner.set_visibility(True)
         results_area.clear()
+        shown_results["value"] = None
         try:
             if path is None:
                 hits = await state.run(
@@ -738,6 +745,9 @@ async def render(t: Translator) -> None:
         # In one trip, so the cards can offer an export without each of them
         # reaching into the database from the render pass.
         counts = await state.run(_embedding_counts, [h.item.item_id for h in hits])
+        shown_results["value"] = {
+            "hits": hits, "counts": counts, "scored": path is not None
+        }
         await draw_results(hits, counts, scored=path is not None)
 
     async def draw_results(hits, counts, *, scored: bool) -> None:
@@ -781,3 +791,56 @@ async def render(t: Translator) -> None:
                         speed=", ".join(f"{s:g}" for s in speeds),
                     )
                 ).classes("text-xs text-notice")
+
+    async def snapshot() -> dict:
+        """The page's work, to carry across a change of language."""
+        kept = {
+            "filters": input_values(filters),
+            "options": input_values(options),
+            "speed": query_speed["value"],
+            "results": shown_results["value"],
+            "query": None,
+            "shown": None,
+        }
+        if query.upload is not None:
+            speed = query_speed["value"]
+            controls = editor["controls"]
+            if controls is not None:
+                # A cut-off typed and not yet committed counts as chosen.
+                await controls.settle()
+                speed = float(controls.speed.value or DEFAULT_SPEED)
+            kept["query"] = await hand_over(
+                query, speed=speed, observation=origin["observation"]
+            )
+            if inat_panel is not None:
+                kept["shown"] = inat_panel.shown
+        return kept
+
+    async def restore(kept: dict) -> None:
+        """Put back what :func:`snapshot` kept, on the page that replaced it."""
+        set_inputs(filters, kept["filters"])
+        set_inputs(options, kept["options"])
+        query_speed["value"] = kept["speed"]
+        if kept["query"] is not None:
+            try:
+                taken = await take_over(kept["query"], query)
+            except BiotimbreError as exc:
+                notify_error(t, exc)
+                taken = None
+            if taken is not None:
+                upload, handoff = taken
+                query_speed["value"] = handoff.speed
+                origin["observation"] = handoff.observation
+                await show_query(upload)
+                if kept["shown"] is not None and inat_panel is not None:
+                    inat_panel.show(*kept["shown"])
+        results = kept["results"]
+        if results is not None:
+            shown_results["value"] = results
+            await draw_results(
+                results["hits"], results["counts"], scored=results["scored"]
+            )
+
+    views = current_views()
+    if views is not None:
+        await views.keep("search", snapshot, restore)
