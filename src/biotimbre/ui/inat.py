@@ -10,6 +10,7 @@ with what comes back.
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 
 from nicegui import ui
 
@@ -78,12 +79,34 @@ def observation_report(
             ui.label(notice).classes("text-xs")
 
 
+@dataclass
+class FetchPanel:
+    """A drawn fetch panel, for the page to hide while a recording is loaded."""
+
+    picker: ui.row
+    field: ui.input
+    provenance: ui.column
+
+    def set_picking(self, picking: bool) -> None:
+        """Show the observation field, or hide it while a recording is loaded.
+
+        The provenance line stays while hidden: it is where another of the
+        observation's recordings is chosen. Shown again means the recording
+        was removed, so the line describing it goes, and the field starts
+        empty.
+        """
+        self.picker.set_visibility(picking)
+        if picking:
+            self.provenance.clear()
+            self.field.value = ""
+
+
 def fetch_panel(
     t: Translator,
     *,
     stage: Callable[..., Awaitable[None]],
     after: Callable[[Observation], None] | None = None,
-) -> None:
+) -> FetchPanel:
     """Render the field, button, progress bar and provenance line.
 
     Args:
@@ -94,6 +117,9 @@ def fetch_panel(
             leaves the page as it was.
         after: Called once a recording is staged, to fill in whatever the page
             fills in from an observation.
+
+    Returns:
+        The panel, for the page to hide its field while a recording is loaded.
     """
     state = get_state()
 
@@ -183,7 +209,8 @@ def fetch_panel(
         with provenance:
             observation_report(t, observation, sound, on_sound=switch_sound)
 
-    with ui.row().classes("items-center gap-2 w-full"):
+    picker = ui.row().classes("items-center gap-2 w-full")
+    with picker:
         field = ui.input(t("inat.observation")).props("dense outlined").classes("grow")
         fetch_button = ui.button(
             t("inat.fetch"), icon="cloud_download", on_click=fetch
@@ -199,3 +226,4 @@ def fetch_panel(
     progress_row.set_visibility(False)
 
     provenance = ui.column().classes("w-full gap-1")
+    return FetchPanel(picker=picker, field=field, provenance=provenance)

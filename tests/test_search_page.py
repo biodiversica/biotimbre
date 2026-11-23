@@ -378,6 +378,9 @@ class TestQueryRemoval:
         )
         await user.should_see("GUYVIR.wav")
         await user.should_see("Remove file")
+        # One query at a time: the ways of choosing another are put away.
+        assert not uploader.visible
+        await user.should_not_see("iNaturalist observation ID or link")
         staged = next(iter(user.find(ui.audio).elements))._props["src"]
         assert staged.startswith("/media/staged/")
 
@@ -387,6 +390,9 @@ class TestQueryRemoval:
         # filename is the thing that disappears; the uploader's own label says
         # "Choose a recording" whether or not one is staged.
         await user.should_not_see("GUYVIR.wav", retries=60)
+        # And choosing is offered again.
+        assert uploader.visible
+        await user.should_see("iNaturalist observation ID or link")
         assert not any(
             getattr(route, "path", None) == staged
             for route in nicegui_app.routes

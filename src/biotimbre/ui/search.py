@@ -468,14 +468,26 @@ async def render(t: Translator) -> None:
             editor["controls"] = None
             origin["observation"] = None
             uploader.reset()
+            show_pickers(True)
             query_area.clear()
             results_area.clear()
             if result_map is not None:
                 # The dots answered the query that just went away.
                 result_map.show(())
 
+        def show_pickers(visible: bool) -> None:
+            """Offer the ways of choosing a recording, or put them away.
+
+            Away while one is loaded: there is one query at a time, and
+            removing it is how another is chosen.
+            """
+            uploader.set_visibility(visible)
+            if inat_panel is not None:
+                inat_panel.set_picking(visible)
+
         async def show_query(upload: Upload) -> None:
             """Draw the editor for a staged recording, however it was staged."""
+            show_pickers(False)
             def ready(controls: ClipControls) -> None:
                 editor["controls"] = controls
                 controls.speed.on_value_change(
@@ -581,12 +593,15 @@ async def render(t: Translator) -> None:
             max_files=1,
         ).props(f'accept="{ACCEPTED}" flat bordered').classes("w-full")
 
-        if state.settings.inaturalist_enabled:
+        inat_panel = (
             inat.fetch_panel(
                 t,
                 stage=stage_observation_sound,
                 after=lambda observation: _fill_filters_from(t, filters, observation),
             )
+            if state.settings.inaturalist_enabled
+            else None
+        )
 
     filters = _filters_panel(t)
     options = _options_panel(t)

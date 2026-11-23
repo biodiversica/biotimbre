@@ -611,6 +611,9 @@ class TestAdminPageRenders:
         )
         await user.should_see("GUYVIR.wav")
         await user.should_see("Remove file")
+        # One sample at a time: the ways of choosing another are put away.
+        assert not uploader.visible
+        await user.should_not_see("iNaturalist observation ID or link")
         # The preview is where the filter cut-offs get chosen, so it carries a
         # frequency axis — up to GUYVIR's 16 kHz Nyquist. It arrives with the
         # spectrogram, which takes about a second when nothing is warmed up.
@@ -627,6 +630,9 @@ class TestAdminPageRenders:
         user.find("Remove file").click()
         await user.should_see("No file chosen yet.")
         assert not any(route.path == staged_url for route in nicegui_app.routes)
+        # And choosing is offered again.
+        assert uploader.visible
+        await user.should_see("iNaturalist observation ID or link")
 
         # And it really is gone: adding now asks for a file rather than
         # storing the one that was taken back.

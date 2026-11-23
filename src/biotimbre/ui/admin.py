@@ -243,6 +243,7 @@ def _add_card(t: Translator, on_added) -> None:
             uploader.reset()
             results.clear()
             show_no_file()
+            show_pickers(True)
 
         show_no_file()
 
@@ -266,6 +267,16 @@ def _add_card(t: Translator, on_added) -> None:
 
             await show_staged(upload)
 
+        def show_pickers(visible: bool) -> None:
+            """Offer the ways of choosing a file, or put them away.
+
+            Away while one is staged: one sample is added at a time, and
+            removing it (or saving it) is how the next is chosen.
+            """
+            uploader.set_visibility(visible)
+            if inat_panel is not None:
+                inat_panel.set_picking(visible)
+
         async def show_staged(upload: Upload) -> None:
             """Draw the preview and the controls for a staged file.
 
@@ -273,6 +284,7 @@ def _add_card(t: Translator, on_added) -> None:
             elsewhere arrives at exactly the same form: whatever staged it,
             what follows is one path.
             """
+            show_pickers(False)
             preview.clear()
             with preview:
 
@@ -321,12 +333,15 @@ def _add_card(t: Translator, on_added) -> None:
             )
             await show_staged(upload)
 
-        if state.settings.inaturalist_enabled:
+        inat_panel = (
             inat.fetch_panel(
                 t,
                 stage=stage_observation_sound,
                 after=lambda observation: _fill_metadata_from(t, form, observation),
             )
+            if state.settings.inaturalist_enabled
+            else None
+        )
 
         form = metadata_form(t, map_picker=maps.enabled(), suggest=library_suggestions)
         results = ui.column().classes("w-full gap-1")
@@ -391,6 +406,7 @@ def _add_card(t: Translator, on_added) -> None:
             media.stop()
             uploader.reset()
             show_no_file()
+            show_pickers(True)
             on_added()
 
         with ui.row().classes("items-center gap-3 mt-2"):
