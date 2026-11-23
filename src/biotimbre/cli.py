@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import dataclasses
+import faulthandler
 import sys
 from pathlib import Path
 
@@ -18,6 +19,7 @@ from biotimbre.config import load_settings
 from biotimbre.domain.errors import BiotimbreError, ValidationError
 from biotimbre.domain.item import FilteredBand, ItemDraft, Location, SampleWindow
 from biotimbre.embeddings import audio as audio_io
+from biotimbre.embeddings.runtime import onnxruntime_problem
 from biotimbre.io.bundle import BUNDLE_SUFFIX
 from biotimbre.search.filters import SearchFilters
 from biotimbre.service import IngestResult, LibraryService, SearchHit
@@ -590,6 +592,11 @@ def cmd_gui(args: argparse.Namespace) -> int:
     if settings.search_only:
         print("Search only: the library page is not served and the database "
               "is opened read-only.")
+    # Asked here as well as where the models load, so the console says it too:
+    # the interface still starts, and shows the same message on the page.
+    problem = onnxruntime_problem()
+    if problem:
+        print(f"warning: {problem}", file=sys.stderr)
     print(f"Serving on http://{args.host}:{args.port}")
     run_ui(
         settings,
@@ -940,6 +947,22 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _enable_faulthandler() -> None:
+    """Print a traceback if a native library crashes the process.
+
+    Without it, a crash inside an extension module (onnxruntime with an old
+    Visual C++ runtime, say) ends the process with no word on the console.
+    Left alone when something, such as pytest, has already turned it on, or
+    when stderr is not a real file and there is nowhere to write it.
+    """
+    if faulthandler.is_enabled():
+        return
+    try:
+        faulthandler.enable()
+    except (AttributeError, OSError, ValueError, RuntimeError):
+        pass
+
+
 def main(argv: list[str] | None = None) -> int:
     """CLI entry point.
 
@@ -949,6 +972,7 @@ def main(argv: list[str] | None = None) -> int:
     Returns:
         Process exit code.
     """
+    _enable_faulthandler()
     parser = build_parser()
     args = parser.parse_args(argv)
     try:

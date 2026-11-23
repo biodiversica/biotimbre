@@ -38,11 +38,14 @@ alterar qualquer coisa. Em seguida, executa as seguintes etapas:
    não esteja presente. O uv baixa o próprio Python, de modo que nenhuma
    instalação prévia é necessária, e qualquer instalação de Python existente
    permanece inalterada.
-2. Executa `uv tool install --python 3.12 "biotimbre[gui]"`, que instala o
+2. No Windows, instala o Microsoft Visual C++ Redistributable (x64) atual, se
+   o presente for anterior à versão 14.40, a exigida pelos modelos. O Windows
+   pede permissão de administrador para esta etapa.
+3. Executa `uv tool install --python 3.12 "biotimbre[gui]"`, que instala o
    biotimbre com a interface web e adiciona `biotimbre` ao PATH.
-3. Cria uma pasta de trabalho, `~/biotimbre`, na qual a interface é iniciada e
+4. Cria uma pasta de trabalho, `~/biotimbre`, na qual a interface é iniciada e
    oferece a criação da primeira biblioteca.
-4. Adiciona um atalho **biotimbre** que executa `biotimbre gui` nessa pasta:
+5. Adiciona um atalho **biotimbre** que executa `biotimbre gui` nessa pasta:
    um atalho na Área de Trabalho e no menu Iniciar no Windows,
    `biotimbre.command` na Mesa do macOS e uma entrada no menu de aplicativos
    no Linux. O atalho abre uma janela de terminal ao lado do navegador. Essa
@@ -64,6 +67,11 @@ uv tool install --python 3.12 "biotimbre[gui]"   # com a interface web
 uv tool install --python 3.12 biotimbre          # apenas linha de comando
 pip install "biotimbre[gui]"                     # ou com pip, no ambiente atual
 ```
+
+No Windows, os modelos exigem um
+[Microsoft Visual C++ Redistributable](https://aka.ms/vs/17/release/vc_redist.x64.exe)
+atual (14.40 ou mais recente). Sem ele, o biotimbre continua funcionando, mas
+os modelos não carregam, e a interface e a linha de comando informam o motivo.
 
 `uv tool upgrade biotimbre` atualiza e `uv tool uninstall biotimbre`
 desinstala. Para trabalhar no próprio biotimbre, consulte

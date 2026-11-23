@@ -36,11 +36,14 @@ before changing anything. It then performs the following steps:
 1. Installs [uv](https://docs.astral.sh/uv/) into `~/.local/bin` if it is not
    already present. uv downloads its own Python, so no prior installation is
    required, and any existing Python installation is left unchanged.
-2. Runs `uv tool install --python 3.12 "biotimbre[gui]"`, which installs
+2. On Windows, installs the current Microsoft Visual C++ Redistributable (x64)
+   if the one present is older than 14.40, the version the models need.
+   Windows asks for an administrator's permission for this step.
+3. Runs `uv tool install --python 3.12 "biotimbre[gui]"`, which installs
    biotimbre with its web interface and adds `biotimbre` to the PATH.
-3. Creates a working folder, `~/biotimbre`, in which the interface starts and
+4. Creates a working folder, `~/biotimbre`, in which the interface starts and
    offers to create the first library.
-4. Adds a **biotimbre** launcher that runs `biotimbre gui` in that folder: a
+5. Adds a **biotimbre** launcher that runs `biotimbre gui` in that folder: a
    Desktop and Start menu shortcut on Windows, `biotimbre.command` on the
    macOS Desktop, and an applications menu entry on Linux. The launcher opens a
    terminal window next to the browser. This window runs the server, and
@@ -61,6 +64,11 @@ uv tool install --python 3.12 "biotimbre[gui]"   # with the web interface
 uv tool install --python 3.12 biotimbre          # command line only
 pip install "biotimbre[gui]"                     # or with pip, into the current environment
 ```
+
+On Windows, the models need a current
+[Microsoft Visual C++ Redistributable](https://aka.ms/vs/17/release/vc_redist.x64.exe)
+(14.40 or newer). Without it, biotimbre still runs, but the models fail to
+load and the interface and command line say why.
 
 `uv tool upgrade biotimbre` upgrades and `uv tool uninstall biotimbre`
 uninstalls. To work on biotimbre itself, see [Development](#development); from
