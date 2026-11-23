@@ -47,9 +47,28 @@ The installer performs the following steps:
 
 Two environment variables change the installer's defaults: `BIOTIMBRE_PACKAGE`
 (the package to install, for example `biotimbre` without the interface) and
-`BIOTIMBRE_WORKDIR` (the working folder). To uninstall, run
-`uv tool uninstall biotimbre` and delete the launcher; libraries are not
-removed.
+`BIOTIMBRE_WORKDIR` (the working folder).
+
+**Uninstalling.** Run the installer again with `BIOTIMBRE_UNINSTALL` set. On
+Windows, close the biotimbre window first, then run in PowerShell:
+
+```powershell
+powershell -ExecutionPolicy ByPass -c '$env:BIOTIMBRE_UNINSTALL=1; irm https://github.com/biodiversica/biotimbre/releases/latest/download/install.ps1 | Out-String | iex'
+```
+
+On macOS and Linux:
+
+```sh
+curl -LsSf https://github.com/biodiversica/biotimbre/releases/latest/download/install.sh | BIOTIMBRE_UNINSTALL=1 sh
+```
+
+This removes biotimbre and its launcher. With `BIOTIMBRE_UNINSTALL=all`
+instead of `1`, it also removes the downloaded models and what the interface
+remembers (language, theme, recent libraries). Libraries are never removed,
+and neither is uv, which other programs may use. A plain
+`uv tool uninstall biotimbre` removes only the program, leaving a launcher
+that no longer works: delete it by hand (on Windows, **biotimbre** on the
+Desktop and in the Start menu).
 
 **With uv or pip.** The web interface is an optional extra, so a headless or
 command-line-only installation stays small:

@@ -7,13 +7,21 @@
 # beforehand), installs biotimbre as an isolated tool, and adds a launcher that
 # opens the interface from a work folder. Run it again to upgrade.
 #
+# To uninstall, run it with BIOTIMBRE_UNINSTALL set:
+#
+#   curl -LsSf https://github.com/biodiversica/biotimbre/releases/latest/download/install.sh | BIOTIMBRE_UNINSTALL=1 sh
+#
 # Environment overrides:
-#   BIOTIMBRE_PACKAGE   what to install                 (default: biotimbre[gui])
-#   BIOTIMBRE_WORKDIR   folder the interface starts in  (default: ~/biotimbre)
+#   BIOTIMBRE_PACKAGE    what to install                 (default: biotimbre[gui])
+#   BIOTIMBRE_WORKDIR    folder the interface starts in  (default: ~/biotimbre)
+#   BIOTIMBRE_UNINSTALL  1 removes biotimbre and its launcher; all also removes
+#                        the downloaded models and the interface's remembered
+#                        settings. Libraries are never removed, nor is uv.
 set -eu
 
 PACKAGE="${BIOTIMBRE_PACKAGE:-biotimbre[gui]}"
 WORKDIR="${BIOTIMBRE_WORKDIR:-$HOME/biotimbre}"
+UNINSTALL="${BIOTIMBRE_UNINSTALL:-}"
 # The version CI tests on. Pinning it keeps a newer system Python, which
 # onnxruntime may not publish wheels for yet, from being picked.
 PYTHON=3.12
@@ -26,6 +34,58 @@ case "$(uname -s)" in
   Linux) OS=linux ;;
   *) die "unsupported system $(uname -s); on Windows use install.ps1." ;;
 esac
+
+# Where the launcher goes, and where the interface remembers its settings
+# (biotimbre.ui.app.user_state_dir).
+if [ "$OS" = macos ]; then
+  LAUNCHER="$HOME/Desktop/biotimbre.command"
+  STATE="$HOME/Library/Application Support/biotimbre"
+else
+  APPS="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
+  LAUNCHER="$APPS/biotimbre.desktop"
+  STATE="${XDG_STATE_HOME:-$HOME/.local/state}/biotimbre"
+fi
+
+# ── uninstall ────────────────────────────────────────────────────────────────
+remove() {
+  if [ -e "$1" ]; then
+    rm -rf "$1"
+    say "Removed $2 ($1)"
+  fi
+}
+
+if [ -n "$UNINSTALL" ]; then
+  case "$UNINSTALL" in
+    1|all) ;;
+    *) die "BIOTIMBRE_UNINSTALL must be 1 or all, not '$UNINSTALL'." ;;
+  esac
+  if command -v uv >/dev/null 2>&1; then
+    UV=$(command -v uv)
+  else
+    UV="$HOME/.local/bin/uv"
+  fi
+  if [ -x "$UV" ] && "$UV" tool list 2>/dev/null | grep -q '^biotimbre '; then
+    say "Uninstalling biotimbre"
+    "$UV" tool uninstall biotimbre
+  fi
+  remove "$LAUNCHER" launcher
+  if [ "$UNINSTALL" = all ]; then
+    remove "$STATE" "remembered settings"
+    # Only biotimbre's own models: the cache is shared with other programs.
+    HUB="${HF_HUB_CACHE:-${HF_HOME:-$HOME/.cache/huggingface}/hub}"
+    for name in models--biodiversica--Perch-onnx-backbone models--biodiversica--BirdNET-onnx-backbone; do
+      remove "$HUB/$name" model
+      remove "$HUB/.locks/$name" "model lock"
+    done
+  fi
+  say "Done. biotimbre is uninstalled."
+  cat <<EOF
+
+  Libraries were left where they are, including any in $WORKDIR.
+  Delete them yourself if you no longer want them.
+EOF
+  exit 0
+fi
 
 # ── uv ───────────────────────────────────────────────────────────────────────
 if command -v uv >/dev/null 2>&1; then
@@ -57,7 +117,6 @@ mkdir -p "$WORKDIR"
 # Both open a terminal: it shows the address and is where Ctrl+C stops the
 # interface.
 if [ "$OS" = macos ]; then
-  LAUNCHER="$HOME/Desktop/biotimbre.command"
   mkdir -p "$HOME/Desktop"
   cat > "$LAUNCHER" <<EOF
 #!/bin/sh
@@ -66,8 +125,6 @@ EOF
   chmod +x "$LAUNCHER"
   WHERE="double-click biotimbre on your Desktop"
 else
-  APPS="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
-  LAUNCHER="$APPS/biotimbre.desktop"
   mkdir -p "$APPS"
   cat > "$LAUNCHER" <<EOF
 [Desktop Entry]

@@ -16,7 +16,7 @@ curl -LsSf https://github.com/biodiversica/biotimbre/releases/latest/download/in
 
 Already using Python? `uv tool install --python 3.12 "biotimbre[gui]"` or `pip install "biotimbre[gui]"`. See the [README](https://github.com/biodiversica/biotimbre#installation) ([português](https://github.com/biodiversica/biotimbre/blob/main/README_pt-BR.md#instalação)).
 
-The first start downloads the Perch and BirdNET models (about 70 MB), once.
+The first start downloads the Perch and BirdNET models (about 70 MB), once. To uninstall, run the installer with `BIOTIMBRE_UNINSTALL=1` (see [Uninstalling](https://github.com/biodiversica/biotimbre#installation)); your libraries are kept.
 
 ## What's in this release
 
