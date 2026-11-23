@@ -123,7 +123,7 @@ class TestClipStateStreaming:
     async def test_begin_uses_the_basename_only(self):
         add_state = ClipState()
         target = add_state.begin("../../escape.wav")
-        assert target.parent == add_state.directory
+        assert target.parent.parent == add_state.directory
         assert target.name == "escape.wav"
 
     def test_replace_still_works_for_byte_callers(self):

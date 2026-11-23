@@ -104,6 +104,10 @@ class ClipState:
             the copy, otherwise ``None``.
         normalise_note: The line last written into the notes about it, so a
             later change replaces that line rather than adding another.
+        leftovers: Files that could not be deleted yet, tried again at every
+            later cleanup. On Windows a file cannot be deleted while it is
+            open, and the browser's player keeps one open for as long as it is
+            streaming it, which outlasts the click that replaced it.
     """
 
     upload: Upload | None = None
@@ -120,6 +124,7 @@ class ClipState:
     normalise: bool = False
     normalised_gain_db: float | None = None
     normalise_note: str | None = None
+    leftovers: list[Path] = field(default_factory=list)
 
     @property
     def duration(self) -> float:
@@ -183,7 +188,7 @@ class ClipState:
         ):
             return self.upload.properties
 
-        target = self.directory / f"processed_{self.upload.path.name}"
+        target = self._fresh_path(f"processed_{self.upload.path.name}")
         properties = audio_io.write_processed(
             self.upload.path,
             target,
@@ -202,8 +207,43 @@ class ClipState:
     def drop_processed(self) -> None:
         """Delete the processed copy, if one has been written."""
         if self.processed is not None:
-            self.processed.unlink(missing_ok=True)
+            self._remove(self.processed)
             self.processed = None
+
+    def _fresh_path(self, name: str) -> Path:
+        """A path no file has had, for a file called ``name``.
+
+        One folder per file, so the name stays as it was and a new file is
+        never written where an old one may still be open: on Windows, a file
+        the player is streaming can be neither replaced nor deleted.
+
+        Args:
+            name: Filename wanted. Only its basename is used, so a name cannot
+                escape the staging directory.
+        """
+        base = Path(name).name
+        if base in {"", ".", ".."}:
+            base = "audio"
+        folder = self.directory / uuid4().hex[:12]
+        folder.mkdir(parents=True)
+        return folder / base
+
+    def _remove(self, path: Path) -> None:
+        """Delete ``path`` now if it can be, or at a later cleanup if not."""
+        self.leftovers.append(path)
+        self._sweep()
+
+    def _sweep(self) -> None:
+        """Delete what earlier cleanups could not, as far as possible now."""
+        kept: list[Path] = []
+        for stale in self.leftovers:
+            try:
+                stale.unlink(missing_ok=True)
+                if stale.parent.parent == self.directory:
+                    stale.parent.rmdir()
+            except OSError:
+                kept.append(stale)
+        self.leftovers = kept
 
     def begin(self, name: str) -> Path:
         """Discard any previous upload and return where the new one should go.
@@ -217,10 +257,10 @@ class ClipState:
                 cannot escape the staging directory.
 
         Returns:
-            The path to write to.
+            The path to write to, new each time.
         """
         self.discard()
-        return self.directory / Path(name).name
+        return self._fresh_path(name)
 
     def finish(self, path: Path, name: str) -> Upload:
         """Record a staged file after it has been written.
@@ -266,8 +306,10 @@ class ClipState:
     def discard(self) -> None:
         """Delete the staged file and any processed copy of it."""
         self.drop_processed()
-        if self.upload is not None and self.upload.path.exists():
-            self.upload.path.unlink()
+        if self.upload is not None:
+            self._remove(self.upload.path)
+        else:
+            self._sweep()
         self.upload = None
         self.start = 0.0
         self.end = 0.0
@@ -692,18 +734,17 @@ async def clip_editor(
             on_applied(clip)
         # The player plays the copy itself, so what is heard is the cut, the
         # filter *and* the downmix — a media fragment could only ever convey
-        # the cut. A rewritten copy keeps its path, so the path alone cannot
-        # say whether the audio changed: republish whenever there is a copy,
-        # and the fresh URL gets past the cache. Only an untouched upload,
-        # already published, is left be.
-        if clip.processed is not None or published["path"] != clip.source:
+        # the cut. Every copy is written to a path of its own, so a changed
+        # path is a changed sound; an untouched upload, already published, is
+        # left be.
+        if published["path"] != clip.source:
             published["path"] = clip.source
             player.set_source(media.serve(clip.source))
         await draw_stored()
 
-    # Each run unlinks the previous copy and rewrites one at a fixed path, so
-    # two overlapping runs would have one deleting the file the other is still
-    # writing. Serialised, and a run a newer choice has already overtaken is
+    # Each run deletes the previous copy and records its own, so two
+    # overlapping runs would have one deleting the copy the other just wrote.
+    # Serialised, and a run a newer choice has already overtaken is
     # dropped rather than spending a decode on a preview nobody will see.
     staging = {"latest": 0}
     staging_lock = asyncio.Lock()

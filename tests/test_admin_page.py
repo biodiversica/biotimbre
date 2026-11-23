@@ -195,7 +195,39 @@ class TestClipState:
         assert add_state.apply().duration_s == pytest.approx(4.0)
         # One copy at a time; a superseded cut does not linger in the staging
         # directory.
-        assert not first.exists() or first == add_state.processed
+        assert not first.exists()
+        # Nor is the new one written where the old one was, which on Windows
+        # the player may still have open.
+        assert add_state.processed != first
+        add_state.discard()
+
+    def test_a_file_still_in_use_is_deleted_later(self, monkeypatch):
+        # Windows refuses to delete a file the player is still streaming.
+        # The click that replaced it must not fail, and the file must not stay.
+        from pathlib import Path
+
+        add_state = ClipState()
+        add_state.replace("a.wav", GUYVIR.read_bytes())
+        add_state.start, add_state.end = 1.0, 2.0
+        add_state.apply()
+        in_use = add_state.processed
+        unlink = Path.unlink
+
+        def refuse(self, missing_ok=False):
+            if self == in_use:
+                raise PermissionError(32, "in use by another process")
+            return unlink(self, missing_ok=missing_ok)
+
+        monkeypatch.setattr(Path, "unlink", refuse)
+        add_state.discard()
+        assert in_use.exists()
+        assert add_state.leftovers == [in_use]
+
+        monkeypatch.setattr(Path, "unlink", unlink)
+        add_state.replace("b.wav", GUYVIR.read_bytes())
+        assert not in_use.exists()
+        assert not in_use.parent.exists()
+        assert add_state.leftovers == []
         add_state.discard()
 
     def test_discard_takes_the_processed_copy_with_it(self):
@@ -214,7 +246,7 @@ class TestClipState:
         # must not escape the staging directory.
         add_state = ClipState()
         upload = add_state.replace("../../escape.wav", GUYVIR.read_bytes())
-        assert upload.path.parent == add_state.directory
+        assert upload.path.parent.parent == add_state.directory
         assert upload.path.name == "escape.wav"
         add_state.discard()
 

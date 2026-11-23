@@ -358,3 +358,26 @@ class TestRememberedAcrossRuns:
     def test_the_state_dir_follows_xdg(self, tmp_path, monkeypatch):
         monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
         assert ui_app.user_state_dir() == tmp_path / "biotimbre"
+
+
+class TestConnectionResets:
+    """Windows' Proactor transport reports resets nobody needs to read."""
+
+    def test_a_reset_connection_is_not_reported(self):
+        import asyncio
+
+        from biotimbre.ui.app import _ignore_connection_resets
+
+        reported = []
+        loop = asyncio.new_event_loop()
+        try:
+            loop.default_exception_handler = reported.append
+            _ignore_connection_resets(
+                loop, {"message": "x", "exception": ConnectionResetError(10054)}
+            )
+            assert reported == []
+            other = {"message": "y", "exception": RuntimeError("real")}
+            _ignore_connection_resets(loop, other)
+            assert reported == [other]
+        finally:
+            loop.close()
