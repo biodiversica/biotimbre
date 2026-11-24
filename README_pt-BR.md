@@ -215,9 +215,11 @@ mais semelhantes da biblioteca, ordenados por pontuação.
   um ponto central e ID do biotimbre. Uma busca também pode ser realizada
   apenas com filtros, sem gravação; nesse caso, os itens correspondentes são
   listados sem pontuação, dos mais recentes para os mais antigos.
-- **Opções** definem a velocidade da consulta, o número máximo de resultados,
-  a métrica de similaridade, a forma de combinar as pontuações dos modelos e
-  uma pontuação mínima.
+- **Opções** definem o número máximo de resultados, a métrica de
+  similaridade, a forma de combinar as pontuações dos modelos e uma pontuação
+  mínima. A **Velocidade da busca** da consulta começa vazia, o que busca em
+  todas as velocidades da biblioteca; um valor busca apenas os itens
+  armazenados nele.
 
 Cada resultado exibe sua pontuação, o detalhamento por modelo, um reprodutor
 próprio e um espectrograma no qual está marcada a janela que gerou a

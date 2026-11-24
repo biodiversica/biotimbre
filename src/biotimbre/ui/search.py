@@ -293,6 +293,13 @@ async def _download_results_csv(t: Translator, hits: list[SearchHit]) -> None:
     ui.download.content(data, name, "text/csv")
 
 
+def _chosen_speed(value) -> float | None:
+    """The query speed typed, or ``None`` for every speed in the library."""
+    if value is None or value == "":
+        return None
+    return float(value)
+
+
 def _filters_panel(t: Translator) -> dict[str, ui.element]:
     """Render the filter inputs and return them by name."""
     inputs: dict[str, ui.element] = {}
@@ -479,7 +486,7 @@ async def render(t: Translator) -> None:
     editor: dict[str, ClipControls | None] = {"controls": None}
     #: The query speed, kept from one recording to the next: it says which
     #: speed of the library to search, not anything about one file.
-    query_speed = {"value": DEFAULT_SPEED}
+    query_speed: dict[str, float | None] = {"value": None}
     #: Where the query came from: an iNaturalist observation and which of
     #: its recordings, so the add form can take its metadata and credit it;
     #: or a library item, which its results leave out unless asked not to.
@@ -767,7 +774,7 @@ async def render(t: Translator) -> None:
 
     async def run_search() -> None:
         path = None
-        speed = DEFAULT_SPEED
+        speed: float | None = None
         if query.upload is not None:
             controls = editor["controls"]
             # A cut-off typed but not yet committed would otherwise be left
@@ -776,7 +783,10 @@ async def render(t: Translator) -> None:
                 return
             # The prepared copy, cut to the cap: it is searched whole.
             path = query.source
-            speed = float(controls.speed.value or DEFAULT_SPEED)
+            # Empty searches every speed in the library, each item against
+            # the query embedded at its own; a value pins the query to it and
+            # searches only the items stored at it.
+            speed = _chosen_speed(controls.speed.value)
 
         try:
             search_filters = _build_filters(filters, query_speed=speed)
@@ -921,7 +931,7 @@ async def render(t: Translator) -> None:
             if controls is not None:
                 # A cut-off typed and not yet committed counts as chosen.
                 await controls.settle()
-                speed = float(controls.speed.value or DEFAULT_SPEED)
+                speed = _chosen_speed(controls.speed.value)
             kept["query"] = await hand_over(
                 query,
                 speed=speed,

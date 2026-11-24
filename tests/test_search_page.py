@@ -1723,3 +1723,47 @@ class TestFindSimilar:
              if e.text == "Include the item itself").value = True
         TestResultMap._run_search(user)
         await user.should_see("2 match(es)", retries=200)
+
+
+class TestQuerySpeed:
+    """Empty, the query speed searches every speed; a value pins one."""
+
+    @staticmethod
+    def _add(state, speed: float):
+        import dataclasses
+
+        from biotimbre.io.sidecar import draft_from_sidecar
+
+        draft = dataclasses.replace(
+            draft_from_sidecar(EXAMPLES_DIR / "GUYVIR.txt"), speed=speed
+        )
+        return state.call(state.service.add_item, GUYVIR, draft).item
+
+    @staticmethod
+    def _speed(user: User):
+        return next(iter(user.find(marker="apply-speed").elements))
+
+    async def test_it_starts_empty_meaning_every_speed(self, user: User, installed_state):
+        await TestSegmentPicker._stage(user, GUYVIR)
+        field = self._speed(user)
+        assert field.value is None
+        assert 'placeholder="every speed"' in " ".join(
+            f'{k}="{v}"' for k, v in field._props.items()
+        )
+
+    @pytest.mark.models
+    async def test_empty_finds_every_speed_and_a_value_pins_one(
+        self, user: User, installed_state
+    ):
+        native = self._add(installed_state, 1.0)
+        slowed = self._add(installed_state, 0.25)
+        await TestSegmentPicker._stage(user, GUYVIR)
+
+        TestResultMap._run_search(user)
+        await user.should_see("2 match(es)", retries=200)
+
+        self._speed(user).value = 0.25
+        TestResultMap._run_search(user)
+        await user.should_see("1 match(es)", retries=200)
+        await user.should_see(f"#{slowed.item_id}")
+        assert native.item_id != slowed.item_id

@@ -266,7 +266,7 @@
     },
     "options": "Options",
     "speed": "Query speed",
-    "speed_help": "Speed the query audio is embedded at. Only items indexed at this same speed are searched.",
+    "speed_help": "Leave empty to search every speed in the library: the query is embedded at each, and every item is compared at its own. A value embeds the query at that speed only, and searches only the items stored at it — 0.25 for an ultrasonic query, say.",
     "top_k": "Maximum results",
     "metric": "Metric",
     "fusion": "Combine models by",
@@ -300,7 +300,8 @@
     "query_from_item": "Query: item #{id} — {taxa}",
     "include_self": "Include the item itself",
     "include_self_help": "It comes first, scoring 1 against itself: a check that the search works, not a finding.",
-    "item_gone": "That item's recording is no longer available."
+    "item_gone": "That item's recording is no longer available.",
+    "speed_any": "every speed"
   },
   "map": {
     "heading": "Results map",

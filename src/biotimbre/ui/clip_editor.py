@@ -399,6 +399,10 @@ class ClipWording:
     speed_help: str
     #: Said when the recording is longer than the cap, if there is one.
     too_long: str | None = None
+    #: Shown in an empty speed field, where empty is allowed and means
+    #: something: on the search page, every speed in the library. ``None``
+    #: where a speed is required.
+    speed_empty: str | None = None
 
 
 LIBRARY_WORDING = ClipWording(
@@ -420,6 +424,7 @@ SEARCH_WORDING = ClipWording(
     speed="search.speed",
     speed_help="search.speed_help",
     too_long="search.needs_segment",
+    speed_empty="search.speed_any",
 )
 
 
@@ -450,7 +455,7 @@ async def clip_editor(
     on_clear: Callable[[], object],
     max_span: float | None = None,
     bind_speed: ui.element | None = None,
-    speed: float = DEFAULT_SPEED,
+    speed: float | None = DEFAULT_SPEED,
     on_applied: Callable[[ClipState], None] | None = None,
     on_ready: Callable[[ClipControls], None] | None = None,
 ) -> ClipControls | None:
@@ -587,6 +592,10 @@ async def clip_editor(
         ).props("dense outlined").style(
             f"width: {_label_width(t(wording.speed))}"
         ).tooltip(t(wording.speed_help)).mark("apply-speed")
+        if wording.speed_empty is not None:
+            # Empty is a choice here, so it is said what it means, and a
+            # value typed can be taken back with one click.
+            speed_input.props(f'clearable placeholder="{t(wording.speed_empty)}"')
         if bind_speed is not None:
             speed_input.bind_value(bind_speed)
         speed_input.on_value_change(lambda _: follow_speed())
@@ -833,7 +842,7 @@ class Handoff:
         lowpass: Lowpass cut-off, in Hz, or ``None``.
         filter_order: Butterworth order.
         normalise: Whether normalising was asked for.
-        speed: Speed it was searched at.
+        speed: Speed it was searched at, or ``None`` for every speed.
         observation: The iNaturalist observation it was fetched from, if any,
             for the add form to take the metadata from.
         sound: Which of the observation's recordings it is, for the credit.
@@ -848,7 +857,7 @@ class Handoff:
     lowpass: float | None
     filter_order: int
     normalise: bool
-    speed: float
+    speed: float | None
     observation: Any = None
     sound: Any = None
     item_id: int | None = None
@@ -857,7 +866,7 @@ class Handoff:
 async def hand_over(
     clip: ClipState,
     *,
-    speed: float,
+    speed: float | None,
     observation: Any = None,
     sound: Any = None,
     item_id: int | None = None,

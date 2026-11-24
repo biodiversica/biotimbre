@@ -266,7 +266,7 @@
     },
     "options": "Opções",
     "speed": "Velocidade da busca",
-    "speed_help": "Velocidade em que o áudio de busca é convertido em embeddings. Apenas itens indexados nessa mesma velocidade são buscados.",
+    "speed_help": "Deixe vazio para buscar em todas as velocidades da biblioteca: a consulta é convertida em embeddings em cada uma, e cada item é comparado na sua. Um valor converte a consulta só nessa velocidade e busca apenas os itens armazenados nela — 0.25 para uma consulta de ultrassom, por exemplo.",
     "top_k": "Máximo de resultados",
     "metric": "Métrica",
     "fusion": "Combinar modelos por",
@@ -300,7 +300,8 @@
     "query_from_item": "Consulta: item #{id} — {taxa}",
     "include_self": "Incluir o próprio item",
     "include_self_help": "Ele vem primeiro, com pontuação 1 contra si mesmo: uma verificação de que a busca funciona, não uma descoberta.",
-    "item_gone": "A gravação desse item não está mais disponível."
+    "item_gone": "A gravação desse item não está mais disponível.",
+    "speed_any": "todas"
   },
   "map": {
     "heading": "Mapa dos resultados",

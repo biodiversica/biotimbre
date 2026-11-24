@@ -206,8 +206,11 @@ items, ranked by score.
   point, and biotimbre ID. A search may also be run with filters only and no
   recording, in which case the matching items are listed without scores,
   newest first.
-- **Options** set the query speed, the maximum number of results, the
-  similarity metric, how the models' scores are combined, and a minimum score.
+- **Options** set the maximum number of results, the similarity metric, how
+  the models' scores are combined, and a minimum score. The query's **Query
+  speed** starts empty, which searches every speed in the library (see
+  [Ultrasonic Recordings](#ultrasonic-recordings-and-the-speed-setting)); a
+  value searches only the items stored at it.
 
 Each result shows its score, the per-model breakdown, its own player, and a
 spectrogram on which the window that produced the score is marked. The query
