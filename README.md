@@ -1014,24 +1014,6 @@ Windows for every push to `main` and every pull request. It also builds the
 package and runs both installers with it, then starts the interface from the
 installer's working folder.
 
-### Making a Release
-
-Set the new version in both `pyproject.toml` and `src/biotimbre/__init__.py`,
-run `uv lock`, commit the change, and then create and push a tag:
-
-```bash
-git tag v0.2.0 && git push origin v0.2.0
-```
-
-The tag triggers `.github/workflows/release.yml`. CI runs on all three
-systems, the package is uploaded to PyPI, and a **draft** GitHub release is
-created with the installers attached and the notes from
-`.github/release-notes.md`. After the highlights have been written, the
-release must be published, because the installation commands download from
-the latest *published* release. The build fails if the tag does not match the
-version in `pyproject.toml`, or if that version differs from the one in
-`src/biotimbre/__init__.py`.
-
 ## License
 
 [MIT](https://github.com/biodiversica/biotimbre/blob/main/LICENSE)

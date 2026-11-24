@@ -1069,25 +1069,6 @@ e no Windows a cada push para `main` e a cada pull request. Ela também gera o
 pacote, executa os dois instaladores com ele e inicia a interface a partir da
 pasta de trabalho do instalador.
 
-### Publicando uma Versão
-
-Defina a nova versão em `pyproject.toml` e em `src/biotimbre/__init__.py`,
-execute `uv lock`, faça o commit da alteração e, em seguida, crie e envie uma
-tag:
-
-```bash
-git tag v0.2.0 && git push origin v0.2.0
-```
-
-A tag aciona `.github/workflows/release.yml`. A CI é executada nos três
-sistemas, o pacote é enviado ao PyPI e uma release **rascunho** é criada no
-GitHub, com os instaladores anexados e as notas de
-`.github/release-notes.md`. Depois de escritos os destaques, a release
-precisa ser publicada, pois os comandos de instalação baixam da release
-*publicada* mais recente. A geração do pacote falha se a tag não corresponder
-à versão em `pyproject.toml` ou se essa versão for diferente da de
-`src/biotimbre/__init__.py`.
-
 ## Licença
 
 [MIT](https://github.com/biodiversica/biotimbre/blob/main/LICENSE)
