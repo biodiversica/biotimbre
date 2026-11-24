@@ -184,7 +184,7 @@
     "selected": "{count} selecionado(s)",
     "bundle_selected": "Exportar {count} como pacote",
     "with_embeddings": "Com embeddings",
-    "with_embeddings_help": "Inclui os vetores, para que a biblioteca de destino não precise calculá-los. Desligado, o arquivo fica com cerca de metade do tamanho.",
+    "with_embeddings_help": "Inclui os vetores, para que uma biblioteca de destino que use os mesmos modelos possa armazená-los como estão em vez de calculá-los. Desligado, economiza pouco espaço: o áudio é a maior parte de um pacote.",
     "clear_selection": "Limpar seleção",
     "select": "Selecionar para exportar",
     "select_all": "Selecionar tudo"

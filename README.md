@@ -616,7 +616,7 @@ command line:
 ```bash
 biotimbre export-bundle 12 -o guyalna.btz          # one item, with its vectors
 biotimbre export-bundle 12 13 14 -o batch.btz      # several items
-biotimbre export-bundle 12 -o small.btz --no-embeddings
+biotimbre export-bundle 12 -o audio-only.btz --no-embeddings   # metadata and audio only
 ```
 
 Search results can be shared the same way. `search --csv` writes the results

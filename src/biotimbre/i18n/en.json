@@ -184,7 +184,7 @@
     "selected": "{count} selected",
     "bundle_selected": "Export {count} as bundle",
     "with_embeddings": "With embeddings",
-    "with_embeddings_help": "Include the vectors, so the receiving library need not compute them. Off makes the file about half the size.",
+    "with_embeddings_help": "Include the vectors, so a receiving library that uses the same models can store them as they are instead of computing them. Off saves little space: the audio is most of a bundle.",
     "clear_selection": "Clear selection",
     "select": "Select for export",
     "select_all": "Select all"

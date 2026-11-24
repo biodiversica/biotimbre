@@ -654,7 +654,7 @@ comando:
 ```bash
 biotimbre export-bundle 12 -o guyalna.btz          # um item, com seus vetores
 biotimbre export-bundle 12 13 14 -o batch.btz      # vários itens
-biotimbre export-bundle 12 -o small.btz --no-embeddings
+biotimbre export-bundle 12 -o audio-only.btz --no-embeddings   # só metadados e áudio
 ```
 
 Resultados de busca podem ser compartilhados da mesma forma. `search --csv`

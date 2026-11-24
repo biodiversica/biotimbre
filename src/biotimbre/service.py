@@ -1517,8 +1517,9 @@ class LibraryService:
             item_ids: Items to include, in the order they should appear.
             destination: Path to write. Its parent is created if needed; a
                 path without the conventional suffix gets one.
-            include_embeddings: Carry each item's vectors. False halves the
-                file size and costs the recipient an inference pass.
+            include_embeddings: Carry each item's vectors. False saves little
+                — the audio is most of a bundle, vectors 5-10% — and costs the
+                recipient an inference pass.
 
         Returns:
             The path written.

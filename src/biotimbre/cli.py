@@ -2276,7 +2276,7 @@ def build_parser() -> argparse.ArgumentParser:
         examples=(
             "  biotimbre export-bundle 12 -o guyalna.btz\n"
             "  biotimbre export-bundle 12 13 14 -o batch.btz\n"
-            "  biotimbre export-bundle 12 -o small.btz --no-embeddings\n"
+            "  biotimbre export-bundle 12 -o audio-only.btz --no-embeddings\n"
             "  biotimbre search q.wav --taxa cicadidae --csv hits.csv\n"
             "  biotimbre export-bundle --items-from hits.csv -o checked.btz"
         ),
@@ -2307,8 +2307,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_export_bundle.add_argument(
         "--no-embeddings",
         action="store_true",
-        help="Leave the vectors out: about half the size, at the cost of the "
-             "recipient computing them on import.",
+        help="Leave the vectors out, so the recipient computes them on import. "
+             "It saves little space — audio is most of a bundle, vectors about "
+             "5-10% — so it is mainly for a recipient whose models differ "
+             "anyway, who could not reuse them.",
     )
     p_export_bundle.set_defaults(func=cmd_export_bundle)
 
