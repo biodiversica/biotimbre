@@ -466,8 +466,11 @@ Normalisation is recorded in the notes.
 Stored audio is always mono, as that is what every model receives and what a
 spectrogram shows. A multi-channel recording is therefore averaged to mono,
 both by the add form and by `biotimbre add`, and the player previews the mono
-version. A mono file that is neither trimmed nor filtered is stored exactly as
-received.
+version. Stored audio is also always WAV, as its name, its bundles and its
+playback declare: a recording in another format (FLAC, OGG, MP3, AIFF) is
+converted, a lossless one keeping every sample at its own bit depth and a lossy
+one decoded, which costs no further quality. A mono WAV file that is neither
+trimmed nor filtered is stored exactly as received.
 
 ### Ultrasonic Recordings and the Speed Setting
 

@@ -159,6 +159,15 @@ class TestDownloading:
             written = inat.download_sound(sound, tmp_path / "q.wav", client=client)
         assert written.read_bytes() == wav_bytes
 
+    def test_a_file_read_as_it_is_keeps_its_own_suffix(self, tmp_path, wav_bytes):
+        # Asked for under a .wav name, as the pages do before they know what
+        # they will get: an MP3 must not land with a .wav suffix.
+        sound = inat.Sound(id=1, url="https://x/1.mp3?1700000000")
+        with client_for(lambda request: httpx2.Response(200, content=wav_bytes)) as client:
+            written = inat.download_sound(sound, tmp_path / "q.wav", client=client)
+        assert written == tmp_path / "q.mp3"
+        assert not (tmp_path / "q.wav").exists()
+
     def test_m4a_without_ffmpeg_says_what_is_missing(self, tmp_path, monkeypatch):
         monkeypatch.setattr(inat, "ffmpeg_available", lambda: False)
         sound = inat.Sound(id=1, url="https://x/1.m4a", content_type="audio/mp4")

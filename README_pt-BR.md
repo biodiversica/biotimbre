@@ -489,9 +489,12 @@ normalização é registrada nas notas.
 O áudio armazenado é sempre mono, pois é isso que todos os modelos recebem e o
 que um espectrograma mostra. Uma gravação com vários canais é, portanto,
 convertida para mono pela média dos canais, tanto pelo formulário de adição
-quanto por `biotimbre add`, e o reprodutor apresenta a versão mono. Um arquivo
-mono que não é recortado nem filtrado é armazenado exatamente como foi
-recebido.
+quanto por `biotimbre add`, e o reprodutor apresenta a versão mono. O áudio
+armazenado também é sempre WAV, como declaram seu nome, seus pacotes e sua
+reprodução: uma gravação em outro formato (FLAC, OGG, MP3, AIFF) é convertida,
+uma sem perdas mantendo cada amostra na sua própria profundidade de bits e uma
+com perdas decodificada, o que não custa mais qualidade. Um arquivo WAV mono
+que não é recortado nem filtrado é armazenado exatamente como foi recebido.
 
 ### Gravações Ultrassônicas e o Parâmetro de Velocidade
 

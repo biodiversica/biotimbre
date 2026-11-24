@@ -850,7 +850,7 @@ class LibraryService:
 
     @contextmanager
     def _mono_source(self, audio_path: str | Path):
-        """Yield the exact audio to store, folding a multi-channel file down.
+        """Yield the exact audio to store: mono, within full scale, and WAV.
 
         The library stores mono: it is what every model is fed and what a
         spectrogram shows, so a multi-channel submission is converted here
@@ -863,6 +863,11 @@ class LibraryService:
         playback and skew Perch, whose embeddings follow the input level. That
         is reported, not done silently.
 
+        A mono recording within full scale in any other format — FLAC, OGG,
+        MP3, AIFF — is converted to WAV (:func:`~biotimbre.embeddings.audio.write_wav_copy`):
+        stored, bundled and served as ``.wav``, it has to be one. Integer PCM
+        keeps every sample at its own depth; a lossy codec is decoded.
+
         Shared by every path that stores audio, so a sample that arrives in a
         bundle is normalised exactly as one that arrives from a form.
 
@@ -872,7 +877,7 @@ class LibraryService:
         Yields:
             The path to store, its :class:`~biotimbre.embeddings.audio.AudioProperties`,
             and any warning about its level. The path is the original when it is
-            already mono and within full scale, and a temporary converted file
+            already a mono WAV within full scale, and a temporary converted file
             otherwise — removed when the block ends.
 
         Raises:
@@ -888,7 +893,12 @@ class LibraryService:
             () if peak is None else (audio_io.over_range_message(source.name, peak),)
         )
         if properties.channels == 1 and peak is None:
-            yield source, properties, warnings
+            if audio_io.is_stored_format(source):
+                yield source, properties, warnings
+                return
+            with tempfile.TemporaryDirectory(prefix="biotimbre-wav-") as staging:
+                converted = Path(staging) / f"{source.stem}.wav"
+                yield converted, audio_io.write_wav_copy(source, converted), warnings
             return
 
         with tempfile.TemporaryDirectory(prefix="biotimbre-mono-") as staging:

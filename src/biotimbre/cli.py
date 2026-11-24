@@ -473,10 +473,8 @@ def _inat_recording(args: argparse.Namespace, settings) -> Iterator[tuple]:
         )
 
     with tempfile.TemporaryDirectory(prefix="biotimbre-inat-") as directory:
-        # Its own suffix when it is read as it is, so libsndfile is not told
-        # an MP3 is a WAV; one that needs decoding comes back as a .wav.
-        suffix = ".wav" if sound.needs_transcoding else (sound.suffix or ".wav")
-        target = Path(directory) / f"inat-{observation.id}{suffix}"
+        # download_sound gives it the suffix for what it holds.
+        target = Path(directory) / f"inat-{observation.id}.wav"
         with download_progress(f"recording {number} of {observation.id}") as on_progress:
             path = inaturalist.download_sound(sound, target, on_progress=on_progress)
         yield path, observation, sound

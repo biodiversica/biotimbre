@@ -301,8 +301,9 @@ def download_sound(
 
     Args:
         sound: The recording to fetch.
-        destination: Where to write it. The suffix is replaced when a decode
-            is needed, since what lands is then a WAV.
+        destination: Where to write it. Its suffix is replaced by one that
+            says what the file holds: the recording's own when it is read as
+            it is (``.mp3``, ``.flac``...), ``.wav`` when it had to be decoded.
         client: An open client to use, for tests. ``None`` opens one.
         on_progress: Called with ``(received, total)`` in bytes as the file
             arrives. ``total`` is 0 when the server does not say how big it is,
@@ -310,7 +311,7 @@ def download_sound(
             progress. Called from whatever thread runs this.
 
     Returns:
-        The written path.
+        The written path, whose suffix may differ from ``destination``'s.
 
     Raises:
         ValidationError: If the file needs ffmpeg and there is none.
@@ -331,7 +332,11 @@ def download_sound(
     # file: it needs to seek, and a pipe would rule out formats whose index
     # sits at the end.
     encoded = target.with_suffix(sound.suffix or ".bin")
-    landing = encoded if sound.needs_transcoding else target
+    # Named for what it holds: an MP3 under a .wav name reads (libsndfile goes
+    # by content), but the name is what anything else goes by.
+    landing = encoded if sound.needs_transcoding else (
+        target.with_suffix(sound.suffix) if sound.suffix else target
+    )
 
     owned = client is None
     client = client or httpx2.Client(
@@ -358,7 +363,7 @@ def download_sound(
             client.close()
 
     if not sound.needs_transcoding:
-        return target
+        return landing
 
     decoded = target.with_suffix(".wav")
     try:

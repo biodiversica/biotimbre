@@ -428,6 +428,82 @@ def write_processed(
     return read_properties(out)
 
 
+#: The container the library stores audio in. Its files are named ``.wav``,
+#: bundles carry them as ``audio.wav``, and they are served as ``audio/wav``,
+#: so a recording that arrives in another format is converted, not renamed.
+STORED_FORMAT = "WAV"
+
+#: Sample formats a WAV copy keeps as they are: integer PCM, kept sample for
+#: sample at its own depth, and floating point. Anything else — a lossy codec
+#: — is decoded to float.
+_KEPT_SUBTYPES = ("PCM_U8", "PCM_16", "PCM_24", "PCM_32", "FLOAT", "DOUBLE")
+
+#: Frames read and written at a time when converting, so an hour-long FLAC
+#: is not held in memory whole.
+_CONVERT_BLOCK = 1 << 16
+
+
+def is_stored_format(path: str | Path) -> bool:
+    """Whether a file is already in the format the library stores, by content."""
+    import soundfile as sf
+
+    try:
+        return sf.info(str(path)).format == STORED_FORMAT
+    except Exception:
+        return False
+
+
+def write_wav_copy(source: str | Path, destination: str | Path) -> AudioProperties:
+    """Rewrite a mono recording as WAV, changing nothing that can be kept.
+
+    For a recording that is already what the library stores in every respect
+    but its container — a FLAC, an AIFF, an MP3. Integer PCM keeps its depth
+    and every sample exactly (a 16-bit FLAC becomes a 16-bit WAV), as does
+    floating point; a lossy codec is decoded to float, which is what reading
+    it for playback or a model does anyway, so nothing further is lost.
+
+    Args:
+        source: A mono recording, within full scale.
+        destination: The ``.wav`` to write. Its parent is created if needed.
+
+    Returns:
+        The written file's :class:`AudioProperties`.
+
+    Raises:
+        ValidationError: If the source cannot be decoded.
+    """
+    import soundfile as sf
+
+    out = Path(destination)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        with sf.SoundFile(str(source)) as src:
+            subtype = src.subtype
+            if subtype not in _KEPT_SUBTYPES or not sf.check_format(
+                STORED_FORMAT, subtype
+            ):
+                subtype = "FLOAT"
+            # Integers for integer PCM, which libsndfile converts between
+            # depths exactly; floats for everything else.
+            dtype = "int32" if subtype.startswith("PCM_") else "float32"
+            with sf.SoundFile(
+                str(out),
+                "w",
+                samplerate=src.samplerate,
+                channels=src.channels,
+                format=STORED_FORMAT,
+                subtype=subtype,
+            ) as copy:
+                for block in src.blocks(blocksize=_CONVERT_BLOCK, dtype=dtype):
+                    copy.write(block)
+    except Exception as exc:
+        out.unlink(missing_ok=True)
+        raise ValidationError(
+            f"Could not convert {Path(source).name} to WAV: {exc}", "audio"
+        ) from exc
+    return read_properties(out)
+
+
 def resolve_query_segment(
     duration_s: float,
     start_time: float | None = None,
