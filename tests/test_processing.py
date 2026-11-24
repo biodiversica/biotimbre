@@ -296,3 +296,43 @@ class TestQuerySpeed:
         out = capsys.readouterr().out
         assert "No item is stored at speed 0.5" in out
         assert "Speeds in use: 1." in out
+
+
+class TestCoordinateLines:
+    def _draft(self, text: str):
+        from biotimbre.io.sidecar import draft_from_fields
+
+        return draft_from_fields(parse_sidecar(f"date 2020-01-01\ntime 10:00:00\n{text}"))
+
+    def test_a_sidecar_may_give_latitude_and_longitude(self):
+        draft = self._draft("latitude -26.9\nlongitude -48.7\n")
+        assert (draft.location.latitude, draft.location.longitude) == (-26.9, -48.7)
+
+    @pytest.mark.parametrize(
+        "text, message",
+        [
+            ("latitude -26.9\n", "both latitude and longitude"),
+            ("location -26,-48\nlatitude -26\nlongitude -48\n", "not both"),
+            ("", "location \\(or latitude and longitude\\)"),
+        ],
+    )
+    def test_they_are_checked(self, text, message):
+        with pytest.raises(ValidationError, match=message):
+            self._draft(text)
+
+
+class TestOptionAliases:
+    def test_the_short_names_still_work(self):
+        from biotimbre.cli import build_parser
+
+        parse = build_parser().parse_args
+        assert parse(["add", "x.wav", "--link", "u"]).link == "u"
+        assert parse(["add", "x.wav", "--link-to-full-recording", "u"]).link == "u"
+        assert parse(["add", "x.wav", "--apply-order", "6"]).apply_order == 6
+        assert parse(["add", "x.wav", "--apply-filter-order", "6"]).apply_order == 6
+        assert parse(["search", "q.wav", "--apply-filter-order", "2"]).apply_order == 2
+
+    def test_a_query_option_is_named_by_its_full_name(self, run, capsys):
+        _add(run)
+        assert run("search", "--apply-order", "2") == 2
+        assert "--apply-filter-order only applies" in capsys.readouterr().err

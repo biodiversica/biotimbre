@@ -6,8 +6,8 @@ with a sidecar file, a table holds every recording's metadata as one row.
 
 Columns are the sidecar's field names (``date``, ``time``, ``location``,
 ``taxa``, ...), its processing lines (``trim``, ``apply_highpass``, ...),
-``latitude`` and ``longitude`` as an alternative to ``location``, and three of
-the table's own:
+``latitude`` and ``longitude`` as an alternative to ``location`` (which a
+sidecar takes too), and three of the table's own:
 
 ``file``
     The recording. A bare name, or a path relative to the table's folder, is
@@ -47,17 +47,21 @@ from pathlib import Path, PurePosixPath, PureWindowsPath
 
 from biotimbre.domain.errors import BiotimbreError, DuplicateAudioError, ValidationError
 from biotimbre.io.sidecar import (
+    COORDINATE_FIELDS,
     PROCESSING_FIELDS,
     SIDECAR_FIELDS,
     draft_from_fields,
+    fold_coordinates,
     processing_from_fields,
 )
 
 #: The table's own columns, besides the sidecar's fields.
-TABLE_COLUMNS = ("file", "inat", "inat_sound", "latitude", "longitude")
+TABLE_COLUMNS = ("file", "inat", "inat_sound")
 
-#: Every column a table may have.
-KNOWN_COLUMNS = (*TABLE_COLUMNS, *SIDECAR_FIELDS, *PROCESSING_FIELDS)
+#: Every column a table may have: its own, and every name a sidecar takes.
+KNOWN_COLUMNS = (
+    *TABLE_COLUMNS, *SIDECAR_FIELDS, *COORDINATE_FIELDS, *PROCESSING_FIELDS
+)
 
 #: Columns holding one number, which a ``;``-separated table may write with a
 #: decimal comma. Pairs (``sample_window``, ``filtered_band``, ``trim``) keep
@@ -283,21 +287,6 @@ def _merged_fields(row: TableRow, observation, sound) -> dict[str, str]:
     return merged
 
 
-def _location_columns(fields: dict[str, str]) -> dict[str, str]:
-    """Fold ``latitude`` and ``longitude`` into ``location``."""
-    latitude, longitude = fields.pop("latitude", None), fields.pop("longitude", None)
-    if latitude is None and longitude is None:
-        return fields
-    if latitude is None or longitude is None:
-        raise ValidationError("give both latitude and longitude, or neither.", "location")
-    if "location" in fields:
-        raise ValidationError(
-            "give location, or latitude and longitude, not both.", "location"
-        )
-    fields["location"] = f"{latitude},{longitude}"
-    return fields
-
-
 def _sound_number(row: TableRow) -> int:
     text = row.fields.get("inat_sound")
     if text is None:
@@ -418,7 +407,7 @@ def _import_row(
     """Add one row, raising what is wrong with it."""
     from biotimbre.sources import inaturalist
 
-    fields = _location_columns(dict(row.fields))
+    fields = fold_coordinates(row.fields)
     has_file, has_inat = "file" in fields, "inat" in fields
     if has_file == has_inat:
         raise ValidationError(
@@ -516,7 +505,7 @@ def check_table(path: str | Path) -> list[tuple[TableRow, str | None]]:
     checked: list[tuple[TableRow, str | None]] = []
     for row in read_table(table):
         try:
-            fields = _location_columns(dict(row.fields))
+            fields = fold_coordinates(row.fields)
             has_file, has_inat = "file" in fields, "inat" in fields
             if has_file == has_inat:
                 raise ValidationError(

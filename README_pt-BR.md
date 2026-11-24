@@ -371,7 +371,7 @@ biotimbre edit 12 --taxa "guyalna bonaerensis" --clear device
 
 Outras opções de `search`: `--metric {cosine,dot,euclidean}`,
 `--fusion {max,mean,MODEL_ID}`, `--min-score`, `--query-speed`, `--taxa-all`,
-`--date-to`, `--biotimbre-id`, `--exclude`, `--apply-lowpass`, `--apply-order` e,
+`--date-to`, `--biotimbre-id`, `--exclude`, `--apply-lowpass`, `--apply-filter-order` e,
 numa busca só pelos filtros, `--speed` (itens armazenados nessas velocidades).
 
 `--highpass`/`--lowpass` em `add` e `edit` *registram* uma filtragem já feita na
@@ -442,7 +442,9 @@ device	Audiomoth
 filtered_band	2000,10000
 ```
 
-`filtered_band` aceita `-` para um limite aberto, por exemplo `2000,-`. Linhas
+O local também pode ser informado em duas linhas, `latitude -20` e
+`longitude -46`, os nomes que uma tabela usa. `filtered_band` aceita `-` para um
+limite aberto, por exemplo `2000,-`. Linhas
 iniciadas por `#` ou `;` são comentários. Um nome de campo não reconhecido é
 tratado como erro, e não ignorado, de modo que um erro de digitação não pode
 descartar silenciosamente um valor obrigatório.
@@ -465,15 +467,15 @@ descrever o que é armazenado: um recorte move `sample_window` (para `5,10`, ou
 estreita `filtered_band` e define `filter_type` e `filter_order` se não forem
 informados; a normalização acrescenta uma linha às `notes`. `biotimbre add`
 aceita as mesmas escolhas como `--trim`, `--apply-highpass`, `--apply-lowpass`,
-`--apply-order` e `--normalise`, que substituem a linha do arquivo sidecar para
+`--apply-filter-order` e `--normalise`, que substituem a linha do arquivo sidecar para
 a mesma escolha. `import-dir` aplica as de cada arquivo sidecar.
 
 ### Tabelas
 
 `import-table` adiciona muitos itens a partir de uma tabela CSV, em vez de um
-arquivo sidecar por gravação. Cada linha é um item, e as colunas são os nomes
-dos campos e das linhas de processamento do sidecar, `latitude` e `longitude`
-no lugar de `location`, e as colunas próprias da tabela, `file`, `inat` e
+arquivo sidecar por gravação. Cada linha é um item. As colunas são os nomes que
+um sidecar aceita, seus campos e linhas de processamento (`latitude` e
+`longitude` ou `location`), mais as colunas próprias da tabela, `file`, `inat` e
 `inat_sound`:
 
 ```

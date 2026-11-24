@@ -61,6 +61,11 @@ SIDECAR_FIELDS: dict[str, str] = {
     "notes": "notes",
 }
 
+#: The recording site as two lines, in place of ``location latitude,longitude``:
+#: what a table's columns usually are, and allowed here so the two formats use
+#: the same names. Folded into ``location`` by :func:`fold_coordinates`.
+COORDINATE_FIELDS = ("latitude", "longitude")
+
 #: Sidecar lines that ask for processing rather than describe the recording,
 #: with what each takes. See :class:`~biotimbre.processing.Processing`.
 PROCESSING_FIELDS: dict[str, str] = {
@@ -110,8 +115,14 @@ def parse_sidecar(text: str, *, source: str = "<string>") -> dict[str, str]:
         name = parts[0].strip().lower()
         value = parts[1].strip() if len(parts) > 1 else ""
 
-        if name not in SIDECAR_FIELDS and name not in PROCESSING_FIELDS:
-            known = ", ".join(sorted({*SIDECAR_FIELDS, *PROCESSING_FIELDS}))
+        if (
+            name not in SIDECAR_FIELDS
+            and name not in PROCESSING_FIELDS
+            and name not in COORDINATE_FIELDS
+        ):
+            known = ", ".join(
+                sorted({*SIDECAR_FIELDS, *PROCESSING_FIELDS, *COORDINATE_FIELDS})
+            )
             raise ValidationError(
                 f"{source} line {line_number}: unknown field {name!r}. "
                 f"Known fields: {known}.",
@@ -169,6 +180,37 @@ def find_sidecar(audio_path: str | Path) -> Path | None:
     return None
 
 
+def fold_coordinates(fields: dict[str, str]) -> dict[str, str]:
+    """Fields with ``latitude`` and ``longitude`` folded into ``location``.
+
+    Args:
+        fields: Parsed fields, from a sidecar or a table row.
+
+    Returns:
+        A copy, with the two coordinates as one ``location`` when they were
+        given.
+
+    Raises:
+        ValidationError: If only one coordinate is given, or both they and
+            ``location`` are.
+    """
+    folded = dict(fields)
+    latitude = folded.pop("latitude", None) or None
+    longitude = folded.pop("longitude", None) or None
+    if latitude is None and longitude is None:
+        return folded
+    if latitude is None or longitude is None:
+        raise ValidationError(
+            "Give both latitude and longitude, or neither.", "location"
+        )
+    if folded.get("location"):
+        raise ValidationError(
+            "Give location, or latitude and longitude, not both.", "location"
+        )
+    folded["location"] = f"{latitude},{longitude}"
+    return folded
+
+
 def draft_from_fields(fields: dict[str, str]) -> ItemDraft:
     """Build a validated draft from parsed sidecar fields.
 
@@ -183,12 +225,17 @@ def draft_from_fields(fields: dict[str, str]) -> ItemDraft:
             Mandatory fields are reported together, so a user fixing a sidecar
             sees everything wrong with it at once rather than one error per run.
     """
+    fields = fold_coordinates(fields)
     mandatory = ("date", "time", "location")
-    missing = [name for name in mandatory if not fields.get(name)]
+    missing = [
+        "location (or latitude and longitude)" if name == "location" else name
+        for name in mandatory
+        if not fields.get(name)
+    ]
     if missing:
         raise ValidationError(
             f"Missing mandatory field(s): {', '.join(missing)}. "
-            f"Required: {', '.join(mandatory)}.",
+            f"Required: date, time, and location or latitude and longitude.",
             "sidecar",
         )
 

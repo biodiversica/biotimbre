@@ -244,7 +244,7 @@ def _processing_flags(args: argparse.Namespace) -> dict[str, object]:
     """The processing options given on the command line, and only those.
 
     Only those, so that over a sidecar they replace the lines for the same
-    choice and leave the rest: an explicit --apply-order 4 still wins over a
+    choice and leave the rest: an explicit --apply-filter-order 4 still wins over a
     sidecar's 6, though 4 is also the default.
     """
     given: dict[str, object] = {}
@@ -757,6 +757,9 @@ def cmd_delete(args: argparse.Namespace) -> int:
 
 
 #: search options that only mean something with a query recording.
+#: Options whose name is not their destination's, for messages.
+_QUERY_ONLY_FLAGS = {"apply_order": "--apply-filter-order"}
+
 _QUERY_ONLY = (
     "start_time",
     "end_time",
@@ -794,7 +797,7 @@ def cmd_search(args: argparse.Namespace) -> int:
         )
         if query is None:
             given = [
-                "--" + name.replace("_", "-")
+                _QUERY_ONLY_FLAGS.get(name, "--" + name.replace("_", "-"))
                 for name in _QUERY_ONLY
                 if getattr(args, name) is not None
             ]
@@ -1149,9 +1152,11 @@ _GLOBAL_NOTE = (
 _SIDECAR_HELP = (
     "A sidecar is a text file with one field per line: the name, then spaces "
     "or a tab, then the value, e.g. 'date 2020-01-14', 'time 09:40:21', "
-    "'location -20,-46' (latitude,longitude), 'taxa cicadidae, hemiptera', "
+    "'location -20,-46' (latitude,longitude; or 'latitude -20' and "
+    "'longitude -46' as two lines), 'taxa cicadidae, hemiptera', "
     "'filtered_band 2000,10000' (- for an open end). Lines starting with # or "
-    "; are comments. Required: date, time, location. Optional: "
+    "; are comments. Required: date, time, and location or latitude and "
+    "longitude. Optional: "
     + ", ".join(f for f in SIDECAR_FIELDS if f not in ("date", "time", "location"))
     + ". A misspelt field name is an error, not ignored.\n\n"
     "A sidecar can also say how to process the audio before it is stored, "
@@ -1287,7 +1292,8 @@ def _inat_options(parser: argparse.ArgumentParser, *, searching: bool) -> None:
                  "filters only with --inat-filters."
                  if searching else
                  "Its date, time, location, taxon and observer fill the "
-                 "metadata, its page becomes --link, and a credit line with the "
+                 "metadata, its page becomes --link-to-full-recording, and a "
+                 "credit line with the "
                  "recording's licence goes in the notes; any of these options "
                  "given replaces what the observation says. An obscured "
                  "location is not used: give --latitude and --longitude."
@@ -1389,7 +1395,7 @@ def _metadata_options(
         type=float,
         metavar="SECONDS",
         help="Where this sample starts within the full recording given by "
-             "--link, in seconds. "
+             "--link-to-full-recording, in seconds. "
              + ("Changes only the start; the end is kept." if editing else
                 "Give --window-end with it, or neither."),
     )
@@ -1400,10 +1406,13 @@ def _metadata_options(
         help="Where this sample ends within the full recording, in seconds.",
     )
     recording.add_argument(
+        "--link-to-full-recording",
         "--link",
+        dest="link",
         metavar="URL",
         help="URL of the full recording this sample was taken from, e.g. an "
-             "iNaturalist observation or an archive entry.",
+             "iNaturalist observation or an archive entry. --link is short for "
+             "it.",
     )
     recording.add_argument("--device", help="Recorder brand and model, e.g. Audiomoth.")
     recording.add_argument("--microphone", help="Microphone brand and model.")
@@ -1656,11 +1665,13 @@ def build_parser() -> argparse.ArgumentParser:
              "Butterworth lowpass, before storing.",
     )
     processing.add_argument(
+        "--apply-filter-order",
         "--apply-order",
+        dest="apply_order",
         type=int,
         metavar="N",
         help="Order of the filter --apply-highpass/--apply-lowpass applies, 1 "
-             "to 16. Default: 4.",
+             "to 16. Default: 4. --apply-order is short for it.",
     )
     processing.add_argument(
         "--normalise",
@@ -1719,9 +1730,9 @@ def build_parser() -> argparse.ArgumentParser:
             "Like import-dir, but with every recording's metadata in one "
             "table instead of a sidecar beside each. Each row is one item; "
             "the columns are the sidecar's field names (date, time, location, "
-            "taxa, device, ...), its processing lines (trim, apply_highpass, "
-            "apply_lowpass, apply_filter_order, normalise), latitude and "
-            "longitude in place of location, and three of the table's own: "
+            "latitude and longitude or location, taxa, device, ...), its "
+            "processing lines (trim, apply_highpass, apply_lowpass, "
+            "apply_filter_order, normalise), and three of the table's own: "
             "file, inat and inat_sound. An empty cell gives nothing. A column "
             "that is not one of these is an error, so a misspelt one cannot "
             "drop its values unseen.\n\n"
@@ -1992,10 +2003,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="Filter out what is above this frequency in the query.",
     )
     query_filter.add_argument(
+        "--apply-filter-order",
         "--apply-order",
+        dest="apply_order",
         type=int,
         metavar="N",
-        help="Order of that filter, 1 to 16. Default: 4.",
+        help="Order of that filter, 1 to 16. Default: 4. --apply-order is short "
+             "for it.",
     )
 
     ranking = p_search.add_argument_group("Ranking")

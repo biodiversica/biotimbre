@@ -352,7 +352,7 @@ biotimbre edit 12 --taxa "guyalna bonaerensis" --clear device
 
 Further `search` options: `--metric {cosine,dot,euclidean}`,
 `--fusion {max,mean,MODEL_ID}`, `--min-score`, `--query-speed`, `--taxa-all`,
-`--date-to`, `--biotimbre-id`, `--exclude`, `--apply-lowpass`, `--apply-order`,
+`--date-to`, `--biotimbre-id`, `--exclude`, `--apply-lowpass`, `--apply-filter-order`,
 and, in a search by filters alone, `--speed` (items stored at these speeds).
 
 `--highpass`/`--lowpass` on `add` and `edit` *record* filtering already done to
@@ -420,7 +420,9 @@ device	Audiomoth
 filtered_band	2000,10000
 ```
 
-`filtered_band` accepts `-` for an open bound, e.g. `2000,-`. Lines beginning
+The location may also be given as two lines, `latitude -20` and `longitude -46`,
+the names a table uses. `filtered_band` accepts `-` for an open bound, e.g.
+`2000,-`. Lines beginning
 with `#` or `;` are comments. An unrecognised field name is reported as an
 error rather than ignored, so a misspelling cannot silently discard a required
 value.
@@ -441,16 +443,16 @@ is stored: a trim moves `sample_window` (to `5,10`, or by 5 s from where the
 file already sat in a longer recording); a filter narrows `filtered_band` and
 sets `filter_type` and `filter_order` if they are not given; normalisation adds
 a line to `notes`. `biotimbre add` takes the same choices as `--trim`,
-`--apply-highpass`, `--apply-lowpass`, `--apply-order` and `--normalise`,
+`--apply-highpass`, `--apply-lowpass`, `--apply-filter-order` and `--normalise`,
 which replace the sidecar's line for the same choice. `import-dir` applies each
 sidecar's own.
 
 ### Tables
 
 `import-table` adds many items from one CSV table instead of a sidecar per
-file. Each row is one item, and the columns are the sidecar's field names and
-processing lines, `latitude` and `longitude` in place of `location`, and the
-table's own `file`, `inat` and `inat_sound`:
+file. Each row is one item. Its columns are the names a sidecar takes, its
+fields and processing lines (`latitude` and `longitude` or `location`), plus
+the table's own `file`, `inat` and `inat_sound`:
 
 ```
 file,inat,date,time,latitude,longitude,taxa,trim,normalise
