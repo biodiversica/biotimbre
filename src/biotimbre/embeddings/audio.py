@@ -264,6 +264,7 @@ def normalise_file(path: str | Path) -> float | None:
     gain = 10.0 ** (NORMALISED_PEAK_DBFS / 20.0) / peak
     scaled = np.ascontiguousarray(samples * gain, dtype=np.float32)
     sf.write(str(path), scaled, int(rate), subtype=subtype)
+    neutralise_peak_chunk(path)
     return 20.0 * math.log10(gain)
 
 
@@ -425,6 +426,7 @@ def write_processed(
     if subtype not in ("FLOAT", "DOUBLE"):
         subtype = "FLOAT"
     sf.write(str(out), mono, int(sample_rate), subtype=subtype)
+    neutralise_peak_chunk(out)
     return read_properties(out)
 
 
@@ -441,6 +443,43 @@ _KEPT_SUBTYPES = ("PCM_U8", "PCM_16", "PCM_24", "PCM_32", "FLOAT", "DOUBLE")
 #: Frames read and written at a time when converting, so an hour-long FLAC
 #: is not held in memory whole.
 _CONVERT_BLOCK = 1 << 16
+
+
+def neutralise_peak_chunk(path: str | Path) -> None:
+    """Make a WAV libsndfile wrote the same bytes every time it is written.
+
+    libsndfile adds a ``PEAK`` chunk to every floating-point WAV, and the
+    chunk holds the time it was written. The same audio written twice then
+    differs, its digest with it, and a recording processed or converted on
+    the way in is never recognised as one already stored. The chunk is turned
+    into ``JUNK`` — the standard padding every reader skips — with its bytes
+    zeroed: in place, so it costs nothing whatever the file's length.
+
+    Args:
+        path: A WAV file. Anything else, or a WAV with no such chunk, is left
+            as it is.
+    """
+    with open(path, "r+b") as handle:
+        header = handle.read(12)
+        if len(header) < 12 or header[:4] != b"RIFF" or header[8:12] != b"WAVE":
+            return
+        while True:
+            start = handle.tell()
+            chunk = handle.read(8)
+            if len(chunk) < 8:
+                return
+            size = int.from_bytes(chunk[4:], "little")
+            if chunk[:4] == b"PEAK":
+                handle.seek(start)
+                handle.write(b"JUNK")
+                handle.seek(4, 1)
+                handle.write(bytes(size))
+                return
+            if chunk[:4] == b"data":
+                # libsndfile writes PEAK ahead of the samples; past them there
+                # is nothing of its own to find.
+                return
+            handle.seek(size + (size & 1), 1)
 
 
 def is_stored_format(path: str | Path) -> bool:
@@ -496,6 +535,7 @@ def write_wav_copy(source: str | Path, destination: str | Path) -> AudioProperti
             ) as copy:
                 for block in src.blocks(blocksize=_CONVERT_BLOCK, dtype=dtype):
                     copy.write(block)
+        neutralise_peak_chunk(out)
     except Exception as exc:
         out.unlink(missing_ok=True)
         raise ValidationError(

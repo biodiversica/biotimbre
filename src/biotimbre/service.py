@@ -39,6 +39,7 @@ from biotimbre.db.connection import (
 from biotimbre.db.repository import Repository
 from biotimbre.domain.errors import (
     BiotimbreError,
+    DuplicateAudioError,
     NotFoundError,
     ValidationError,
 )
@@ -759,6 +760,7 @@ class LibraryService:
         *,
         compute_embeddings: bool = True,
         processing: Processing | None = None,
+        skip_duplicates: bool = False,
     ) -> IngestResult:
         """Add a sample to the library, processing it first if asked.
 
@@ -771,24 +773,35 @@ class LibraryService:
             draft: The item's metadata, for the file as given.
             compute_embeddings: Set false to defer embedding to a later backfill.
             processing: What to do to the audio before storing it.
+            skip_duplicates: Refuse audio the library already holds, byte for
+                byte as it would be stored, instead of storing a second copy
+                with a note. For imports that may be run again.
 
         Returns:
             The :class:`IngestResult`.
 
         Raises:
             ValidationError: If the audio, metadata or processing is unusable.
+            DuplicateAudioError: With ``skip_duplicates``, if the audio is
+                already stored. Nothing is changed.
             EmbeddingError: If embedding fails.
         """
         if processing is None or processing.is_empty:
             return self._add_item(
-                audio_path, draft, compute_embeddings=compute_embeddings
+                audio_path,
+                draft,
+                compute_embeddings=compute_embeddings,
+                skip_duplicates=skip_duplicates,
             )
         with processed(audio_path, draft.validated(), processing) as (
             source,
             described,
         ):
             return self._add_item(
-                source, described, compute_embeddings=compute_embeddings
+                source,
+                described,
+                compute_embeddings=compute_embeddings,
+                skip_duplicates=skip_duplicates,
             )
 
     def _add_item(
@@ -797,6 +810,7 @@ class LibraryService:
         draft: ItemDraft,
         *,
         compute_embeddings: bool = True,
+        skip_duplicates: bool = False,
     ) -> IngestResult:
         """Add a sample to the library, as given.
 
@@ -839,7 +853,11 @@ class LibraryService:
 
         with self._mono_source(audio_path) as (source, properties, level_warnings):
             result = self._ingest(
-                source, validated, properties, compute_embeddings=compute_embeddings
+                source,
+                validated,
+                properties,
+                compute_embeddings=compute_embeddings,
+                skip_duplicates=skip_duplicates,
             )
 
         return replace(
@@ -951,6 +969,7 @@ class LibraryService:
         compute_embeddings: bool,
         embedding_rows: Mapping[str, list[tuple[float, float, np.ndarray]]] | None = None,
         biotimbre_label: str | None = None,
+        skip_duplicates: bool = False,
     ) -> IngestResult:
         """Store one prepared file and its row. See :meth:`add_item`.
 
@@ -975,6 +994,9 @@ class LibraryService:
         """
         digest = audio_io.file_sha256(source)
         duplicates = tuple(item.item_id for item in self.repo.find_by_sha256(digest))
+        if duplicates and skip_duplicates:
+            # Before any embedding or write: a skipped row costs one digest.
+            raise DuplicateAudioError(duplicates)
         warnings = self._nyquist_warnings(validated)
 
         rows: dict[str, list[tuple[float, float, np.ndarray]]] = dict(

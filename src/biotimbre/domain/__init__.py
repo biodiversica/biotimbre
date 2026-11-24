@@ -2,6 +2,7 @@
 
 from biotimbre.domain.errors import (
     BiotimbreError,
+    DuplicateAudioError,
     DuplicateError,
     EmbeddingError,
     NotFoundError,
@@ -20,6 +21,7 @@ from biotimbre.domain.item import (
 
 __all__ = [
     "BiotimbreError",
+    "DuplicateAudioError",
     "DuplicateError",
     "EmbeddingError",
     "FilteredBand",

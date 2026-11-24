@@ -311,6 +311,7 @@ biotimbre init [--name NOME] [--skip-models]   # --name é obrigatório até que
 biotimbre add AUDIO [--sidecar ARQUIVO | opções de metadados] [opções de processamento]
 biotimbre add --inat OBSERVAÇÃO [opções de metadados] [opções de processamento]
 biotimbre import-dir DIR                       # todo arquivo acompanhado de um sidecar
+biotimbre import-table TABELA.csv [--dry-run]  # uma linha por gravação ou observação
 biotimbre list [--biotimbre-id ID] [--limit N]
 biotimbre show ITEM_ID
 biotimbre edit ITEM_ID [opções de metadados] [--clear CAMPO...]
@@ -466,6 +467,45 @@ informados; a normalização acrescenta uma linha às `notes`. `biotimbre add`
 aceita as mesmas escolhas como `--trim`, `--apply-highpass`, `--apply-lowpass`,
 `--apply-order` e `--normalise`, que substituem a linha do arquivo sidecar para
 a mesma escolha. `import-dir` aplica as de cada arquivo sidecar.
+
+### Tabelas
+
+`import-table` adiciona muitos itens a partir de uma tabela CSV, em vez de um
+arquivo sidecar por gravação. Cada linha é um item, e as colunas são os nomes
+dos campos e das linhas de processamento do sidecar, `latitude` e `longitude`
+no lugar de `location`, e as colunas próprias da tabela, `file`, `inat` e
+`inat_sound`:
+
+```
+file,inat,date,time,latitude,longitude,taxa,trim,normalise
+GUYVIR.wav,,2020-01-12,09:40:21,-26.9,-48.7,cicadidae,"1,4",yes
+,400139850,,,,,cicadidae,,
+```
+
+```bash
+biotimbre import-table gravacoes/tabela.csv --dry-run   # verificar, sem alterar nada
+biotimbre import-table gravacoes/tabela.csv
+```
+
+- **`file`**: um nome sozinho é procurado na pasta da tabela, que fica junto às
+  gravações; um caminho relativo a essa pasta também funciona, e um caminho
+  absoluto é usado como está. Um caminho escrito em outro sistema operacional
+  (`C:\...` lido no Linux, `/home/...` no Windows) é apontado como tal.
+- **`inat`**: o ID ou a URL de uma observação do iNaturalist no lugar de
+  `file`. A gravação é baixada, e os metadados da observação preenchem o que a
+  linha deixa vazio, como em `add --inat`; `inat_sound` escolhe uma das
+  gravações. As observações são pedidas de 200 em 200 e as gravações uma a uma,
+  com no máximo uma requisição por segundo e menos de 5 GB de áudio por hora,
+  seguindo as práticas recomendadas pelo iNaturalist; uma requisição recusada
+  por excesso é repetida após a espera indicada. Esperas longas são anunciadas.
+- A tabela pode ser separada por vírgulas, ponto e vírgula ou tabulações. Numa
+  tabela separada por ponto e vírgula, um número sozinho pode usar vírgula
+  decimal (`-26,9`); pares como `trim` sempre exigem ponto decimal.
+- Uma coluna desconhecida é um erro. Uma célula vazia não informa nada. Todas
+  as linhas são tentadas, e cada uma é informada com o número da sua linha.
+- Uma gravação que já está na biblioteca é **ignorada**, de modo que uma
+  importação interrompida pode simplesmente ser repetida; `--keep-duplicates`
+  a armazena de novo.
 
 ## Preparação do Áudio
 

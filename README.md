@@ -293,6 +293,7 @@ biotimbre init [--name NAME] [--skip-models]   # --name is required until one is
 biotimbre add AUDIO [--sidecar FILE | metadata options] [processing options]
 biotimbre add --inat OBSERVATION [metadata options] [processing options]
 biotimbre import-dir DIR                       # every file paired with a sidecar
+biotimbre import-table TABLE.csv [--dry-run]   # one row per recording or observation
 biotimbre list [--biotimbre-id ID] [--limit N]
 biotimbre show ITEM_ID
 biotimbre edit ITEM_ID [metadata options] [--clear FIELD...]
@@ -443,6 +444,43 @@ a line to `notes`. `biotimbre add` takes the same choices as `--trim`,
 `--apply-highpass`, `--apply-lowpass`, `--apply-order` and `--normalise`,
 which replace the sidecar's line for the same choice. `import-dir` applies each
 sidecar's own.
+
+### Tables
+
+`import-table` adds many items from one CSV table instead of a sidecar per
+file. Each row is one item, and the columns are the sidecar's field names and
+processing lines, `latitude` and `longitude` in place of `location`, and the
+table's own `file`, `inat` and `inat_sound`:
+
+```
+file,inat,date,time,latitude,longitude,taxa,trim,normalise
+GUYVIR.wav,,2020-01-12,09:40:21,-26.9,-48.7,cicadidae,"1,4",yes
+,400139850,,,,,cicadidae,,
+```
+
+```bash
+biotimbre import-table recordings/table.csv --dry-run   # check it, change nothing
+biotimbre import-table recordings/table.csv
+```
+
+- **`file`**: a bare name is looked for in the table's folder, so the table is
+  kept beside the recordings; a path relative to that folder also works, and an
+  absolute path is used as given. A path written on another operating system
+  (`C:\...` read on Linux, `/home/...` on Windows) is reported as such.
+- **`inat`**: an iNaturalist observation ID or URL in place of `file`. Its
+  recording is downloaded and its metadata fills whatever the row leaves empty,
+  as `add --inat` does; `inat_sound` picks one of its recordings. Observations
+  are requested 200 at a time and recordings one at a time, at most one request
+  a second and under 5 GB of audio an hour, following iNaturalist's recommended
+  practices, and a request refused as too many is retried after the wait it
+  names. Long waits are announced.
+- A table may be separated by commas, semicolons or tabs. In a
+  semicolon-separated table a single number may use a decimal comma (`-26,9`);
+  pairs such as `trim` always need decimal points.
+- An unknown column is an error. An empty cell gives nothing. Every row is
+  tried, and each is reported with its line number.
+- A recording already in the library is **skipped**, so an interrupted import
+  can be run again; `--keep-duplicates` stores it again instead.
 
 ## Audio Preparation
 

@@ -36,5 +36,18 @@ class DuplicateError(BiotimbreError):
     """A record would collide with one that already exists."""
 
 
+class DuplicateAudioError(DuplicateError):
+    """The recording is already stored, and the caller asked not to store it again.
+
+    Attributes:
+        item_ids: The items that hold it.
+    """
+
+    def __init__(self, item_ids: tuple[int, ...]):
+        ids = ", ".join(str(i) for i in item_ids)
+        super().__init__(f"This recording is already in the library as item(s) {ids}.")
+        self.item_ids = item_ids
+
+
 class EmbeddingError(BiotimbreError):
     """Embedding computation or storage failed."""

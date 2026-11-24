@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
@@ -37,6 +38,23 @@ USER_AGENT = "biotimbre (local research tool)"
 
 #: Seconds to wait on the API and on a download.
 TIMEOUT_S = 20.0
+
+#: Pacing for many requests in a row, as a table import makes. iNaturalist
+#: sends no rate-limit headers; these follow the limits its recommended
+#: practices ask for — about one request a second (60 a minute) and under
+#: 5 GB of media an hour — and can be lowered, not raised, if it asks for less.
+MIN_REQUEST_INTERVAL_S = 1.0
+MEDIA_BYTES_PER_HOUR = 5 * 1000**3
+
+#: Observations read in one request: the API's largest page.
+BATCH_SIZE = 200
+
+#: Times a request told to slow down (HTTP 429 or 503) is tried again, waiting
+#: what it says or twice as long each time, before giving up.
+MAX_RETRIES = 6
+
+#: Statuses that mean "slow down", not "this failed".
+_THROTTLED_STATUSES = frozenset({429, 503})
 
 #: Bytes per chunk while streaming a download. Small enough that progress
 #: moves visibly on a slow line, large enough not to thrash.
@@ -135,6 +153,179 @@ class Observation:
         elif sound and sound.license_code:
             parts.append(sound.license_code.upper())
         return " — ".join(parts)
+
+
+class Throttled(BiotimbreError):
+    """iNaturalist asked for fewer requests (HTTP 429 or 503).
+
+    Attributes:
+        retry_after: Seconds it said to wait, or ``None`` if it did not say.
+    """
+
+    def __init__(self, retry_after: float | None = None):
+        super().__init__("iNaturalist asked for fewer requests.")
+        self.retry_after = retry_after
+
+
+def _raise_if_throttled(response) -> None:
+    if response.status_code not in _THROTTLED_STATUSES:
+        return
+    header = response.headers.get("retry-after")
+    try:
+        retry_after = float(header) if header is not None else None
+    except ValueError:  # an HTTP date: wait the default instead
+        retry_after = None
+    raise Throttled(retry_after)
+
+
+class Throttle:
+    """Paces many requests to iNaturalist, and backs off when it says so.
+
+    Each request waits until :data:`MIN_REQUEST_INTERVAL_S` has passed since
+    the one before; downloads also wait, when the last hour's add up to
+    :data:`MEDIA_BYTES_PER_HOUR`, until enough of that hour has gone by. A
+    :class:`Throttled` answer is retried after the wait it names, or after a
+    doubling one.
+
+    Args:
+        interval_s: Least time between two requests.
+        media_bytes_per_hour: Most media downloaded in any hour.
+        on_wait: Called with ``(seconds, why)`` before any wait longer than a
+            second, so a long one can be explained to whoever is watching.
+        clock: Monotonic clock, for tests.
+        sleep: Sleep function, for tests.
+    """
+
+    def __init__(
+        self,
+        *,
+        interval_s: float = MIN_REQUEST_INTERVAL_S,
+        media_bytes_per_hour: int = MEDIA_BYTES_PER_HOUR,
+        on_wait: Callable[[float, str], None] | None = None,
+        clock: Callable[[], float] = time.monotonic,
+        sleep: Callable[[float], None] = time.sleep,
+    ):
+        self.interval_s = interval_s
+        self.media_bytes_per_hour = media_bytes_per_hour
+        self._on_wait = on_wait
+        self._clock = clock
+        self._sleep = sleep
+        self._last: float | None = None
+        self._media: list[tuple[float, int]] = []
+
+    def _pause(self, seconds: float, why: str) -> None:
+        if seconds <= 0:
+            return
+        if seconds > 1.0 and self._on_wait is not None:
+            self._on_wait(seconds, why)
+        self._sleep(seconds)
+
+    def _pace(self) -> None:
+        if self._last is not None:
+            self._pause(self.interval_s - (self._clock() - self._last), "pacing")
+        self._last = self._clock()
+
+    def _media_room(self) -> None:
+        hour_ago = self._clock() - 3600.0
+        self._media = [(t, n) for t, n in self._media if t > hour_ago]
+        used = sum(n for _, n in self._media)
+        if used >= self.media_bytes_per_hour and self._media:
+            self._pause(
+                self._media[0][0] - hour_ago,
+                "the hourly media limit was reached",
+            )
+            self._media.pop(0)
+
+    def record_media(self, received: int) -> None:
+        """Count a finished download against the hourly media limit."""
+        self._media.append((self._clock(), int(received)))
+
+    def call(self, request: Callable[[], object], *, media: bool = False):
+        """Make one request, paced, and again while iNaturalist says to wait.
+
+        Args:
+            request: Makes the request, raising :class:`Throttled` when told
+                to slow down.
+            media: Whether it downloads media, which also waits for room
+                under the hourly limit.
+
+        Returns:
+            What ``request`` returns.
+
+        Raises:
+            BiotimbreError: If iNaturalist is still asking to wait after
+                :data:`MAX_RETRIES` tries, or the request fails otherwise.
+        """
+        backoff = max(self.interval_s, 1.0) * 2
+        for _attempt in range(MAX_RETRIES + 1):
+            if media:
+                self._media_room()
+            self._pace()
+            try:
+                return request()
+            except Throttled as exc:
+                wait = exc.retry_after if exc.retry_after is not None else backoff
+                self._pause(wait, "iNaturalist asked to slow down")
+                backoff *= 2
+        raise BiotimbreError(
+            f"iNaturalist kept asking to slow down after {MAX_RETRIES} retries; "
+            f"try again later."
+        )
+
+
+def fetch_observations(
+    observation_ids, *, client: httpx2.Client | None = None, throttle: Throttle | None = None
+) -> dict[int, Observation]:
+    """Read many observations, :data:`BATCH_SIZE` to a request. Blocking.
+
+    Args:
+        observation_ids: The observations to read.
+        client: An open client to use, for tests. ``None`` opens one.
+        throttle: Paces the requests. ``None`` makes one with the defaults.
+
+    Returns:
+        The observations found, by ID. One that does not exist, or that is
+        private, is simply absent: iNaturalist does not say which.
+
+    Raises:
+        BiotimbreError: If iNaturalist cannot be reached or answers oddly.
+    """
+    wanted = list(dict.fromkeys(int(i) for i in observation_ids))
+    throttle = throttle or Throttle()
+    owned = client is None
+    client = client or httpx2.Client(
+        timeout=TIMEOUT_S, headers={"User-Agent": USER_AGENT}
+    )
+    found: dict[int, Observation] = {}
+    try:
+        for start in range(0, len(wanted), BATCH_SIZE):
+            batch = wanted[start : start + BATCH_SIZE]
+
+            def request(batch=batch):
+                response = client.get(
+                    f"{API_ROOT}/observations",
+                    params={"id": ",".join(str(i) for i in batch),
+                            "per_page": BATCH_SIZE},
+                )
+                _raise_if_throttled(response)
+                response.raise_for_status()
+                return response.json()
+
+            try:
+                payload = throttle.call(request)
+            except httpx2.HTTPError as exc:
+                raise BiotimbreError(f"Could not reach iNaturalist: {exc}") from exc
+            except ValueError as exc:  # not JSON
+                raise BiotimbreError(
+                    f"iNaturalist answered unreadably: {exc}"
+                ) from exc
+            for result in payload.get("results") or []:
+                observation = observation_from_payload(result)
+                found[observation.id] = observation
+    finally:
+        if owned:
+            client.close()
+    return found
 
 
 def parse_observation_id(value: object) -> int:
@@ -344,6 +535,7 @@ def download_sound(
     )
     try:
         with client.stream("GET", sound.url) as response:
+            _raise_if_throttled(response)
             response.raise_for_status()
             total = int(response.headers.get("content-length") or 0)
             received = 0
@@ -355,6 +547,9 @@ def download_sound(
                     received += len(chunk)
                     if on_progress is not None:
                         on_progress(received, total)
+    except Throttled:
+        landing.unlink(missing_ok=True)
+        raise
     except httpx2.HTTPError as exc:
         landing.unlink(missing_ok=True)
         raise BiotimbreError(f"Could not download the recording: {exc}") from exc

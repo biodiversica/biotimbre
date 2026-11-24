@@ -93,3 +93,37 @@ class TestKept:
         _store(service, path)
         again = service.add_item(path, _draft(), compute_embeddings=False)
         assert again.duplicate_of == (1,)
+
+
+class TestStable:
+    """Processing or converting the same recording twice gives the same file,
+    so its digest recognises it the second time."""
+
+    def test_a_float_wav_is_written_the_same_each_time(self, tmp_path):
+        import time
+
+        first, second = tmp_path / "a.wav", tmp_path / "b.wav"
+        audio_io.write_processed(GUYVIR_WAV, first, low_hz=500.0)
+        time.sleep(1.1)  # the PEAK chunk's timestamp is in seconds
+        audio_io.write_processed(GUYVIR_WAV, second, low_hz=500.0)
+        assert first.read_bytes() == second.read_bytes()
+        assert b"PEAK" not in first.read_bytes()
+        assert sf.info(str(first)).subtype == "FLOAT"
+
+    def test_a_processed_recording_is_recognised_again(self, service):
+        from biotimbre.processing import Processing
+
+        processing = Processing(trim=(1.0, 4.0), highpass=500.0, normalise=True)
+        service.add_item(GUYVIR_WAV, _draft(), compute_embeddings=False,
+                         processing=processing)
+        from biotimbre.domain.errors import DuplicateAudioError
+
+        with pytest.raises(DuplicateAudioError):
+            service.add_item(GUYVIR_WAV, _draft(), compute_embeddings=False,
+                             processing=processing, skip_duplicates=True)
+
+    def test_an_mp3_is_recognised_again(self, service, tmp_path):
+        path, _ = _as(tmp_path, "MP3", "MPEG_LAYER_III", ".mp3")
+        _store(service, path)
+        again = service.add_item(path, _draft(), compute_embeddings=False)
+        assert again.duplicate_of == (1,)

@@ -262,3 +262,36 @@ class TestDownloading:
         # Readable by the same library everything else goes through.
         assert sf.info(str(written)).samplerate == 16_000
         assert not (tmp_path / "q.m4a").exists()
+
+
+class TestFetchingMany:
+    def _throttle(self):
+        return inat.Throttle(sleep=lambda seconds: None)
+
+    def test_two_hundred_to_a_request(self):
+        asked: list[list[str]] = []
+
+        def handler(request):
+            ids = request.url.params["id"].split(",")
+            asked.append(ids)
+            results = [{**PAYLOAD["results"][0], "id": int(i)} for i in ids]
+            return httpx2.Response(200, json={"results": results})
+
+        with client_for(handler) as client:
+            found = inat.fetch_observations(
+                range(1, 251), client=client, throttle=self._throttle()
+            )
+        assert [len(ids) for ids in asked] == [200, 50]
+        assert sorted(found) == list(range(1, 251))
+
+    def test_a_429_is_waited_out(self):
+        answers = iter([
+            httpx2.Response(429, headers={"retry-after": "7"}),
+            httpx2.Response(200, json=PAYLOAD),
+        ])
+        waited: list[float] = []
+        throttle = inat.Throttle(sleep=waited.append)
+        with client_for(lambda request: next(answers)) as client:
+            found = inat.fetch_observations([400139850], client=client, throttle=throttle)
+        assert 400139850 in found
+        assert 7.0 in waited

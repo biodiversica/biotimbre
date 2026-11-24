@@ -625,6 +625,56 @@ def cmd_import(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_import_table(args: argparse.Namespace) -> int:
+    """Add every row of a CSV table: one recording, or observation, per row."""
+    from biotimbre import table_import
+
+    if args.dry_run:
+        checked = table_import.check_table(args.table)
+        problems = 0
+        for row, problem in checked:
+            if problem is None:
+                print(f"line {row.line:>4}  ok      {row.label}")
+            else:
+                problems += 1
+                print(f"line {row.line:>4}  FAILED  {row.label}: {problem}")
+        print(
+            f"\n{len(checked) - problems} row(s) ready, {problems} with problems. "
+            f"Nothing was changed; iNaturalist was not asked whether the "
+            f"observations exist."
+        )
+        return 1 if problems else 0
+
+    def on_row(row, outcome, detail) -> None:
+        if outcome == "added":
+            print(f"line {row.line:>4}  added   item {detail.item.item_id}  {row.label}")
+            for warning in detail.warnings:
+                print(f"            warning: {warning}")
+        elif outcome == "skipped":
+            ids = ", ".join(str(i) for i in detail)
+            print(f"line {row.line:>4}  skipped {row.label}: already item(s) {ids}")
+        else:
+            print(f"line {row.line:>4}  FAILED  {row.label}: {detail}")
+
+    def on_wait(seconds: float, why: str) -> None:
+        print_warning(f"waiting {seconds:.0f} s: {why}.")
+
+    with _service(args) as service:
+        report = table_import.import_table(
+            service,
+            args.table,
+            compute_embeddings=not args.no_embeddings,
+            skip_duplicates=not args.keep_duplicates,
+            on_row=on_row,
+            on_wait=on_wait,
+        )
+    print(
+        f"\nAdded {len(report.added)}, skipped {len(report.skipped)}, "
+        f"failed {len(report.failed)}."
+    )
+    return 1 if report.failed else 0
+
+
 def cmd_list(args: argparse.Namespace) -> int:
     """List stored items."""
     with _service(args) as service:
@@ -1659,6 +1709,83 @@ def build_parser() -> argparse.ArgumentParser:
              "`biotimbre backfill MODEL_ID`. Much faster for a large directory.",
     )
     p_import.set_defaults(func=cmd_import)
+
+    p_table = _command(
+        subparsers,
+        "import-table",
+        panel="Items",
+        summary="Add many recordings from a CSV table, one row each.",
+        description=(
+            "Like import-dir, but with every recording's metadata in one "
+            "table instead of a sidecar beside each. Each row is one item; "
+            "the columns are the sidecar's field names (date, time, location, "
+            "taxa, device, ...), its processing lines (trim, apply_highpass, "
+            "apply_lowpass, apply_filter_order, normalise), latitude and "
+            "longitude in place of location, and three of the table's own: "
+            "file, inat and inat_sound. An empty cell gives nothing. A column "
+            "that is not one of these is an error, so a misspelt one cannot "
+            "drop its values unseen.\n\n"
+            "file: the recording. A bare name is looked for in the table's "
+            "folder, so keep the table beside the recordings; a path relative "
+            "to that folder works too, and an absolute path is used as given. "
+            "A path written on another operating system (C:\\... read on "
+            "Linux, /home/... on Windows) is reported as such.\n\n"
+            "inat: an iNaturalist observation ID or URL instead of file. Its "
+            "recording is downloaded, and its date, time, location, taxon, "
+            "observer and page fill whatever the row leaves empty, with a "
+            "credit line in the notes, as add --inat does. inat_sound picks "
+            "one of its recordings (default 1). iNaturalist is asked for the "
+            "observations 200 at a time and the recordings one at a time, at "
+            "most one request a second and under 5 GB of audio an hour, and "
+            "a request it refuses as too many is retried after the wait it "
+            "names. Waits longer than a second are announced.\n\n"
+            "The table may be separated by commas, semicolons or tabs, as "
+            "spreadsheets save CSV. With semicolons, a single number may use "
+            "a decimal comma (-26,9); pairs such as trim or sample_window "
+            "always need decimal points, since their comma separates the two "
+            "values. Use latitude and longitude rather than location there.\n\n"
+            "Every row is tried, and each is reported as it is done with its "
+            "line number. A recording already in the library is skipped, so "
+            "an import that was interrupted can simply be run again. Exits "
+            "with status 1 if any row failed."
+        ),
+        examples=(
+            "  biotimbre import-table recordings/table.csv --dry-run\n"
+            "  biotimbre import-table recordings/table.csv\n"
+            "\n"
+            "  # table.csv, beside the recordings. Row 2 is a file; row 3 is\n"
+            "  # fetched from iNaturalist, which fills all but its taxon.\n"
+            "  file,inat,date,time,latitude,longitude,taxa,trim,normalise\n"
+            "  GUYVIR.wav,,2020-01-12,09:40:21,-26.9,-48.7,cicadidae,\"1,4\",yes\n"
+            "  ,400139850,,,,,cicadidae,,"
+        ),
+    )
+    p_table.add_argument(
+        "table",
+        help="The CSV table. Bare file names in it are looked for in its folder.",
+    )
+    p_table.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Check every row — columns, paths, metadata, processing, the form "
+             "of each observation ID — and change nothing. iNaturalist is not "
+             "asked, so whether an observation exists is only found out by "
+             "the import.",
+    )
+    p_table.add_argument(
+        "--no-embeddings",
+        action="store_true",
+        help="Store audio and metadata only; embed later with "
+             "`biotimbre backfill MODEL_ID`. Much faster for a large table.",
+    )
+    p_table.add_argument(
+        "--keep-duplicates",
+        action="store_true",
+        help="Store a recording the library already holds as another item, "
+             "instead of skipping it. Without it, running the same table again "
+             "adds nothing twice.",
+    )
+    p_table.set_defaults(func=cmd_import_table)
 
     p_list = _command(
         subparsers,
