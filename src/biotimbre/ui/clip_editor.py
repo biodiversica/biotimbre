@@ -50,6 +50,10 @@ _SEGMENT_EPSILON = 0.01
 #: library page's add form to pick up.
 HANDOFF_KEY = "handoff"
 
+#: Where a library item sent to the search page waits for it, by the same
+#: means: a token in the browser's storage.
+SEARCH_HANDOFF_KEY = "search_handoff"
+
 #: On-screen height of the editor's pictures, matching what a spectrogram
 #: rendered at 860x170 comes out as across the card.
 PREVIEW_VIEW_HEIGHT = 170
@@ -833,6 +837,8 @@ class Handoff:
         observation: The iNaturalist observation it was fetched from, if any,
             for the add form to take the metadata from.
         sound: Which of the observation's recordings it is, for the credit.
+        item_id: The library item it is the stored audio of, if any: a query
+            taken from the library, which its results leave out.
     """
 
     name: str
@@ -845,10 +851,16 @@ class Handoff:
     speed: float
     observation: Any = None
     sound: Any = None
+    item_id: int | None = None
 
 
 async def hand_over(
-    clip: ClipState, *, speed: float, observation: Any = None, sound: Any = None
+    clip: ClipState,
+    *,
+    speed: float,
+    observation: Any = None,
+    sound: Any = None,
+    item_id: int | None = None,
 ) -> str:
     """Leave a copy of a staged recording, and its settings, to be taken over.
 
@@ -860,6 +872,7 @@ async def hand_over(
         speed: Speed chosen for it.
         observation: The observation it was fetched from, if any.
         sound: Which of its recordings, if any.
+        item_id: The library item it came from, if any.
 
     Returns:
         The token to take it over by.
@@ -883,8 +896,59 @@ async def hand_over(
         speed=speed,
         observation=observation,
         sound=sound,
+        item_id=item_id,
     )
     return token
+
+
+async def hand_over_item(item_id: int) -> str:
+    """Leave a library item's stored audio to be taken over as a query.
+
+    The whole recording, with no filter, at the speed the item was embedded
+    at: on the search page a query speed also picks the items compared, so a
+    katydid stored at 0.25 is compared with the others stored at 0.25.
+
+    Returns:
+        The token to take it over by.
+
+    Raises:
+        NotFoundError: If the item, or its audio, is missing.
+    """
+    state = get_state()
+    item = await state.run(state.service.get_item, item_id)
+    source, _mime = await state.run(state.service.get_audio, item_id)
+    name = f"item-{item_id}{Path(source).suffix}"
+    token, target = state.queries.reserve(name)
+    await state.run(shutil.copyfile, source, target)
+    state.handoffs[token] = Handoff(
+        name=name,
+        start=0.0,
+        end=item.duration_s,
+        highpass=None,
+        lowpass=None,
+        filter_order=DEFAULT_FILTER_ORDER,
+        normalise=False,
+        speed=item.speed,
+        item_id=item_id,
+    )
+    return token
+
+
+async def search_with_item(t: Translator, item_id: int) -> None:
+    """Open the search page with a library item's recording as the query."""
+    from biotimbre.ui.layout import current_views
+
+    try:
+        token = await hand_over_item(item_id)
+    except BiotimbreError as exc:
+        notify_error(t, exc)
+        return
+    app.storage.user[SEARCH_HANDOFF_KEY] = token
+    views = current_views()
+    if views is not None:
+        await views.show("search")
+    else:
+        ui.navigate.to("/search")
 
 
 async def take_over(token: str, clip: ClipState) -> tuple[Upload, Handoff] | None:

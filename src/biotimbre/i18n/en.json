@@ -294,7 +294,13 @@
     "rank": "#",
     "copy_id": "{biotimbre_id} (click to copy)",
     "to_library": "Add to library…",
-    "to_library_hint": "Not in the library yet? Opens the Library page's add form with this recording and these settings, to review and save."
+    "to_library_hint": "Not in the library yet? Opens the Library page's add form with this recording and these settings, to review and save.",
+    "find_similar": "Find similar",
+    "find_similar_help": "Search the library with this item's recording",
+    "query_from_item": "Query: item #{id} — {taxa}",
+    "include_self": "Include the item itself",
+    "include_self_help": "It comes first, scoring 1 against itself: a check that the search works, not a finding.",
+    "item_gone": "That item's recording is no longer available."
   },
   "map": {
     "heading": "Results map",

@@ -15,6 +15,7 @@ from nicegui import ui
 from biotimbre.domain.errors import BiotimbreError
 from biotimbre.domain.item import LibraryItem
 from biotimbre.i18n import Translator
+from biotimbre.ui.clip_editor import search_with_item
 from biotimbre.ui.exports import export_button
 from biotimbre.ui.playback import item_player
 from biotimbre.ui.state import get_state
@@ -170,7 +171,16 @@ async def open_detail(
         )
         _metadata_rows(t, item, counts, label)
 
+        async def find_similar() -> None:
+            dialog.close()
+            await search_with_item(t, item.item_id)
+
         with ui.row().classes("items-center justify-end gap-2 w-full"):
+            ui.button(
+                t("search.find_similar"), icon="manage_search", on_click=find_similar
+            ).props("flat dense no-caps").tooltip(
+                t("search.find_similar_help")
+            ).mark("find-similar")
             export_button(t, item.item_id, counts)
             ui.button(t("common.close"), on_click=dialog.close).props("flat")
             if actions is not None:

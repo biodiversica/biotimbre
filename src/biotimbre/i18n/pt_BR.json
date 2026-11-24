@@ -294,7 +294,13 @@
     "rank": "#",
     "copy_id": "{biotimbre_id} (clique para copiar)",
     "to_library": "Adicionar à biblioteca…",
-    "to_library_hint": "Ainda não está na biblioteca? Abre o formulário de adição da página Biblioteca com esta gravação e estas configurações, para revisar e salvar."
+    "to_library_hint": "Ainda não está na biblioteca? Abre o formulário de adição da página Biblioteca com esta gravação e estas configurações, para revisar e salvar.",
+    "find_similar": "Buscar semelhantes",
+    "find_similar_help": "Buscar na biblioteca com a gravação deste item",
+    "query_from_item": "Consulta: item #{id} — {taxa}",
+    "include_self": "Incluir o próprio item",
+    "include_self_help": "Ele vem primeiro, com pontuação 1 contra si mesmo: uma verificação de que a busca funciona, não uma descoberta.",
+    "item_gone": "A gravação desse item não está mais disponível."
   },
   "map": {
     "heading": "Mapa dos resultados",

@@ -14,6 +14,7 @@ selection is explicit and visible rather than a silent truncation.
 
 from __future__ import annotations
 
+import dataclasses
 from collections.abc import Callable
 
 from nicegui import app, ui
@@ -28,6 +29,7 @@ from biotimbre.sources import inaturalist
 from biotimbre.ui.clip_editor import (
     ACCEPTED,
     HANDOFF_KEY,
+    SEARCH_HANDOFF_KEY,
     SEARCH_WORDING,
     ClipControls,
     ClipState,
@@ -35,6 +37,7 @@ from biotimbre.ui.clip_editor import (
     Upload,
     clip_editor,
     hand_over,
+    search_with_item,
     take_over,
 )
 from biotimbre.ui.clipboard import copy_on_click
@@ -262,6 +265,13 @@ async def _result_card(
                         icon="info",
                         on_click=lambda: open_detail(t, item.item_id),
                     ).props("flat dense no-caps").mark("result-details")
+                    ui.button(
+                        t("search.find_similar"),
+                        icon="manage_search",
+                        on_click=lambda: search_with_item(t, item.item_id),
+                    ).props("flat dense no-caps").tooltip(
+                        t("search.find_similar_help")
+                    ).mark("result-find-similar")
                     export_button(t, item.item_id, counts)
                     if item.link_to_full_recording:
                         ui.link(
@@ -470,11 +480,12 @@ async def render(t: Translator) -> None:
     #: The query speed, kept from one recording to the next: it says which
     #: speed of the library to search, not anything about one file.
     query_speed = {"value": DEFAULT_SPEED}
-    #: The iNaturalist observation the query was fetched from, if it was, for
-    #: the library's add form to take the metadata from.
-    #: The observation the query was fetched from, and which of its
-    #: recordings, so the add form can take its metadata and credit it.
-    origin: dict = {"observation": None, "sound": None}
+    #: Where the query came from: an iNaturalist observation and which of
+    #: its recordings, so the add form can take its metadata and credit it;
+    #: or a library item, which its results leave out unless asked not to.
+    origin: dict = {
+        "observation": None, "sound": None, "item": None, "include_self": False,
+    }
     #: The results on screen, as :func:`draw_results` takes them, so a change
     #: of language can draw them again rather than search again.
     shown_results: dict = {"value": None}
@@ -495,7 +506,7 @@ async def render(t: Translator) -> None:
             query.discard()
             media.stop()
             editor["controls"] = None
-            origin.update(observation=None, sound=None)
+            origin.update(observation=None, sound=None, item=None)
             uploader.reset()
             show_pickers(True)
             query_area.clear()
@@ -538,6 +549,8 @@ async def render(t: Translator) -> None:
             editor["controls"] = None
             query_area.clear()
             with query_area:
+                if origin["item"] is not None:
+                    await item_origin_row(origin["item"])
                 await clip_editor(
                     t,
                     query,
@@ -549,6 +562,44 @@ async def render(t: Translator) -> None:
                     speed=query_speed["value"],
                     on_ready=ready,
                 )
+
+        async def item_origin_row(item_id: int) -> None:
+            """Say which library item the query is, and whether it is a result."""
+            try:
+                item = await state.run(state.service.get_item, item_id)
+                described = item.taxa_display
+            except BiotimbreError:
+                described = "?"
+            with ui.row().classes("items-center gap-3 w-full"):
+                ui.label(
+                    t("search.query_from_item", id=item_id, taxa=described)
+                ).classes("text-sm").mark("query-from-item")
+                ui.checkbox(
+                    t("search.include_self"),
+                    value=origin["include_self"],
+                    on_change=lambda event: origin.update(
+                        include_self=bool(event.value)
+                    ),
+                ).props("dense").tooltip(t("search.include_self_help"))
+
+        async def take_item(token: str) -> None:
+            """Make a library item, sent from another page, the query."""
+            clear_query()
+            try:
+                taken = await take_over(token, query)
+            except BiotimbreError as exc:
+                notify_error(t, exc)
+                return
+            if taken is None:
+                ui.notify(t("search.item_gone"), type="warning", position="top")
+                return
+            upload, handoff = taken
+            query_speed["value"] = handoff.speed
+            origin.update(
+                observation=None, sound=None, item=handoff.item_id,
+                include_self=False,
+            )
+            await show_query(upload)
 
         async def to_library() -> None:
             """Take the query, as prepared, to the library page's add form.
@@ -595,7 +646,7 @@ async def render(t: Translator) -> None:
                 # event.content/event.file API change went unnoticed.
                 notify_error(t, exc)
                 raise
-            origin.update(observation=None, sound=None)
+            origin.update(observation=None, sound=None, item=None)
             await show_query(upload)
 
         def handle_rejected(_event) -> None:
@@ -613,7 +664,7 @@ async def render(t: Translator) -> None:
             upload = await state.run(
                 query.finish, path, f"inat-{observation.id}{path.suffix}"
             )
-            origin.update(observation=observation, sound=sound)
+            origin.update(observation=observation, sound=sound, item=None)
             await show_query(upload)
 
         uploader = ui.upload(
@@ -741,6 +792,12 @@ async def render(t: Translator) -> None:
             if search_filters.is_empty:
                 ui.notify(t("search.no_query"), type="warning", position="top")
                 return
+        elif origin["item"] is not None and not origin["include_self"]:
+            # It would come first, scoring 1.0 against itself.
+            search_filters = dataclasses.replace(
+                search_filters,
+                exclude_item_ids=(*search_filters.exclude_item_ids, origin["item"]),
+            )
 
         run_button.disable()
         spinner.set_visibility(True)
@@ -870,6 +927,7 @@ async def render(t: Translator) -> None:
                 speed=speed,
                 observation=origin["observation"],
                 sound=origin["sound"],
+                item_id=origin["item"],
             )
             if inat_panel is not None:
                 kept["shown"] = inat_panel.shown
@@ -889,7 +947,11 @@ async def render(t: Translator) -> None:
             if taken is not None:
                 upload, handoff = taken
                 query_speed["value"] = handoff.speed
-                origin.update(observation=handoff.observation, sound=handoff.sound)
+                origin.update(
+                    observation=handoff.observation,
+                    sound=handoff.sound,
+                    item=handoff.item_id,
+                )
                 await show_query(upload)
                 if kept["shown"] is not None and inat_panel is not None:
                     inat_panel.show(*kept["shown"])
@@ -903,3 +965,20 @@ async def render(t: Translator) -> None:
     views = current_views()
     if views is not None:
         await views.keep("search", snapshot, restore)
+
+    def take_pending_item() -> None:
+        """Take up a library item another page sent here as the query."""
+        try:
+            token = app.storage.user.pop(SEARCH_HANDOFF_KEY, None)
+        except RuntimeError:
+            token = None
+        if token is not None:
+            # After the page is up, rather than holding it back while the
+            # recording is decoded and pictured.
+            ui.timer(0, lambda: take_item(token), once=True)
+
+    take_pending_item()
+    # The page outlives a trip to the library page, so an item sent from
+    # there has to be picked up on the way back, not only on load.
+    if views is not None:
+        views.when_shown("search", take_pending_item)

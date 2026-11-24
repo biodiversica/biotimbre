@@ -1655,3 +1655,71 @@ class TestSelectedResultsBundle:
         TestResultMap._run_search(user)
         await user.should_see("2 match(es)")
         await user.should_not_see(marker="selection-bar")
+
+
+class TestFindSimilar:
+    """A library item's recording as the query, sent from the item itself."""
+
+    @staticmethod
+    def _add(state, name: str, *, embed: bool = False):
+        from biotimbre.io.sidecar import draft_from_sidecar
+
+        return state.call(
+            state.service.add_item,
+            EXAMPLES_DIR / f"{name}.wav",
+            draft_from_sidecar(EXAMPLES_DIR / f"{name}.txt"),
+            compute_embeddings=embed,
+        ).item
+
+    async def _from_library(self, user: User, item_id: int) -> None:
+        from nicegui.testing.user_interaction import UserInteraction
+
+        await user.open("/")
+        await user.should_see("item(s)")
+        user.find(ui.table).trigger("rowClick", args=[None, {"item_id": item_id}])
+        await user.should_see("Find similar")
+        UserInteraction(user, set(user.find(marker="find-similar").elements), None).click()
+        await user.should_see(marker="query-from-item")
+
+    async def test_the_library_dialog_sends_the_item_as_the_query(
+        self, user: User, installed_state
+    ):
+        item = self._add(installed_state, "ZAMTYM")
+        await self._from_library(user, item.item_id)
+        await user.should_see(f"Query: item #{item.item_id} — cicadidae")
+        # Staged like an upload: the editor comes up as for a file.
+        await user.should_see(marker="to-library", retries=200)
+
+    async def test_a_result_card_sends_its_item(self, user: User, installed_state):
+        from nicegui.testing.user_interaction import UserInteraction
+
+        item = self._add(installed_state, "ZAMTYM")
+        await user.open("/search")
+        await user.should_see("Choose a recording to search with")
+        # A metadata search shows the card, whose button sends the item.
+        taxa = next(e for e in user.find(ui.select).elements
+                    if e._props.get("label") == "Taxa")
+        taxa.set_options(["cicadidae"], value=["cicadidae"])
+        TestResultMap._run_search(user)
+        await user.should_see("1 match(es)")
+        UserInteraction(
+            user, set(user.find(marker="result-find-similar").elements), None
+        ).click()
+        await user.should_see(f"Query: item #{item.item_id} — cicadidae")
+
+    @pytest.mark.models
+    async def test_the_item_is_left_out_of_its_results_unless_asked(
+        self, user: User, installed_state
+    ):
+        first = self._add(installed_state, "GUYVIR", embed=True)
+        second = self._add(installed_state, "ZAMTYM", embed=True)
+        await self._from_library(user, first.item_id)
+
+        TestResultMap._run_search(user)
+        await user.should_see("1 match(es)", retries=200)
+        await user.should_see(f"#{second.item_id}")
+
+        next(e for e in user.find(ui.checkbox).elements
+             if e.text == "Include the item itself").value = True
+        TestResultMap._run_search(user)
+        await user.should_see("2 match(es)", retries=200)
