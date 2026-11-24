@@ -369,7 +369,8 @@ biotimbre edit 12 --taxa "guyalna bonaerensis" --clear device
 
 Outras opções de `search`: `--metric {cosine,dot,euclidean}`,
 `--fusion {max,mean,MODEL_ID}`, `--min-score`, `--query-speed`, `--taxa-all`,
-`--date-to`, `--biotimbre-id`, `--exclude`, `--apply-lowpass`, `--apply-order`.
+`--date-to`, `--biotimbre-id`, `--exclude`, `--apply-lowpass`, `--apply-order` e,
+numa busca só pelos filtros, `--speed` (itens armazenados nessas velocidades).
 
 `--highpass`/`--lowpass` em `add` e `edit` *registram* uma filtragem já feita na
 gravação; `--apply-highpass`/`--apply-lowpass` *filtram*. Todas as opções são
@@ -512,7 +513,9 @@ O áudio armazenado nunca é modificado, e a reprodução não é afetada.
 consulta é processada automaticamente em todas as velocidades presentes na
 biblioteca, de modo que uma gravação em sua velocidade natural ainda encontra
 um item desacelerado. Os resultados informam a velocidade em que houve
-correspondência.
+correspondência. Definir uma velocidade da consulta (`search --query-speed`, ou
+*Velocidade da busca* na página de Busca) calcula os embeddings da consulta
+só nessa velocidade e busca apenas os itens armazenados nela.
 
 Se uma `filtered_band` declarada exceder o limite de um modelo, `add` sugere um
 valor de velocidade. Uma velocidade adequada leva a frequência mais alta de

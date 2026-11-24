@@ -750,26 +750,33 @@ class TestSpeedShiftEndToEnd:
         assert hits[0].query_speed == 0.5
         assert hits[0].score == pytest.approx(1.0, abs=1e-3)
 
-    def test_pinning_the_wrong_query_speed_scores_worse_but_still_returns(self, service):
-        # Demonstrates that the sweep is load-bearing rather than incidental:
-        # forcing the query to 1.0 against an item indexed at 0.25 scores clearly
-        # worse than the sweep's automatic match.
+    def test_a_pinned_query_speed_searches_only_items_stored_at_it(self, service):
+        # A query embedded at one speed is comparable only with items embedded
+        # at that speed, so pinning the speed also picks the items: the same
+        # rule the search page applies.
+        from biotimbre.io.sidecar import draft_from_sidecar
+
+        native = draft_from_sidecar(GUYVIR_TXT)
+        shifted = dataclasses.replace(native, speed=0.25).validated()
+        native_item = service.add_item(GUYVIR_WAV, native).item.item_id
+        shifted_item = service.add_item(GUYVIR_WAV, shifted).item.item_id
+
+        pinned = service.search(GUYVIR_WAV, k=5, query_speed=0.25)
+        assert [hit.item.item_id for hit in pinned] == [shifted_item]
+        assert pinned[0].query_speed == 0.25
+        assert pinned[0].score == pytest.approx(1.0, abs=1e-3)
+
+        native_only = service.search(GUYVIR_WAV, k=5, query_speed=1.0)
+        assert [hit.item.item_id for hit in native_only] == [native_item]
+
+    def test_a_query_speed_no_item_has_finds_nothing(self, service):
         from biotimbre.io.sidecar import draft_from_sidecar
 
         draft = dataclasses.replace(
             draft_from_sidecar(GUYVIR_TXT), speed=0.25
         ).validated()
         service.add_item(GUYVIR_WAV, draft)
-
-        swept = service.search(GUYVIR_WAV, k=1)
-        pinned = service.search(GUYVIR_WAV, k=1, query_speed=1.0)
-
-        # Pinning must degrade the score, not empty the results: returning nothing
-        # would read as "the library has no match" rather than "your speed did
-        # not line up with anything indexed".
-        assert pinned, "a pinned speed must still return hits"
-        assert swept[0].score > pinned[0].score
-        assert pinned[0].query_speed == 1.0
+        assert service.search(GUYVIR_WAV, k=1, query_speed=1.0) == []
 
     def test_mixed_speed_library_scores_each_item_correctly(self, service):
         from biotimbre.io.sidecar import draft_from_sidecar

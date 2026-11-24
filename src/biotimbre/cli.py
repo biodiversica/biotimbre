@@ -561,6 +561,13 @@ _QUERY_ONLY = (
 def cmd_search(args: argparse.Namespace) -> int:
     """Search the library with a query recording, or by its filters alone."""
     with _service(args) as service:
+        if args.audio is not None and args.speed:
+            raise ValidationError(
+                "--speed is for a search by the filters alone. With a query "
+                "recording, --query-speed picks the speed: it embeds the query "
+                "at it and searches only the items stored at it.",
+                "arguments",
+            )
         filters = SearchFilters(
             taxa=tuple(args.taxa or ()),
             taxa_match_all=args.taxa_all,
@@ -571,6 +578,7 @@ def cmd_search(args: argparse.Namespace) -> int:
             longitude=args.longitude,
             radius_km=args.radius_km,
             exclude_item_ids=tuple(args.exclude or ()),
+            speeds=tuple(args.speed or ()),
         )
         if args.audio is None:
             given = [
@@ -616,6 +624,18 @@ def cmd_search(args: argparse.Namespace) -> int:
         if peak is not None:
             name = Path(args.audio).name
             print_warning(audio_io.over_range_message(name, peak))
+        if not hits and args.query_speed is not None:
+            speeds = service.stats()["speeds"]
+            if float(args.query_speed) not in speeds:
+                # Otherwise "No matches." reads as the library having nothing
+                # like the query, when it has nothing at that speed at all.
+                in_use = ", ".join(f"{s:g}" for s in speeds) or "none"
+                print(
+                    f"No item is stored at speed {args.query_speed:g}, so there "
+                    f"is nothing to compare the query with. Speeds in use: "
+                    f"{in_use}."
+                )
+                return 0
         _print_hits(hits, show_all_models=True)
     return 0
 
@@ -1560,9 +1580,10 @@ def build_parser() -> argparse.ArgumentParser:
         type=float,
         metavar="FACTOR",
         help="Embed the query at this one speed instead of at every speed in "
-             "the library. For a query that itself needs shifting, e.g. 0.25 "
-             "for an ultrasonic query. An item stored at another speed is "
-             "compared at the nearest one embedded, and each hit says which.",
+             "the library, and search only the items stored at this speed. For "
+             "a query that itself needs shifting, e.g. 0.25 for an ultrasonic "
+             "query, to compare with items added with --speed 0.25. biotimbre "
+             "stats lists the speeds in use.",
     )
 
     query_filter = p_search.add_argument_group(
@@ -1672,6 +1693,17 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="KM",
         help="Only items recorded within this great-circle distance of "
              "--latitude/--longitude. Each hit then shows its distance.",
+    )
+    filters.add_argument(
+        "--speed",
+        nargs="+",
+        type=float,
+        metavar="FACTOR",
+        help="Search by the filters alone only: list the items stored with any "
+             "of these speed factors, as add --speed gave them — 1 for those at "
+             "natural speed, 0.25 for those slowed down 4 times. biotimbre stats "
+             "lists the speeds in use. With a query recording, use --query-speed "
+             "instead.",
     )
     filters.add_argument(
         "--exclude",

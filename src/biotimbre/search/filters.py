@@ -17,9 +17,10 @@ from dataclasses import dataclass, field
 
 from biotimbre.domain.errors import ValidationError
 from biotimbre.domain.item import (
-    validate_date,
     normalize_taxa,
     parse_biotimbre_id,
+    validate_date,
+    validate_speed,
 )
 
 #: Mean Earth radius, for great-circle distances.
@@ -118,6 +119,11 @@ class SearchFilters:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "taxa", normalize_taxa(self.taxa))
+        # Validated like an item's speed, so a value no item can have is said
+        # to be impossible instead of quietly matching nothing.
+        object.__setattr__(
+            self, "speeds", tuple(validate_speed(s) for s in self.speeds)
+        )
         object.__setattr__(
             self,
             "biotimbre_ids",

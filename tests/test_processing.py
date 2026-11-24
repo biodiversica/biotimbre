@@ -245,3 +245,54 @@ class TestFilterOnlySearch:
         assert "sample_window  1,4" in out
         assert "Butterworth" in out
         assert "Normalised to peak" in out
+
+
+
+class TestSpeedFilter:
+    def test_lists_only_items_at_the_speeds_given(self, run, capsys):
+        _add(run)
+        _add(run, "--speed", "0.25")
+        capsys.readouterr()
+        assert run("search", "--speed", "0.25") == 0
+        out = capsys.readouterr().out
+        assert "1. item 2" in out
+        assert "item 1" not in out
+
+        assert run("search", "--speed", "1", "0.25") == 0
+        out = capsys.readouterr().out
+        assert "item 1" in out and "item 2" in out
+
+    def test_an_impossible_speed_is_refused(self, run, capsys):
+        _add(run)
+        assert run("search", "--speed", "0") == 2
+        assert "outside [0.01, 100.0]" in capsys.readouterr().err
+
+    def test_with_a_query_it_points_to_query_speed(self, run, capsys):
+        _add(run)
+        assert run("search", str(GUYVIR_WAV), "--speed", "0.25") == 2
+        assert "--query-speed picks the speed" in capsys.readouterr().err
+
+
+class TestQuerySpeed:
+    @pytest.mark.models
+    def test_searches_only_items_stored_at_that_speed(self, run, capsys):
+        where = ["--date", "2020-01-12", "--time", "09:40:21",
+                 "--latitude", "-26", "--longitude", "-48"]
+        assert run("add", str(GUYVIR_WAV), *where) == 0
+        assert run("add", str(GUYVIR_WAV), *where, "--speed", "0.25") == 0
+        capsys.readouterr()
+
+        assert run("search", str(GUYVIR_WAV), "--query-speed", "0.25") == 0
+        out = capsys.readouterr().out
+        assert "item 2" in out
+        assert "item 1" not in out
+
+    @pytest.mark.models
+    def test_a_speed_no_item_has_says_so(self, run, capsys):
+        assert run("add", str(GUYVIR_WAV), "--date", "2020-01-12", "--time",
+                   "09:40:21", "--latitude", "-26", "--longitude", "-48") == 0
+        capsys.readouterr()
+        assert run("search", str(GUYVIR_WAV), "--query-speed", "0.5") == 0
+        out = capsys.readouterr().out
+        assert "No item is stored at speed 0.5" in out
+        assert "Speeds in use: 1." in out

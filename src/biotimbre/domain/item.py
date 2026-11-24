@@ -547,7 +547,18 @@ class SampleWindow:
         return f"{self.start:g},{self.end:g}"
 
 
-def _validate_speed(value: object) -> float:
+def validate_speed(value: object) -> float:
+    """Check a speed factor, returning it as a float.
+
+    Args:
+        value: The factor, as a number or numeric text.
+
+    Returns:
+        The speed.
+
+    Raises:
+        ValidationError: If it is not a number in [MIN_SPEED, MAX_SPEED].
+    """
     speed = _as_float(value, "speed")
     if not MIN_SPEED <= speed <= MAX_SPEED:
         raise ValidationError(
@@ -673,7 +684,7 @@ class ItemDraft:
             filter_order=_clean_optional_int(self.filter_order, "filter_order"),
             temperature=_clean_optional_float(self.temperature, "temperature"),
             humidity=_clean_optional_float(self.humidity, "humidity"),
-            speed=_validate_speed(self.speed),
+            speed=validate_speed(self.speed),
             link_to_full_recording=_clean_optional_text(
                 self.link_to_full_recording, "link_to_full_recording"
             ),

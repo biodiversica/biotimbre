@@ -350,7 +350,8 @@ biotimbre edit 12 --taxa "guyalna bonaerensis" --clear device
 
 Further `search` options: `--metric {cosine,dot,euclidean}`,
 `--fusion {max,mean,MODEL_ID}`, `--min-score`, `--query-speed`, `--taxa-all`,
-`--date-to`, `--biotimbre-id`, `--exclude`, `--apply-lowpass`, `--apply-order`.
+`--date-to`, `--biotimbre-id`, `--exclude`, `--apply-lowpass`, `--apply-order`,
+and, in a search by filters alone, `--speed` (items stored at these speeds).
 
 `--highpass`/`--lowpass` on `add` and `edit` *record* filtering already done to
 a recording; `--apply-highpass`/`--apply-lowpass` *filter* it. Every option is
@@ -486,7 +487,9 @@ The stored audio is never modified, and playback is unaffected.
 **An item's speed does not need to be known when searching.** The query is
 embedded automatically at every speed present in the library, so a recording
 at its natural speed still finds a slowed-down item. Results report the speed
-at which they matched.
+at which they matched. Setting a query speed instead (`search --query-speed`,
+or *Query speed* on the Search page) embeds the query at that speed only, and
+searches only the items stored at it.
 
 If a declared `filtered_band` exceeds a model's limit, `add` suggests a speed
 value. A suitable speed brings the highest frequency of interest below 16 kHz;

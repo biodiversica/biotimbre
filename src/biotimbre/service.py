@@ -2106,7 +2106,9 @@ class LibraryService:
             fusion: ``"max"``, ``"mean"``, or a model ID.
             min_score: Discard hits below this score.
             query_speed: Embed the query only at this speed, instead of sweeping
-                the library's speeds. Use when the query itself needs shifting.
+                the library's speeds, and compare it only with the items stored
+                at this speed — the only ones its embeddings are comparable
+                with. Use when the query itself needs shifting.
             start_time: Start of the segment to search with, in seconds.
             end_time: End of the segment to search with, in seconds.
             filter_band: Butterworth highpass/lowpass/bandpass cutoffs to apply
@@ -2126,6 +2128,11 @@ class LibraryService:
                 invalid.
         """
         filters = filters or SearchFilters()
+        if query_speed is not None:
+            # A query embedded at one speed is comparable only with items
+            # embedded at that speed; scoring the rest against it would rank
+            # them by a mismatch rather than by how they sound.
+            filters = replace(filters, speeds=(float(query_speed),))
         k = k if k is not None else self.settings.default_top_k
         metric = metric or self.settings.default_metric
         fusion = fusion or self.settings.default_fusion
@@ -2309,15 +2316,11 @@ def _resolve_query_speeds(
 ) -> dict[int, float]:
     """Choose which query embedding each item is scored against.
 
-    Normally an item's own speed was embedded and is used directly. When it was
-    not — the only case being an explicit ``query_speed`` that pins the sweep to
-    one value — the nearest available speed is substituted rather than the item
-    being skipped.
-
-    Skipping was the original behaviour and it was wrong: pinning a speed no item
-    shared returned *zero* results, which reads as "nothing in the library
-    matches" rather than "your speed did not line up". Substituting keeps the
-    search total, and the speed actually used is reported on every hit.
+    An item's own speed is always among those embedded: :meth:`search` sweeps
+    every candidate's speed, and an explicit ``query_speed`` restricts the
+    candidates to the items stored at it. The nearest available speed is
+    substituted only should neither hold, so that an item is scored rather
+    than dropped; the speed actually used is reported on every hit.
 
     Args:
         item_speeds: Each candidate item's indexed speed.
