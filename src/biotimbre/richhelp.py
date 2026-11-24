@@ -146,6 +146,9 @@ def _type_name(action: argparse.Action) -> str:
     """
     if action.choices is not None:
         return "[" + "|".join(str(choice) for choice in action.choices) + "]"
+    if isinstance(action.metavar, tuple):
+        # One name per value, as nargs=2 takes: <START END>, not <START>...
+        return "<" + " ".join(str(m) for m in action.metavar) + ">"
     if action.metavar and action.option_strings:
         name = str(action.metavar)
     else:

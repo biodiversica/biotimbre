@@ -17,19 +17,23 @@ from biotimbre.io.bundle import (
     write_bundle,
 )
 from biotimbre.io.sidecar import (
+    PROCESSING_FIELDS,
     SIDECAR_FIELDS,
     draft_from_fields,
     draft_from_sidecar,
     find_sidecar,
     format_sidecar,
     parse_sidecar,
+    processing_from_fields,
     read_sidecar,
+    submission_from_sidecar,
 )
 
 __all__ = [
     "BUNDLE_FORMAT",
     "BUNDLE_SUFFIX",
     "BUNDLE_VERSION",
+    "PROCESSING_FIELDS",
     "SIDECAR_FIELDS",
     "AudioInfo",
     "Bundle",
@@ -45,7 +49,9 @@ __all__ = [
     "find_sidecar",
     "format_sidecar",
     "parse_sidecar",
+    "processing_from_fields",
     "read_bundle",
     "read_sidecar",
+    "submission_from_sidecar",
     "write_bundle",
 ]

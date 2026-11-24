@@ -63,6 +63,7 @@ from biotimbre.io.bundle import (
 )
 from biotimbre.io.table import items_csv, results_csv
 from biotimbre.models_registry import MODEL_SPECS, ModelSpec, spec_from_row
+from biotimbre.processing import Processing, processed
 from biotimbre.search.filters import SearchFilters, select_candidates
 from biotimbre.search.vector_search import (
     FUSIONS,
@@ -757,8 +758,47 @@ class LibraryService:
         draft: ItemDraft,
         *,
         compute_embeddings: bool = True,
+        processing: Processing | None = None,
     ) -> IngestResult:
-        """Add a sample to the library.
+        """Add a sample to the library, processing it first if asked.
+
+        With ``processing``, a trimmed, filtered or normalised copy is what is
+        stored, and ``draft`` — which describes the file as given — is
+        corrected to describe that copy (:meth:`Processing.describe`).
+
+        Args:
+            audio_path: Path to the source audio file.
+            draft: The item's metadata, for the file as given.
+            compute_embeddings: Set false to defer embedding to a later backfill.
+            processing: What to do to the audio before storing it.
+
+        Returns:
+            The :class:`IngestResult`.
+
+        Raises:
+            ValidationError: If the audio, metadata or processing is unusable.
+            EmbeddingError: If embedding fails.
+        """
+        if processing is None or processing.is_empty:
+            return self._add_item(
+                audio_path, draft, compute_embeddings=compute_embeddings
+            )
+        with processed(audio_path, draft.validated(), processing) as (
+            source,
+            described,
+        ):
+            return self._add_item(
+                source, described, compute_embeddings=compute_embeddings
+            )
+
+    def _add_item(
+        self,
+        audio_path: str | Path,
+        draft: ItemDraft,
+        *,
+        compute_embeddings: bool = True,
+    ) -> IngestResult:
+        """Add a sample to the library, as given.
 
         The audio is read for its properties, copied into the library tree, the
         row is inserted and embeddings are computed — all inside one transaction,
@@ -1003,8 +1043,12 @@ class LibraryService:
         sidecar_path: str | Path | None = None,
         *,
         compute_embeddings: bool = True,
+        processing_overrides: Mapping[str, object] | None = None,
     ) -> IngestResult:
         """Add a sample using metadata from its sidecar file.
+
+        The sidecar may also say how to process the audio (``trim``,
+        ``apply_highpass``, ...); see :mod:`biotimbre.io.sidecar`.
 
         Args:
             audio_path: Path to the audio file.
@@ -1012,6 +1056,9 @@ class LibraryService:
                 audio file.
             compute_embeddings: Set false to defer embedding to a later
                 backfill, as :meth:`add_item` does.
+            processing_overrides: :class:`Processing` fields that take
+                precedence over the sidecar's lines for the same choice — the
+                command line's flags, only those actually given.
 
         Returns:
             The :class:`IngestResult`.
@@ -1019,7 +1066,7 @@ class LibraryService:
         Raises:
             ValidationError: If no sidecar is found, or its contents are invalid.
         """
-        from biotimbre.io.sidecar import draft_from_sidecar, find_sidecar
+        from biotimbre.io.sidecar import find_sidecar, submission_from_sidecar
 
         resolved = (
             Path(sidecar_path) if sidecar_path is not None else find_sidecar(audio_path)
@@ -1030,10 +1077,14 @@ class LibraryService:
                 f".txt file with the same stem.",
                 "sidecar",
             )
+        draft, requested = submission_from_sidecar(resolved)
+        if processing_overrides:
+            requested = replace(requested, **processing_overrides)
         return self.add_item(
             audio_path,
-            draft_from_sidecar(resolved),
+            draft,
             compute_embeddings=compute_embeddings,
+            processing=requested,
         )
 
     def import_directory(
@@ -1044,6 +1095,9 @@ class LibraryService:
         One bad file does not abort the run: failures are collected and returned
         so a large import reports everything wrong with it at once.
 
+        Each sidecar may also say how to process its audio, as for
+        :meth:`add_from_sidecar`.
+
         Args:
             directory: Directory to scan, non-recursively.
             compute_embeddings: Set false to defer embedding.
@@ -1051,7 +1105,7 @@ class LibraryService:
         Returns:
             Successful results, and ``(path, message)`` for each failure.
         """
-        from biotimbre.io.sidecar import draft_from_sidecar, find_sidecar
+        from biotimbre.io.sidecar import find_sidecar, submission_from_sidecar
 
         root = Path(directory)
         if not root.is_dir():
@@ -1068,10 +1122,12 @@ class LibraryService:
                 if sidecar is None:
                     failures.append((audio_file, "no sidecar file found"))
                     continue
+                draft, processing = submission_from_sidecar(sidecar)
                 results.append(
                     self.add_item(
                         audio_file,
-                        draft_from_sidecar(sidecar),
+                        draft,
+                        processing=processing,
                         compute_embeddings=compute_embeddings,
                     )
                 )

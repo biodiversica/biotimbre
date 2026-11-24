@@ -158,7 +158,7 @@ class TestHelp:
         with pytest.raises(SystemExit):
             main(["search", "--help"])
         out = capsys.readouterr().out
-        assert "Usage: biotimbre search [OPTIONS] AUDIO" in out
+        assert "Usage: biotimbre search [OPTIONS] [AUDIO]" in out
         assert "Filters (applied before scoring)" in out
         assert "[cosine|dot|euclidean]" in out
 

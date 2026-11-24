@@ -25,11 +25,12 @@ from biotimbre.domain.item import FilteredBand, ItemDraft, Location, SampleWindo
 from biotimbre.embeddings import audio as audio_io
 from biotimbre.embeddings.runtime import onnxruntime_problem
 from biotimbre.io.bundle import BUNDLE_SUFFIX
-from biotimbre.io.sidecar import SIDECAR_FIELDS
+from biotimbre.io.sidecar import PROCESSING_FIELDS, SIDECAR_FIELDS
 from biotimbre.models_registry import MODEL_SPECS
 from biotimbre.richhelp import RichHelpParser, print_error, print_warning
 from biotimbre.search.filters import SearchFilters
 from biotimbre.service import IngestResult, LibraryService, SearchHit
+from biotimbre.processing import DEFAULT_FILTER_ORDER, Processing
 from biotimbre.sharing import ImportPolicy
 
 
@@ -161,17 +162,27 @@ def _print_plan(plan, *, outcome=None) -> None:
         print(f"       warning: {warning}")
 
 
-def _print_hits(hits: list[SearchHit], *, show_all_models: bool) -> None:
-    """Report search results."""
+def _print_hits(
+    hits: list[SearchHit], *, show_all_models: bool, scored: bool = True
+) -> None:
+    """Report search results.
+
+    Args:
+        hits: The results, best first.
+        show_all_models: Also print each model's score.
+        scored: False for a search by filters alone, which has no query to
+            score against: the results are listed newest first.
+    """
     if not hits:
-        print("No matches.")
+        print("No matches." if scored else "No items match these filters.")
         return
 
     for rank, hit in enumerate(hits, start=1):
         item = hit.item
         span = hit.matched_span
+        score = f"score {hit.score:+.4f}  " if scored else ""
         print(
-            f"{rank:>3}. score {hit.score:+.4f}  item {item.item_id}  "
+            f"{rank:>3}. {score}item {item.item_id}  "
             f"biotimbre {item.biotimbre_id}"
         )
         print(
@@ -228,14 +239,37 @@ def cmd_init(args: argparse.Namespace) -> int:
     return 0
 
 
+def _processing_flags(args: argparse.Namespace) -> dict[str, object]:
+    """The processing options given on the command line, and only those.
+
+    Only those, so that over a sidecar they replace the lines for the same
+    choice and leave the rest: an explicit --apply-order 4 still wins over a
+    sidecar's 6, though 4 is also the default.
+    """
+    given: dict[str, object] = {}
+    if args.trim is not None:
+        given["trim"] = tuple(args.trim)
+    if args.apply_highpass is not None:
+        given["highpass"] = args.apply_highpass
+    if args.apply_lowpass is not None:
+        given["lowpass"] = args.apply_lowpass
+    if args.apply_order is not None:
+        given["filter_order"] = args.apply_order
+    if args.normalise:
+        given["normalise"] = True
+    return given
+
+
 def cmd_add(args: argparse.Namespace) -> int:
     """Add one sample, from a sidecar or from explicit flags."""
+    processing = _processing_flags(args)
     with _service(args) as service:
         if args.sidecar or not args.date:
             result = service.add_from_sidecar(
                 args.audio,
                 args.sidecar,
                 compute_embeddings=not args.no_embeddings,
+                processing_overrides=processing,
             )
         else:
             missing = [
@@ -275,9 +309,130 @@ def cmd_add(args: argparse.Namespace) -> int:
                 notes=args.notes,
             )
             result = service.add_item(
-                args.audio, draft, compute_embeddings=not args.no_embeddings
+                args.audio,
+                draft,
+                compute_embeddings=not args.no_embeddings,
+                processing=Processing(**processing),
             )
         _print_ingest(result)
+    return 0
+
+
+#: Fields ``edit --clear`` can empty, by the name the option takes, with the
+#: draft field each one is and the value that means "not recorded".
+_CLEARABLE: dict[str, tuple[str, object]] = {
+    "taxa": ("taxa", ()),
+    "sample_window": ("sample_window", None),
+    "link": ("link_to_full_recording", None),
+    "device": ("device", None),
+    "microphone": ("microphone", None),
+    "recorded_by": ("recorded_by", None),
+    "temperature": ("temperature", None),
+    "humidity": ("humidity", None),
+    "notes": ("notes", None),
+    "filtered_band": ("filtered_band", FilteredBand()),
+    "filter_type": ("filter_type", None),
+    "filter_order": ("filter_order", None),
+}
+
+#: Plain options of edit, by argparse dest, and the draft field each sets.
+_EDITABLE = {
+    "date": "date",
+    "time": "time",
+    "biotimbre_id": "biotimbre_id",
+    "device": "device",
+    "microphone": "microphone",
+    "recorded_by": "recorded_by",
+    "filter_type": "filter_type",
+    "filter_order": "filter_order",
+    "temperature": "temperature",
+    "humidity": "humidity",
+    "speed": "speed",
+    "link": "link_to_full_recording",
+    "notes": "notes",
+}
+
+
+def _edited_draft(args: argparse.Namespace, before: ItemDraft) -> ItemDraft:
+    """The item's metadata with the options given applied to it."""
+    changes: dict[str, object] = {
+        field: getattr(args, dest)
+        for dest, field in _EDITABLE.items()
+        if getattr(args, dest) is not None
+    }
+    if args.taxa is not None:
+        changes["taxa"] = tuple(args.taxa)
+    if args.latitude is not None or args.longitude is not None:
+        changes["location"] = Location(
+            args.latitude if args.latitude is not None else before.location.latitude,
+            args.longitude if args.longitude is not None else before.location.longitude,
+        )
+    if args.window_start is not None or args.window_end is not None:
+        window = before.sample_window
+        changes["sample_window"] = SampleWindow.parse_optional(
+            (
+                args.window_start if args.window_start is not None
+                else (window.start if window else None),
+                args.window_end if args.window_end is not None
+                else (window.end if window else None),
+            )
+        )
+    if args.highpass is not None or args.lowpass is not None:
+        band = before.filtered_band or FilteredBand()
+        changes["filtered_band"] = FilteredBand(
+            args.highpass if args.highpass is not None else band.low,
+            args.lowpass if args.lowpass is not None else band.high,
+        )
+
+    for name in args.clear or ():
+        field, empty = _CLEARABLE[name]
+        if field in changes:
+            raise ValidationError(
+                f"--clear {name} and an option setting {name} were both given.",
+                "arguments",
+            )
+        changes[field] = empty
+
+    if not changes:
+        raise ValidationError(
+            "Nothing to change: give at least one option, or --clear. See "
+            "biotimbre edit --help.",
+            "arguments",
+        )
+    return dataclasses.replace(before, **changes)
+
+
+def _show(value: object) -> str:
+    """A stored value as edit reports it."""
+    if value is None or value == () or value == FilteredBand():
+        return "-"
+    if isinstance(value, tuple):
+        return ", ".join(str(v) for v in value)
+    return str(value)
+
+
+def cmd_edit(args: argparse.Namespace) -> int:
+    """Change an item's stored metadata."""
+    with _service(args) as service:
+        before = service.get_item(args.item_id).to_draft().validated()
+        result = service.update_item(args.item_id, _edited_draft(args, before))
+        after = result.item.to_draft().validated()
+        item = result.item
+        print(f"item {item.item_id}  biotimbre {item.biotimbre_id}")
+        changed = [
+            (field.name, getattr(before, field.name), getattr(after, field.name))
+            for field in dataclasses.fields(ItemDraft)
+            if getattr(before, field.name) != getattr(after, field.name)
+        ]
+        if not changed:
+            print("  nothing changed: the values given are the ones stored")
+        width = max((len(name) for name, _, _ in changed), default=0)
+        for name, old, new in changed:
+            print(f"  {name:<{width}}  {_show(old)} -> {_show(new)}")
+        for model_id, count in sorted(result.window_counts.items()):
+            print(f"  {model_id:<14} {count} window(s), embedded again")
+        for warning in result.warnings:
+            print(f"  warning: {warning}")
     return 0
 
 
@@ -389,8 +544,22 @@ def cmd_delete(args: argparse.Namespace) -> int:
     return 0
 
 
+#: search options that only mean something with a query recording.
+_QUERY_ONLY = (
+    "start_time",
+    "end_time",
+    "query_speed",
+    "metric",
+    "fusion",
+    "min_score",
+    "apply_highpass",
+    "apply_lowpass",
+    "apply_order",
+)
+
+
 def cmd_search(args: argparse.Namespace) -> int:
-    """Search the library with a query recording."""
+    """Search the library with a query recording, or by its filters alone."""
     with _service(args) as service:
         filters = SearchFilters(
             taxa=tuple(args.taxa or ()),
@@ -403,6 +572,22 @@ def cmd_search(args: argparse.Namespace) -> int:
             radius_km=args.radius_km,
             exclude_item_ids=tuple(args.exclude or ()),
         )
+        if args.audio is None:
+            given = [
+                "--" + name.replace("_", "-")
+                for name in _QUERY_ONLY
+                if getattr(args, name) is not None
+            ]
+            if given:
+                verb, them = ("applies", "it") if len(given) == 1 else ("apply", "them")
+                raise ValidationError(
+                    f"{', '.join(given)} only {verb} to a query recording; give "
+                    f"one, or leave {them} out to search by the filters alone.",
+                    "arguments",
+                )
+            hits = service.filter_items(filters, k=args.top_k)
+            _print_hits(hits, show_all_models=False, scored=False)
+            return 0
         hits = service.search(
             args.audio,
             filters=filters,
@@ -413,6 +598,11 @@ def cmd_search(args: argparse.Namespace) -> int:
             query_speed=args.query_speed,
             start_time=args.start_time,
             end_time=args.end_time,
+            filter_band=FilteredBand(args.apply_highpass, args.apply_lowpass),
+            filter_order=(
+                args.apply_order if args.apply_order is not None
+                else DEFAULT_FILTER_ORDER
+            ),
         )
         # After the search, which has already refused an unusable segment, and
         # over the segment it resolved: a start alone means the cap from there.
@@ -683,7 +873,13 @@ _SIDECAR_HELP = (
     "'filtered_band 2000,10000' (- for an open end). Lines starting with # or "
     "; are comments. Required: date, time, location. Optional: "
     + ", ".join(f for f in SIDECAR_FIELDS if f not in ("date", "time", "location"))
-    + ". A misspelt field name is an error, not ignored."
+    + ". A misspelt field name is an error, not ignored.\n\n"
+    "A sidecar can also say how to process the audio before it is stored, "
+    "as add's Processing options do: "
+    + "; ".join(f"'{name}' ({what})" for name, what in PROCESSING_FIELDS.items())
+    + ". The stored metadata is corrected to match: sample_window for a trim, "
+    "filtered_band, filter_type and filter_order for a filter, a line in the "
+    "notes for normalisation."
 )
 
 #: How to define a model of one's own. In the help of the command that lists
@@ -796,6 +992,157 @@ def _add_import_options(parser: argparse.ArgumentParser, source: str) -> None:
              "'keep-incoming' keeps the sender's ID, leaving two identities for "
              "one species.",
     )
+
+
+def _metadata_options(
+    parser: argparse.ArgumentParser, *, editing: bool
+) -> argparse._ArgumentGroup:
+    """The metadata options add and edit share.
+
+    Args:
+        parser: The command's parser.
+        editing: For edit, where each option changes one stored field and
+            none is required; for add, where they describe a new item.
+
+    Returns:
+        The "Embedding" group, for the command to add its own options to.
+    """
+    required = parser.add_argument_group(
+        "When and where" if editing else
+        "Required metadata (when no sidecar is used)"
+    )
+    required.add_argument(
+        "--date",
+        metavar=_DATE_HELP,
+        help="Recording date, e.g. 2021-03-05.",
+    )
+    required.add_argument(
+        "--time",
+        metavar=_TIME_HELP,
+        help="Recording time of day, 24-hour, e.g. 22:10:00.",
+    )
+    # Scalar rather than a "lat,lon" string: argparse treats a value starting
+    # with '-' as an option, so "--location -26,-48" cannot work, and every
+    # southern-hemisphere latitude is negative. The comma forms remain the
+    # sidecar syntax, where there is no such ambiguity.
+    required.add_argument(
+        "--latitude",
+        type=float,
+        help="Latitude of the recording site in decimal degrees, -90 to 90; "
+             "negative is south, e.g. -26.9.",
+    )
+    required.add_argument(
+        "--longitude",
+        type=float,
+        help="Longitude of the recording site in decimal degrees, -180 to 180; "
+             "negative is west, e.g. -48.7.",
+    )
+
+    identity = parser.add_argument_group("Identity")
+    identity.add_argument(
+        "--taxa",
+        nargs="+",
+        metavar="TAG",
+        help=("Replace the item's taxon tags with these; --clear taxa removes "
+              "them all. " if editing else "")
+             + "Taxon tags, at any rank: species, genus, family, order... e.g. "
+             "--taxa cicadidae hemiptera. Stored lowercase. Quote a binomial so "
+             "it stays one tag: --taxa 'Guyalna bonaerensis'."
+             + ("" if editing else " Omit when the taxon is unknown."),
+    )
+    identity.add_argument(
+        "--biotimbre-id",
+        metavar="UUID",
+        help=("Move the item to this biotimbre (a sound-being: one sonotype, "
+              "whose species may be unknown); its stored audio moves with it. "
+              if editing else
+              "File the item under this existing biotimbre (a sound-being: one "
+              "sonotype, whose species may be unknown) instead of the one the "
+              "taxa would choose or a new one. ")
+             + "Copy the full ID from `biotimbre show ITEM_ID`.",
+    )
+
+    recording = parser.add_argument_group("Recording details")
+    recording.add_argument(
+        "--window-start",
+        type=float,
+        metavar="SECONDS",
+        help="Where this sample starts within the full recording given by "
+             "--link, in seconds. "
+             + ("Changes only the start; the end is kept." if editing else
+                "Give --window-end with it, or neither."),
+    )
+    recording.add_argument(
+        "--window-end",
+        type=float,
+        metavar="SECONDS",
+        help="Where this sample ends within the full recording, in seconds.",
+    )
+    recording.add_argument(
+        "--link",
+        metavar="URL",
+        help="URL of the full recording this sample was taken from, e.g. an "
+             "iNaturalist observation or an archive entry.",
+    )
+    recording.add_argument("--device", help="Recorder brand and model, e.g. Audiomoth.")
+    recording.add_argument("--microphone", help="Microphone brand and model.")
+    recording.add_argument(
+        "--recorded-by", help="Person or organisation who made the recording."
+    )
+    recording.add_argument(
+        "--temperature",
+        type=float,
+        metavar="CELSIUS",
+        help="Air temperature at recording time, in °C.",
+    )
+    recording.add_argument(
+        "--humidity",
+        type=float,
+        metavar="PERCENT",
+        help="Relative humidity at recording time, 0 to 100.",
+    )
+    recording.add_argument("--notes", help="Free-text notes. Quote text with spaces.")
+
+    filtering = parser.add_argument_group("Filtering already applied to the audio")
+    filtering.add_argument(
+        "--highpass",
+        type=float,
+        metavar="HZ",
+        help="Highpass cutoff the audio was already filtered with, in Hz. This "
+             "records what was done; it does not filter.",
+    )
+    filtering.add_argument(
+        "--lowpass",
+        type=float,
+        metavar="HZ",
+        help="Lowpass cutoff the audio was already filtered with, in Hz. A band "
+             "above a model's limit (16 kHz for Perch, 24 kHz for BirdNET) makes "
+             "add suggest a --speed.",
+    )
+    filtering.add_argument(
+        "--filter-type",
+        help="Kind of filter used, e.g. Butterworth.",
+    )
+    filtering.add_argument(
+        "--filter-order", type=int, help="Order of that filter, e.g. 4."
+    )
+
+    embedding = parser.add_argument_group("Embedding")
+    embedding.add_argument(
+        "--speed",
+        type=float,
+        default=None if editing else 1.0,
+        help=("Change the speed factor; the item is embedded again with every "
+              "active model at the new speed. " if editing else "")
+             + "Speed factor applied before embedding, between 0.01 and 100. Each "
+             "model hears only up to half its sample rate (16 kHz for Perch, "
+             "24 kHz for BirdNET), so ultrasound — a katydid at 35 kHz, a bat — "
+             "is near-silence to it. Below 1 slows the audio down and lowers its "
+             "pitch: at 0.25, 40 kHz becomes 10 kHz. The stored audio and its "
+             "playback are not changed, and a search finds the item from a "
+             "query at natural speed. Keep one value for similar recordings.",
+    )
+    return embedding
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -916,6 +1263,11 @@ def build_parser() -> argparse.ArgumentParser:
             "where --date, --time, --latitude and --longitude are required. "
             "The two are not combined: when a sidecar is read, every metadata "
             "option is ignored, --speed included.\n\n"
+            "The Processing options trim, filter or normalise the stored copy, "
+            "and apply either way; over a sidecar's processing lines, each one "
+            "given replaces the line for the same choice. The metadata, which "
+            "describes AUDIO as given, is corrected to describe what is "
+            "stored.\n\n"
             "An item tagged with a species (a binomial, e.g. 'Guyalna "
             "bonaerensis') already in the library joins that species' "
             "biotimbre; anything else starts a new biotimbre unless "
@@ -927,7 +1279,8 @@ def build_parser() -> argparse.ArgumentParser:
             "  biotimbre add GUYVIR.wav --sidecar meta/guyvir.txt\n"
             "  biotimbre add katydid.wav --date 2021-03-05 --time 22:10:00 \\\n"
             "      --latitude -26.9 --longitude -48.7 --taxa orthoptera insecta \\\n"
-            "      --device Audiomoth --highpass 8000 --lowpass 40000 --speed 0.25"
+            "      --device Audiomoth --highpass 8000 --lowpass 40000 --speed 0.25\n"
+            "  biotimbre add dawn.wav --trim 92 99 --apply-highpass 1500 --normalise"
         ),
     )
     p_add.add_argument(
@@ -945,131 +1298,50 @@ def build_parser() -> argparse.ArgumentParser:
              "whenever --date is not given.",
     )
 
-    required = p_add.add_argument_group(
-        "Required metadata (when no sidecar is used)"
-    )
-    required.add_argument(
-        "--date",
-        metavar=_DATE_HELP,
-        help="Recording date, e.g. 2021-03-05.",
-    )
-    required.add_argument(
-        "--time",
-        metavar=_TIME_HELP,
-        help="Recording time of day, 24-hour, e.g. 22:10:00.",
-    )
-    # Scalar rather than a "lat,lon" string: argparse treats a value starting
-    # with '-' as an option, so "--location -26,-48" cannot work, and every
-    # southern-hemisphere latitude is negative. The comma forms remain the
-    # sidecar syntax, where there is no such ambiguity.
-    required.add_argument(
-        "--latitude",
-        type=float,
-        help="Latitude of the recording site in decimal degrees, -90 to 90; "
-             "negative is south, e.g. -26.9.",
-    )
-    required.add_argument(
-        "--longitude",
-        type=float,
-        help="Longitude of the recording site in decimal degrees, -180 to 180; "
-             "negative is west, e.g. -48.7.",
-    )
+    embedding = _metadata_options(p_add, editing=False)
 
-    identity = p_add.add_argument_group("Identity")
-    identity.add_argument(
-        "--taxa",
-        nargs="+",
-        metavar="TAG",
-        help="Taxon tags, at any rank: species, genus, family, order... e.g. "
-             "--taxa cicadidae hemiptera. Stored lowercase. Quote a binomial so "
-             "it stays one tag: --taxa 'Guyalna bonaerensis'. Omit when the "
-             "taxon is unknown.",
-    )
-    identity.add_argument(
-        "--biotimbre-id",
-        metavar="UUID",
-        help="File the item under this existing biotimbre (a sound-being: one "
-             "sonotype, whose species may be unknown) instead of the one the "
-             "taxa would choose or a new one. Copy the full ID from "
-             "`biotimbre show ITEM_ID`.",
-    )
-
-    recording = p_add.add_argument_group("Recording details")
-    recording.add_argument(
-        "--window-start",
+    processing = p_add.add_argument_group("Processing (applied before storing)")
+    processing.add_argument(
+        "--trim",
+        nargs=2,
         type=float,
-        metavar="SECONDS",
-        help="Where this sample starts within the full recording given by "
-             "--link, in seconds. Give --window-end with it, or neither.",
+        metavar=("START", "END"),
+        help="Store only this part of AUDIO, from START to END seconds. "
+             "sample_window is set to match: to START..END, or shifted by "
+             "them when sample_window already says where AUDIO sits in a "
+             "longer recording.",
     )
-    recording.add_argument(
-        "--window-end",
-        type=float,
-        metavar="SECONDS",
-        help="Where this sample ends within the full recording, in seconds.",
-    )
-    recording.add_argument(
-        "--link",
-        metavar="URL",
-        help="URL of the full recording this sample was taken from, e.g. an "
-             "iNaturalist observation or an archive entry.",
-    )
-    recording.add_argument("--device", help="Recorder brand and model, e.g. Audiomoth.")
-    recording.add_argument("--microphone", help="Microphone brand and model.")
-    recording.add_argument(
-        "--recorded-by", help="Person or organisation who made the recording."
-    )
-    recording.add_argument(
-        "--temperature",
-        type=float,
-        metavar="CELSIUS",
-        help="Air temperature at recording time, in °C.",
-    )
-    recording.add_argument(
-        "--humidity",
-        type=float,
-        metavar="PERCENT",
-        help="Relative humidity at recording time, 0 to 100.",
-    )
-    recording.add_argument("--notes", help="Free-text notes. Quote text with spaces.")
-
-    filtering = p_add.add_argument_group("Filtering already applied to the audio")
-    filtering.add_argument(
-        "--highpass",
+    processing.add_argument(
+        "--apply-highpass",
         type=float,
         metavar="HZ",
-        help="Highpass cutoff the audio was already filtered with, in Hz. This "
-             "records what was done; it does not filter.",
+        help="Filter out what is below this frequency, with a zero-phase "
+             "Butterworth highpass, before storing. Unlike --highpass, this "
+             "filters; filtered_band, filter_type and filter_order are then set "
+             "to describe it.",
     )
-    filtering.add_argument(
-        "--lowpass",
+    processing.add_argument(
+        "--apply-lowpass",
         type=float,
         metavar="HZ",
-        help="Lowpass cutoff the audio was already filtered with, in Hz. A band "
-             "above a model's limit (16 kHz for Perch, 24 kHz for BirdNET) makes "
-             "add suggest a --speed.",
+        help="Filter out what is above this frequency, with a zero-phase "
+             "Butterworth lowpass, before storing.",
     )
-    filtering.add_argument(
-        "--filter-type",
-        help="Kind of filter used, e.g. Butterworth.",
+    processing.add_argument(
+        "--apply-order",
+        type=int,
+        metavar="N",
+        help="Order of the filter --apply-highpass/--apply-lowpass applies, 1 "
+             "to 16. Default: 4.",
     )
-    filtering.add_argument(
-        "--filter-order", type=int, help="Order of that filter, e.g. 4."
+    processing.add_argument(
+        "--normalise",
+        action="store_true",
+        help="Scale the stored copy so its loudest sample is at -1 dBFS, and "
+             "add a line saying so, with the gain used, to the notes. Applied "
+             "after trimming and filtering.",
     )
 
-    embedding = p_add.add_argument_group("Embedding")
-    embedding.add_argument(
-        "--speed",
-        type=float,
-        default=1.0,
-        help="Speed factor applied before embedding, between 0.01 and 100. Each "
-             "model hears only up to half its sample rate (16 kHz for Perch, "
-             "24 kHz for BirdNET), so ultrasound — a katydid at 35 kHz, a bat — "
-             "is near-silence to it. Below 1 slows the audio down and lowers its "
-             "pitch: at 0.25, 40 kHz becomes 10 kHz. The stored audio and its "
-             "playback are not changed, and a search finds the item from a "
-             "query at natural speed. Keep one value for similar recordings.",
-    )
     embedding.add_argument(
         "--no-embeddings",
         action="store_true",
@@ -1189,18 +1461,57 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_delete.set_defaults(func=cmd_delete)
 
+    p_edit = _command(
+        subparsers,
+        "edit",
+        panel="Items",
+        summary="Change an item's stored metadata.",
+        description=(
+            "Each option replaces one stored field; every field not mentioned "
+            "is kept. --clear empties fields. The audio is not changed — to "
+            "trim or filter it, delete the item and add it again with "
+            "--trim, --apply-highpass, --apply-lowpass.\n\n"
+            "Two changes do more than rewrite a field: --biotimbre-id moves "
+            "the item, and its stored audio, to another biotimbre; --speed "
+            "embeds it again with every active model. The changes are "
+            "printed, old value then new."
+        ),
+        examples=(
+            "  biotimbre edit 12 --taxa 'guyalna bonaerensis' cicadidae\n"
+            "  biotimbre edit 12 --latitude -26.91 --notes 'calling from a fence post'\n"
+            "  biotimbre edit 12 --clear device microphone\n"
+            "  biotimbre edit 12 --speed 0.25          # embeds the item again"
+        ),
+    )
+    p_edit.add_argument("item_id", type=int, help="The item to change.")
+    _metadata_options(p_edit, editing=True)
+    p_edit.add_argument(
+        "--clear",
+        nargs="+",
+        choices=sorted(_CLEARABLE),
+        metavar="FIELD",
+        help="Empty these fields, so they read as not recorded: "
+             + ", ".join(sorted(_CLEARABLE))
+             + ". date, time, location and speed cannot be cleared.",
+    )
+    p_edit.set_defaults(func=cmd_edit)
+
     # ── Search ──
 
     p_search = _command(
         subparsers,
         "search",
         panel="Search",
-        summary="Find the library items that sound most like a query recording.",
+        summary="Find the library items that sound most like a query recording, "
+                "or that match filters.",
         description=(
             "Embeds the query with every active model and ranks the library's "
             "items by their best-matching pair of windows. For each hit it "
             "prints the score, the item, the span of the item that matched and "
             "the model that scored best.\n\n"
+            "Without AUDIO, it searches by the filters alone: every item that "
+            "matches them, newest first and unscored, up to --top-k. With no "
+            "filters either, that is the most recent items.\n\n"
             "A query is at most 15 s (search.max_query_duration_s in the config "
             "file). A shorter file is used whole; a longer one needs "
             "--start-time and --end-time and is refused rather than cut.\n\n"
@@ -1214,13 +1525,18 @@ def build_parser() -> argparse.ArgumentParser:
             "  biotimbre search query.wav -k 5 --taxa cicadidae \\\n"
             "      --latitude -26 --longitude -48 --radius-km 50 --date-from 2020-01-01\n"
             "  biotimbre search dawn_chorus.wav --start-time 92 --end-time 99\n"
-            "  biotimbre search query.wav --fusion perch_v2 --min-score 0.6"
+            "  biotimbre search query.wav --fusion perch_v2 --min-score 0.6\n"
+            "  biotimbre search noisy.wav --apply-highpass 1500     # cut the hum\n"
+            "  biotimbre search --taxa cicadidae --date-from 2024-01-01 -k 50"
         ),
     )
     p_search.add_argument(
         "audio",
+        nargs="?",
         help="The query recording: a short clip of the sound to look for, in any "
-             "format libsndfile reads.",
+             "format libsndfile reads. Leave it out to search by the filters "
+             "alone. Give it before options that take several values, such as "
+             "--taxa, which would otherwise take it as one of theirs.",
     )
 
     segment = p_search.add_argument_group("Query segment")
@@ -1247,6 +1563,30 @@ def build_parser() -> argparse.ArgumentParser:
              "the library. For a query that itself needs shifting, e.g. 0.25 "
              "for an ultrasonic query. An item stored at another speed is "
              "compared at the nearest one embedded, and each hit says which.",
+    )
+
+    query_filter = p_search.add_argument_group(
+        "Query filter (applied to the query before embedding)"
+    )
+    query_filter.add_argument(
+        "--apply-highpass",
+        type=float,
+        metavar="HZ",
+        help="Filter out what is below this frequency in the query, with a "
+             "zero-phase Butterworth highpass: wind, traffic, mains hum. The "
+             "library is not changed.",
+    )
+    query_filter.add_argument(
+        "--apply-lowpass",
+        type=float,
+        metavar="HZ",
+        help="Filter out what is above this frequency in the query.",
+    )
+    query_filter.add_argument(
+        "--apply-order",
+        type=int,
+        metavar="N",
+        help="Order of that filter, 1 to 16. Default: 4.",
     )
 
     ranking = p_search.add_argument_group("Ranking")

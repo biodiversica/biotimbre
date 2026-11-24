@@ -290,12 +290,13 @@ no library is open and is withdrawn as soon as one is.
 
 ```bash
 biotimbre init [--name NAME] [--skip-models]   # --name is required until one is set
-biotimbre add AUDIO [--sidecar FILE | metadata options]
+biotimbre add AUDIO [--sidecar FILE | metadata options] [processing options]
 biotimbre import-dir DIR                       # every file paired with a sidecar
 biotimbre list [--biotimbre-id ID] [--limit N]
 biotimbre show ITEM_ID
+biotimbre edit ITEM_ID [metadata options] [--clear FIELD...]
 biotimbre delete ITEM_ID [-y] [--keep-audio]
-biotimbre search AUDIO [-k N] [filters]
+biotimbre search [AUDIO] [-k N] [filters]          # without AUDIO: by filters alone
 biotimbre models                               # registered models and vector counts
 biotimbre backfill MODEL_ID                    # embed items missing this model
 biotimbre export-npy ITEM_ID MODEL_ID OUT [--with-audio]
@@ -333,11 +334,27 @@ biotimbre search query.wav -k 5 \
 
 # A query longer than the limit requires an explicit segment
 biotimbre search dawn_chorus.wav --start-time 92 --end-time 99
+
+# Filter the query before embedding it (the library is not changed)
+biotimbre search noisy.wav --apply-highpass 1500
+
+# Search by metadata alone: no query recording, results newest first
+biotimbre search --taxa cicadidae --date-from 2024-01-01 -k 50
+
+# Store only part of a recording, filtered and normalised, as the add form does
+biotimbre add dawn.wav --sidecar dawn.txt --trim 92 99 --apply-highpass 1500 --normalise
+
+# Change stored metadata; fields not given are kept
+biotimbre edit 12 --taxa "guyalna bonaerensis" --clear device
 ```
 
 Further `search` options: `--metric {cosine,dot,euclidean}`,
 `--fusion {max,mean,MODEL_ID}`, `--min-score`, `--query-speed`, `--taxa-all`,
-`--date-to`, `--biotimbre-id`, `--exclude`.
+`--date-to`, `--biotimbre-id`, `--exclude`, `--apply-lowpass`, `--apply-order`.
+
+`--highpass`/`--lowpass` on `add` and `edit` *record* filtering already done to
+a recording; `--apply-highpass`/`--apply-lowpass` *filter* it. Every option is
+explained in full by `biotimbre COMMAND --help`.
 
 ## Metadata
 
@@ -404,6 +421,26 @@ filtered_band	2000,10000
 with `#` or `;` are comments. An unrecognised field name is reported as an
 error rather than ignored, so a misspelling cannot silently discard a required
 value.
+
+A sidecar can also ask for the audio to be processed before it is stored, as
+the add form's controls do. These lines are instructions, not description:
+
+```
+trim                5,10      # store only 5-10 s of the file
+apply_highpass      2000      # zero-phase Butterworth highpass, in Hz
+apply_lowpass       10000     # and lowpass
+apply_filter_order  4         # optional; default 4
+normalise           yes       # bring the stored copy's peak to -1 dBFS
+```
+
+The metadata, which describes the file as given, is corrected to describe what
+is stored: a trim moves `sample_window` (to `5,10`, or by 5 s from where the
+file already sat in a longer recording); a filter narrows `filtered_band` and
+sets `filter_type` and `filter_order` if they are not given; normalisation adds
+a line to `notes`. `biotimbre add` takes the same choices as `--trim`,
+`--apply-highpass`, `--apply-lowpass`, `--apply-order` and `--normalise`,
+which replace the sidecar's line for the same choice. `import-dir` applies each
+sidecar's own.
 
 ## Audio Preparation
 

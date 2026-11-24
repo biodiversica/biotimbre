@@ -10,6 +10,21 @@ One field per line, name first, value being the rest of the line::
     device	Audiomoth
     filtered_band	2000,10000
 
+A sidecar may also say how to process the audio before it is stored — the
+command-line counterpart of the add form's trim, filter and normalise controls
+(:data:`PROCESSING_FIELDS`, :class:`~biotimbre.processing.Processing`)::
+
+    trim             5,10
+    apply_highpass   2000
+    apply_lowpass    10000
+    apply_filter_order 4
+    normalise        yes
+
+Those lines are instructions rather than description: the stored copy is
+processed, and its metadata corrected to match (``sample_window``,
+``filtered_band``, ``notes``). ``filtered_band`` keeps its meaning of filtering
+already done to the file as given.
+
 Both tabs and spaces separate the name from the value, and a value may itself
 contain spaces (a device name, a note), so the split is on the *first* run of
 whitespace only. Absent lines mean the field was not supplied — which for ``taxa``
@@ -23,6 +38,7 @@ from pathlib import Path
 
 from biotimbre.domain.errors import ValidationError
 from biotimbre.domain.item import ItemDraft
+from biotimbre.processing import DEFAULT_FILTER_ORDER, Processing
 
 #: Field names accepted in a sidecar, mapped to the draft field they populate.
 SIDECAR_FIELDS: dict[str, str] = {
@@ -44,6 +60,19 @@ SIDECAR_FIELDS: dict[str, str] = {
     "link_to_full_recording": "link_to_full_recording",
     "notes": "notes",
 }
+
+#: Sidecar lines that ask for processing rather than describe the recording,
+#: with what each takes. See :class:`~biotimbre.processing.Processing`.
+PROCESSING_FIELDS: dict[str, str] = {
+    "trim": "START,END in seconds within the file: store only that part",
+    "apply_highpass": "Hz: apply a zero-phase Butterworth highpass",
+    "apply_lowpass": "Hz: apply a zero-phase Butterworth lowpass",
+    "apply_filter_order": "the order of that filter (default 4)",
+    "normalise": "yes or no: bring the stored copy's peak to -1 dBFS",
+}
+
+_YES = ("yes", "true", "1", "on")
+_NO = ("no", "false", "0", "off")
 
 #: Sidecar extensions tried when locating a file's metadata, in order.
 SIDECAR_SUFFIXES = (".txt", ".TXT")
@@ -81,8 +110,8 @@ def parse_sidecar(text: str, *, source: str = "<string>") -> dict[str, str]:
         name = parts[0].strip().lower()
         value = parts[1].strip() if len(parts) > 1 else ""
 
-        if name not in SIDECAR_FIELDS:
-            known = ", ".join(sorted(SIDECAR_FIELDS))
+        if name not in SIDECAR_FIELDS and name not in PROCESSING_FIELDS:
+            known = ", ".join(sorted({*SIDECAR_FIELDS, *PROCESSING_FIELDS}))
             raise ValidationError(
                 f"{source} line {line_number}: unknown field {name!r}. "
                 f"Known fields: {known}.",
@@ -196,6 +225,87 @@ def draft_from_fields(fields: dict[str, str]) -> ItemDraft:
         location=fields["location"],
         **optional,
     ).validated()
+
+
+def processing_from_fields(
+    fields: dict[str, str], *, source: str = "sidecar"
+) -> Processing:
+    """Build the processing a sidecar asks for.
+
+    Args:
+        fields: Mapping from :func:`parse_sidecar`.
+        source: Name used in error messages.
+
+    Returns:
+        The requested :class:`~biotimbre.processing.Processing`; empty when the
+        sidecar asks for none.
+
+    Raises:
+        ValidationError: If a processing value cannot be read.
+    """
+    def number(name: str) -> float | None:
+        text = fields.get(name, "").strip()
+        if not text:
+            return None
+        try:
+            return float(text)
+        except ValueError:
+            raise ValidationError(
+                f"{source}: {name} must be a number, got {text!r}.", name
+            ) from None
+
+    trim = None
+    if fields.get("trim", "").strip():
+        parts = [p.strip() for p in fields["trim"].split(",")]
+        try:
+            start, end = (float(p) for p in parts)
+        except ValueError:
+            raise ValidationError(
+                f"{source}: trim must be START,END in seconds, e.g. 5,10; got "
+                f"{fields['trim']!r}.",
+                "trim",
+            ) from None
+        trim = (start, end)
+
+    order = number("apply_filter_order")
+    if order is not None and order != int(order):
+        raise ValidationError(
+            f"{source}: apply_filter_order must be a whole number.",
+            "apply_filter_order",
+        )
+
+    normalise = fields.get("normalise", "").strip().lower()
+    if normalise and normalise not in (*_YES, *_NO):
+        raise ValidationError(
+            f"{source}: normalise must be yes or no, got {fields['normalise']!r}.",
+            "normalise",
+        )
+
+    return Processing(
+        trim=trim,
+        highpass=number("apply_highpass"),
+        lowpass=number("apply_lowpass"),
+        filter_order=int(order) if order is not None else DEFAULT_FILTER_ORDER,
+        normalise=normalise in _YES,
+    )
+
+
+def submission_from_sidecar(path: str | Path) -> tuple[ItemDraft, Processing]:
+    """Read a sidecar: the recording's metadata, and how to process it.
+
+    Args:
+        path: Path to the sidecar.
+
+    Returns:
+        The validated draft and the requested processing.
+
+    Raises:
+        ValidationError: If the file is unreadable or its contents invalid.
+    """
+    fields = read_sidecar(path)
+    return draft_from_fields(fields), processing_from_fields(
+        fields, source=Path(path).name
+    )
 
 
 def draft_from_sidecar(path: str | Path) -> ItemDraft:
