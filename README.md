@@ -303,7 +303,7 @@ biotimbre models                               # registered models and vector co
 biotimbre backfill MODEL_ID                    # embed items missing this model
 biotimbre export-npy ITEM_ID MODEL_ID OUT [--with-audio]
 biotimbre export-csv OUT                       # metadata of every item as CSV
-biotimbre export-bundle ITEM_ID... -o FILE [--no-embeddings]
+biotimbre export-bundle [ITEM_ID...] [--items-from CSV] -o FILE [--no-embeddings]
 biotimbre import-bundle FILE [--dry-run] [options]
 biotimbre import-library DIR [--dry-run] [options]   # add another library's items to this one
 biotimbre stats
@@ -613,6 +613,16 @@ command line:
 biotimbre export-bundle 12 -o guyalna.btz          # one item, with its vectors
 biotimbre export-bundle 12 13 14 -o batch.btz      # several items
 biotimbre export-bundle 12 -o small.btz --no-embeddings
+```
+
+Search results can be shared the same way. `search --csv` writes the results
+as the Search page exports them; delete the rows of any wrong matches in a
+spreadsheet, and `--items-from` takes the items that remain, from that file or
+any CSV with an `item_id` column:
+
+```bash
+biotimbre search query.wav --taxa cicadidae --csv hits.csv
+biotimbre export-bundle --items-from hits.csv -o checked.btz
 ```
 
 The recipient can import the bundle in the *Import items* section of

@@ -183,3 +183,66 @@ def _table(
             "" if value is None else value for value in (*first, *values)
         )
     return buffer.getvalue()
+
+
+#: Separators a CSV written by a spreadsheet may use, in the order tried.
+SEPARATORS = ",;\t"
+
+
+def guess_separator(text: str) -> str:
+    """A CSV's separator: whichever its first line uses most, else a comma."""
+    first = text.splitlines()[0] if text else ""
+    counts = {sep: first.count(sep) for sep in SEPARATORS}
+    best = max(counts, key=counts.get)
+    return best if counts[best] else ","
+
+
+def read_item_ids(path) -> list[int]:
+    """The item IDs in a CSV's ``item_id`` column, in order, each once.
+
+    Any table with that column will do: a search's results, the library's
+    export, or one written by hand — so a selection made by deleting rows in a
+    spreadsheet can be handed to another command.
+
+    Args:
+        path: The CSV file.
+
+    Returns:
+        The IDs, in the order the rows give them, repeats left out.
+
+    Raises:
+        ValidationError: If the file cannot be read, has no ``item_id``
+            column, or holds a value there that is not a whole number.
+    """
+    import csv
+    import io
+    from pathlib import Path
+
+    from biotimbre.domain.errors import ValidationError
+
+    table = Path(path)
+    try:
+        text = table.read_text(encoding="utf-8-sig")
+    except (OSError, UnicodeDecodeError) as exc:
+        raise ValidationError(f"Could not read {table}: {exc}", "items") from exc
+    reader = csv.reader(io.StringIO(text, newline=""), delimiter=guess_separator(text))
+    header = [name.strip().lower() for name in next(reader, [])]
+    if "item_id" not in header:
+        raise ValidationError(
+            f"{table.name} has no item_id column to take the items from.", "items"
+        )
+    column = header.index("item_id")
+    ids: list[int] = []
+    for cells in reader:
+        value = cells[column].strip() if column < len(cells) else ""
+        if not value:
+            continue
+        try:
+            ids.append(int(value))
+        except ValueError:
+            raise ValidationError(
+                f"{table.name} line {reader.line_num}: item_id {value!r} is not "
+                f"a whole number.",
+                "items",
+            ) from None
+    return list(dict.fromkeys(ids))

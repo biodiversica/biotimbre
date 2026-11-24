@@ -810,6 +810,7 @@ def cmd_search(args: argparse.Namespace) -> int:
                 )
             hits = service.filter_items(filters, k=args.top_k)
             _print_hits(hits, show_all_models=False, scored=False)
+            _write_results(service, hits, args.csv)
             return 0
         hits = service.search(
             query,
@@ -849,9 +850,24 @@ def cmd_search(args: argparse.Namespace) -> int:
                     f"is nothing to compare the query with. Speeds in use: "
                     f"{in_use}."
                 )
+                _write_results(service, hits, args.csv)
                 return 0
         _print_hits(hits, show_all_models=True)
+        _write_results(service, hits, args.csv)
     return 0
+
+
+def _write_results(service, hits, destination: str | None) -> None:
+    """Write the hits as the search page's results table, if asked to."""
+    if destination is None:
+        return
+    data, name = service.results_table(hits)
+    out = Path(destination)
+    if out.is_dir():
+        out = out / name
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_bytes(data)
+    print(f"\nWrote {len(hits)} result(s) to {out}")
 
 
 #: Radius around an observation's coordinates that --inat-filters searches,
@@ -956,15 +972,27 @@ def cmd_export_csv(args: argparse.Namespace) -> int:
 
 def cmd_export_bundle(args: argparse.Namespace) -> int:
     """Package items into a file that another library can load."""
+    from biotimbre.io.table import read_item_ids
+
+    item_ids = list(args.item_id or ())
+    if args.items_from:
+        item_ids.extend(read_item_ids(args.items_from))
+    item_ids = list(dict.fromkeys(item_ids))
+    if not item_ids:
+        raise ValidationError(
+            "No items to export: give their IDs, or --items-from a CSV with an "
+            "item_id column.",
+            "arguments",
+        )
     with _service(args) as service:
         path = service.export_bundle(
-            args.item_id,
+            item_ids,
             args.output,
             include_embeddings=not args.no_embeddings,
         )
         size = path.stat().st_size / 1024
         print(f"Wrote {path} ({size:,.0f} KiB)")
-        print(f"  {len(args.item_id)} item(s)")
+        print(f"  {len(item_ids)} item(s)")
         if args.no_embeddings:
             print("  no embeddings: the receiving library recomputes them.")
     return 0
@@ -1985,6 +2013,17 @@ def build_parser() -> argparse.ArgumentParser:
 
     _inat_options(p_search, searching=True)
 
+    p_search.add_argument(
+        "--csv",
+        metavar="FILE",
+        help="Also write the results to this CSV, as the search page's export "
+             "does: rank, score, best model, matched span, distance, query "
+             "speed and each model's score, then every stored field of the "
+             "item. An existing folder gets biotimbre_search_results.csv. "
+             "export-bundle --items-from takes it back, to share the results "
+             "kept after checking them.",
+    )
+
     query_filter = p_search.add_argument_group(
         "Query filter (applied to the query before embedding)"
     )
@@ -2237,14 +2276,25 @@ def build_parser() -> argparse.ArgumentParser:
         examples=(
             "  biotimbre export-bundle 12 -o guyalna.btz\n"
             "  biotimbre export-bundle 12 13 14 -o batch.btz\n"
-            "  biotimbre export-bundle 12 -o small.btz --no-embeddings"
+            "  biotimbre export-bundle 12 -o small.btz --no-embeddings\n"
+            "  biotimbre search q.wav --taxa cicadidae --csv hits.csv\n"
+            "  biotimbre export-bundle --items-from hits.csv -o checked.btz"
         ),
     )
     p_export_bundle.add_argument(
         "item_id",
         type=int,
-        nargs="+",
-        help="The items to include, by ID; several may be given.",
+        nargs="*",
+        help="The items to include, by ID; several may be given. May be left "
+             "out with --items-from.",
+    )
+    p_export_bundle.add_argument(
+        "--items-from",
+        metavar="CSV",
+        help="Also include every item in this CSV's item_id column: the "
+             "results search --csv wrote, the library's export-csv, or any "
+             "table with that column. To share only some search results, "
+             "delete the other rows in a spreadsheet first.",
     )
     p_export_bundle.add_argument(
         "-o",

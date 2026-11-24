@@ -321,7 +321,7 @@ biotimbre models                               # modelos registrados e contagem 
 biotimbre backfill MODEL_ID                    # calcula embeddings dos itens que não os têm para este modelo
 biotimbre export-npy ITEM_ID MODEL_ID SAIDA [--with-audio]
 biotimbre export-csv SAIDA                     # metadados de todos os itens em CSV
-biotimbre export-bundle ITEM_ID... -o ARQUIVO [--no-embeddings]
+biotimbre export-bundle [ITEM_ID...] [--items-from CSV] -o ARQUIVO [--no-embeddings]
 biotimbre import-bundle ARQUIVO [--dry-run] [opções]
 biotimbre import-library DIR [--dry-run] [opções]    # adiciona os itens de outra biblioteca a esta
 biotimbre stats
@@ -650,6 +650,16 @@ comando:
 biotimbre export-bundle 12 -o guyalna.btz          # um item, com seus vetores
 biotimbre export-bundle 12 13 14 -o batch.btz      # vários itens
 biotimbre export-bundle 12 -o small.btz --no-embeddings
+```
+
+Resultados de busca podem ser compartilhados da mesma forma. `search --csv`
+grava os resultados como a página de busca os exporta; apague numa planilha as
+linhas das correspondências erradas, e `--items-from` usa os itens que
+restarem, desse arquivo ou de qualquer CSV com uma coluna `item_id`:
+
+```bash
+biotimbre search query.wav --taxa cicadidae --csv hits.csv
+biotimbre export-bundle --items-from hits.csv -o checked.btz
 ```
 
 O destinatário pode importar o pacote na seção *Importar itens*

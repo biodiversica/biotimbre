@@ -54,6 +54,7 @@ from biotimbre.io.sidecar import (
     fold_coordinates,
     processing_from_fields,
 )
+from biotimbre.io.table import guess_separator
 
 #: The table's own columns, besides the sidecar's fields.
 TABLE_COLUMNS = ("file", "inat", "inat_sound")
@@ -73,11 +74,6 @@ _NUMBER_COLUMNS = frozenset({
 })
 
 _DECIMAL_COMMA = re.compile(r"^-?\d+,\d+$")
-
-#: Separators a table may use, tried in this order when the file does not
-#: make it clear.
-_SEPARATORS = ",;\t"
-
 
 @dataclass(frozen=True)
 class TableRow:
@@ -140,7 +136,7 @@ def read_table(path: str | Path) -> list[TableRow]:
     if not text.strip():
         raise ValidationError(f"The table {table.name} is empty.", "table")
 
-    separator = _separator(text)
+    separator = guess_separator(text)
     # From a stream, not a list of lines: a quoted cell may hold a line break,
     # notes in particular, and the reader then counts lines itself.
     reader = csv.reader(io.StringIO(text, newline=""), delimiter=separator)
@@ -184,14 +180,6 @@ def read_table(path: str | Path) -> list[TableRow]:
         rows.append(TableRow(line=line, fields=values))
         line = reader.line_num + 1
     return rows
-
-
-def _separator(text: str) -> str:
-    """The table's separator: whichever its header line uses most."""
-    first = text.splitlines()[0]
-    counts = {sep: first.count(sep) for sep in _SEPARATORS}
-    best = max(counts, key=counts.get)
-    return best if counts[best] else ","
 
 
 def resolve_file(value: str, table_dir: Path) -> Path:
