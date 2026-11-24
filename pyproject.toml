@@ -15,6 +15,9 @@ dependencies = [
     "huggingface_hub>=0.20",
     # The --help screens and error messages of the command line.
     "rich>=13.0",
+    # The iNaturalist source, which the command line uses as well as the GUI.
+    # huggingface_hub and nicegui depend on it too, but that is theirs to change.
+    "httpx2>=2,<3",
 ]
 
 [project.urls]
@@ -29,9 +32,6 @@ gui = [
     # The oldest release the page tests pass on.
     "nicegui>=3.12",
     "pillow>=10.1",  # load_default(size=...) for spectrogram labels
-    # The iNaturalist source. Declared because nicegui and huggingface_hub
-    # bringing it along is not something to rely on.
-    "httpx>=0.28",
 ]
 
 dev = ["pytest>=8.0", "pytest-cov>=5.0", "pytest-asyncio>=0.24"]

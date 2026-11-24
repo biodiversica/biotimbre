@@ -38,7 +38,7 @@ from biotimbre.ui.forms import input_values, metadata_form, set_inputs
 from biotimbre.ui.layout import current_views, notify_error
 from biotimbre.ui.state import get_state
 
-def _fill_metadata_from(t: Translator, form, observation) -> None:
+def _fill_metadata_from(t: Translator, form, observation, sound) -> None:
     """Write what an observation knows into the metadata form.
 
     Filled, not imposed: every field stays editable, because only the person
@@ -50,6 +50,7 @@ def _fill_metadata_from(t: Translator, form, observation) -> None:
         t: Active translator.
         form: The metadata form.
         observation: The fetched observation.
+        sound: The recording of it being added, whose credit goes in the notes.
     """
     if observation.date:
         form.inputs["date"].value = observation.date
@@ -76,10 +77,22 @@ def _fill_metadata_from(t: Translator, form, observation) -> None:
     # refers to.
     form.inputs["link"].value = observation.url
 
-    credit = observation.credit
-    notes = (form.inputs["notes"].value or "").strip()
-    if credit not in notes:
-        form.inputs["notes"].value = f"{notes}\n{credit}".strip()
+    _credit_recording(form, observation, sound)
+
+
+def _credit_recording(form, observation, sound) -> None:
+    """Put the credit line for this recording in the notes, and only that one.
+
+    Called again when another recording of the same observation is chosen:
+    its licence may differ, so the line for the one replaced goes.
+    """
+    lines = [
+        line
+        for line in (form.inputs["notes"].value or "").splitlines()
+        if not line.startswith(observation.credit_prefix)
+    ]
+    lines.append(observation.credit_for(sound))
+    form.inputs["notes"].value = "\n".join(lines).strip()
 
 
 def _fill_processing_fields(form, add_state: ClipState) -> None:
@@ -338,7 +351,12 @@ async def _add_card(t: Translator, on_added) -> None:
             inat.fetch_panel(
                 t,
                 stage=stage_observation_sound,
-                after=lambda observation: _fill_metadata_from(t, form, observation),
+                after=lambda observation, sound: _fill_metadata_from(
+                    t, form, observation, sound
+                ),
+                on_switch=lambda observation, sound: _credit_recording(
+                    form, observation, sound
+                ),
             )
             if state.settings.inaturalist_enabled
             else None
@@ -440,7 +458,7 @@ async def _add_card(t: Translator, on_added) -> None:
             upload, handoff = taken
             form.inputs["speed"].value = handoff.speed
             if handoff.observation is not None:
-                _fill_metadata_from(t, form, handoff.observation)
+                _fill_metadata_from(t, form, handoff.observation, handoff.sound)
             ui.notify(t("admin.handoff_taken"), type="info", position="top")
             await show_staged(upload)
 

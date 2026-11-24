@@ -450,7 +450,9 @@ async def render(t: Translator) -> None:
     query_speed = {"value": DEFAULT_SPEED}
     #: The iNaturalist observation the query was fetched from, if it was, for
     #: the library's add form to take the metadata from.
-    origin: dict = {"observation": None}
+    #: The observation the query was fetched from, and which of its
+    #: recordings, so the add form can take its metadata and credit it.
+    origin: dict = {"observation": None, "sound": None}
     #: The results on screen, as :func:`draw_results` takes them, so a change
     #: of language can draw them again rather than search again.
     shown_results: dict = {"value": None}
@@ -471,7 +473,7 @@ async def render(t: Translator) -> None:
             query.discard()
             media.stop()
             editor["controls"] = None
-            origin["observation"] = None
+            origin.update(observation=None, sound=None)
             uploader.reset()
             show_pickers(True)
             query_area.clear()
@@ -543,6 +545,7 @@ async def render(t: Translator) -> None:
                     query,
                     speed=float(controls.speed.value or DEFAULT_SPEED),
                     observation=origin["observation"],
+                    sound=origin["sound"],
                 )
             except BiotimbreError as exc:
                 notify_error(t, exc)
@@ -570,7 +573,7 @@ async def render(t: Translator) -> None:
                 # event.content/event.file API change went unnoticed.
                 notify_error(t, exc)
                 raise
-            origin["observation"] = None
+            origin.update(observation=None, sound=None)
             await show_query(upload)
 
         def handle_rejected(_event) -> None:
@@ -588,7 +591,7 @@ async def render(t: Translator) -> None:
             upload = await state.run(
                 query.finish, path, f"inat-{observation.id}{path.suffix}"
             )
-            origin["observation"] = observation
+            origin.update(observation=observation, sound=sound)
             await show_query(upload)
 
         uploader = ui.upload(
@@ -603,7 +606,9 @@ async def render(t: Translator) -> None:
             inat.fetch_panel(
                 t,
                 stage=stage_observation_sound,
-                after=lambda observation: _fill_filters_from(t, filters, observation),
+                after=lambda observation, _sound: _fill_filters_from(
+                    t, filters, observation
+                ),
             )
             if state.settings.inaturalist_enabled
             else None
@@ -810,7 +815,10 @@ async def render(t: Translator) -> None:
                 await controls.settle()
                 speed = float(controls.speed.value or DEFAULT_SPEED)
             kept["query"] = await hand_over(
-                query, speed=speed, observation=origin["observation"]
+                query,
+                speed=speed,
+                observation=origin["observation"],
+                sound=origin["sound"],
             )
             if inat_panel is not None:
                 kept["shown"] = inat_panel.shown
@@ -830,7 +838,7 @@ async def render(t: Translator) -> None:
             if taken is not None:
                 upload, handoff = taken
                 query_speed["value"] = handoff.speed
-                origin["observation"] = handoff.observation
+                origin.update(observation=handoff.observation, sound=handoff.sound)
                 await show_query(upload)
                 if kept["shown"] is not None and inat_panel is not None:
                     inat_panel.show(*kept["shown"])

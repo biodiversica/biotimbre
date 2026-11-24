@@ -14,8 +14,9 @@ import argparse
 import dataclasses
 import faulthandler
 import sys
+import tempfile
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from pathlib import Path
 
 from biotimbre import __version__
@@ -27,7 +28,12 @@ from biotimbre.embeddings.runtime import onnxruntime_problem
 from biotimbre.io.bundle import BUNDLE_SUFFIX
 from biotimbre.io.sidecar import PROCESSING_FIELDS, SIDECAR_FIELDS
 from biotimbre.models_registry import MODEL_SPECS
-from biotimbre.richhelp import RichHelpParser, print_error, print_warning
+from biotimbre.richhelp import (
+    RichHelpParser,
+    download_progress,
+    print_error,
+    print_warning,
+)
 from biotimbre.search.filters import SearchFilters
 from biotimbre.service import IngestResult, LibraryService, SearchHit
 from biotimbre.processing import DEFAULT_FILTER_ORDER, Processing
@@ -50,12 +56,7 @@ def _service(args: argparse.Namespace) -> Iterator[LibraryService]:
         try:
             yield service
         finally:
-            notices = service.pop_notices()
-            if notices:
-                # After the command's own report, not before it: stdout is
-                # block-buffered when piped, and stderr is not.
-                sys.stdout.flush()
-            for notice in notices:
+            for notice in service.pop_notices():
                 print_warning(notice)
 
 
@@ -260,11 +261,136 @@ def _processing_flags(args: argparse.Namespace) -> dict[str, object]:
     return given
 
 
+def _flags_draft(
+    args: argparse.Namespace, fallback: dict[str, object] | None = None
+) -> ItemDraft:
+    """The metadata the options give, with ``fallback`` for those not given.
+
+    Args:
+        args: Parsed add options.
+        fallback: Values to use where an option is absent — what an
+            iNaturalist observation says. ``None`` when the options are all
+            there is.
+
+    Raises:
+        ValidationError: If date, time or location is still missing, naming
+            the options that would supply it.
+    """
+    known = dict(fallback or {})
+
+    def pick(name: str) -> object:
+        value = getattr(args, name)
+        return value if value is not None else known.get(name)
+
+    reasons = known.pop("_missing", {})
+    missing = [
+        f"--{name}" + (f" ({reasons[name]})" if name in reasons else "")
+        for name in ("date", "time", "latitude", "longitude")
+        if pick(name) is None
+    ]
+    if missing:
+        alternative = (
+            "" if fallback is not None
+            else " Alternatively supply a sidecar file with --sidecar."
+        )
+        raise ValidationError(
+            f"Missing required option(s): {', '.join(missing)}.{alternative}",
+            "arguments",
+        )
+    return ItemDraft(
+        date=pick("date"),
+        time=pick("time"),
+        location=Location(pick("latitude"), pick("longitude")),
+        sample_window=SampleWindow.parse_optional(
+            (args.window_start, args.window_end)
+        ),
+        biotimbre_id=args.biotimbre_id,
+        taxa=tuple(args.taxa) if args.taxa else tuple(known.get("taxa", ())),
+        device=args.device,
+        microphone=args.microphone,
+        recorded_by=pick("recorded_by"),
+        filtered_band=FilteredBand(args.highpass, args.lowpass),
+        filter_type=args.filter_type,
+        filter_order=args.filter_order,
+        temperature=args.temperature,
+        humidity=args.humidity,
+        speed=args.speed,
+        link_to_full_recording=pick("link"),
+        notes="\n".join(
+            text for text in (args.notes, known.get("credit")) if text
+        ) or None,
+    )
+
+
+def _observation_metadata(observation, sound) -> dict[str, object]:
+    """What an observation says, as fallbacks for :func:`_flags_draft`.
+
+    The same fields the add form fills from it: when and where, the taxon,
+    the observer, the observation page as the full recording, and a credit
+    line for the recording used. An obscured location is left out — it names
+    a random point — and the reason is kept for the error that asks for it.
+    """
+    values: dict[str, object] = {
+        "date": observation.date,
+        "time": observation.time,
+        "latitude": observation.latitude,
+        "longitude": observation.longitude,
+        "taxa": (observation.taxon,) if observation.taxon else (),
+        "recorded_by": observation.observer,
+        "link": observation.url,
+        "credit": observation.credit_for(sound),
+    }
+    why_location = (
+        "iNaturalist hides this observation's location"
+        if observation.obscured else "the observation has no location"
+    )
+    values["_missing"] = {
+        "date": "the observation has no date",
+        "time": "the observation has no time",
+        "latitude": why_location,
+        "longitude": why_location,
+    }
+    return values
+
+
+def _one_audio_source(args: argparse.Namespace) -> None:
+    """Refuse AUDIO and --inat together, or neither where one is needed."""
+    if args.inat_sound is not None and args.inat is None:
+        raise ValidationError("--inat-sound needs --inat.", "arguments")
+    if args.audio is not None and args.inat is not None:
+        raise ValidationError(
+            "Give AUDIO or --inat, not both: --inat fetches the recording.",
+            "arguments",
+        )
+
+
 def cmd_add(args: argparse.Namespace) -> int:
-    """Add one sample, from a sidecar or from explicit flags."""
+    """Add one sample, from a sidecar, from explicit flags, or from iNaturalist."""
+    _one_audio_source(args)
+    if args.audio is None and args.inat is None:
+        raise ValidationError(
+            "Give AUDIO, the recording to add, or --inat OBSERVATION to fetch it "
+            "from iNaturalist.",
+            "arguments",
+        )
+    if args.inat is not None and args.sidecar:
+        raise ValidationError(
+            "--sidecar and --inat are two sources of metadata; give one. With "
+            "--inat, options such as --date or --taxa replace what the "
+            "observation says.",
+            "arguments",
+        )
     processing = _processing_flags(args)
     with _service(args) as service:
-        if args.sidecar or not args.date:
+        if args.inat is not None:
+            with _inat_recording(args, service.settings) as (path, observation, sound):
+                result = service.add_item(
+                    path,
+                    _flags_draft(args, _observation_metadata(observation, sound)),
+                    compute_embeddings=not args.no_embeddings,
+                    processing=Processing(**processing),
+                )
+        elif args.sidecar or not args.date:
             result = service.add_from_sidecar(
                 args.audio,
                 args.sidecar,
@@ -272,50 +398,88 @@ def cmd_add(args: argparse.Namespace) -> int:
                 processing_overrides=processing,
             )
         else:
-            missing = [
-                name
-                for name, value in (
-                    ("--time", args.time),
-                    ("--latitude", args.latitude),
-                    ("--longitude", args.longitude),
-                )
-                if value is None
-            ]
-            if missing:
-                raise ValidationError(
-                    f"Missing required option(s): {', '.join(missing)}. "
-                    f"Alternatively supply a sidecar file with --sidecar.",
-                    "arguments",
-                )
-            draft = ItemDraft(
-                date=args.date,
-                time=args.time,
-                location=Location(args.latitude, args.longitude),
-                sample_window=SampleWindow.parse_optional(
-                    (args.window_start, args.window_end)
-                ),
-                biotimbre_id=args.biotimbre_id,
-                taxa=args.taxa or (),
-                device=args.device,
-                microphone=args.microphone,
-                recorded_by=args.recorded_by,
-                filtered_band=FilteredBand(args.highpass, args.lowpass),
-                filter_type=args.filter_type,
-                filter_order=args.filter_order,
-                temperature=args.temperature,
-                humidity=args.humidity,
-                speed=args.speed,
-                link_to_full_recording=args.link,
-                notes=args.notes,
-            )
             result = service.add_item(
                 args.audio,
-                draft,
+                _flags_draft(args),
                 compute_embeddings=not args.no_embeddings,
                 processing=Processing(**processing),
             )
         _print_ingest(result)
     return 0
+
+
+@contextmanager
+def _inat_recording(args: argparse.Namespace, settings) -> Iterator[tuple]:
+    """Fetch the recording --inat names, and say what to know about it.
+
+    Yields:
+        The downloaded file, the observation, and which of its recordings it
+        is. The file is removed when the block ends.
+
+    Raises:
+        ValidationError: If the source is turned off for this library, the
+            observation has no such recording, or ffmpeg is needed and absent.
+        BiotimbreError: If iNaturalist cannot be reached.
+    """
+    if not settings.inaturalist_enabled:
+        raise ValidationError(
+            "Fetching from iNaturalist is turned off for this library "
+            "([sources.inaturalist] enabled = false in the config file).",
+            "inat",
+        )
+    from biotimbre.sources import inaturalist
+
+    observation = inaturalist.fetch_observation(
+        inaturalist.parse_observation_id(args.inat)
+    )
+    count = len(observation.sounds)
+    if not count:
+        raise ValidationError(
+            f"iNaturalist observation {observation.id} has no recordings.", "inat"
+        )
+    number = args.inat_sound if args.inat_sound is not None else 1
+    if not 1 <= number <= count:
+        raise ValidationError(
+            f"Observation {observation.id} has {count} recording(s); "
+            f"--inat-sound must be 1 to {count}.",
+            "inat",
+        )
+    sound = observation.sounds[number - 1]
+
+    print(
+        f"iNaturalist observation {observation.id}: "
+        f"{observation.taxon or 'unidentified'}"
+        + (f", {observation.date}" if observation.date else "")
+        + (f" {observation.time}" if observation.time else "")
+        + (f", by {observation.observer}" if observation.observer else "")
+    )
+    if count > 1:
+        for index, other in enumerate(observation.sounds, start=1):
+            marker = "*" if index == number else " "
+            print(
+                f"  {marker} recording {index}: "
+                f"{other.license_code or 'all rights reserved'}"
+            )
+        print("  (--inat-sound N picks another)")
+    if not sound.license_code:
+        print_warning(
+            "all rights are reserved by the recordist: check before storing or "
+            "exporting this recording."
+        )
+    if observation.quality_grade and observation.quality_grade != "research":
+        print_warning(
+            "the observation is not research grade: its identification may "
+            "still change."
+        )
+
+    with tempfile.TemporaryDirectory(prefix="biotimbre-inat-") as directory:
+        # Its own suffix when it is read as it is, so libsndfile is not told
+        # an MP3 is a WAV; one that needs decoding comes back as a .wav.
+        suffix = ".wav" if sound.needs_transcoding else (sound.suffix or ".wav")
+        target = Path(directory) / f"inat-{observation.id}{suffix}"
+        with download_progress(f"recording {number} of {observation.id}") as on_progress:
+            path = inaturalist.download_sound(sound, target, on_progress=on_progress)
+        yield path, observation, sound
 
 
 #: Fields ``edit --clear`` can empty, by the name the option takes, with the
@@ -560,27 +724,27 @@ _QUERY_ONLY = (
 
 def cmd_search(args: argparse.Namespace) -> int:
     """Search the library with a query recording, or by its filters alone."""
-    with _service(args) as service:
-        if args.audio is not None and args.speed:
-            raise ValidationError(
-                "--speed is for a search by the filters alone. With a query "
-                "recording, --query-speed picks the speed: it embeds the query "
-                "at it and searches only the items stored at it.",
-                "arguments",
-            )
-        filters = SearchFilters(
-            taxa=tuple(args.taxa or ()),
-            taxa_match_all=args.taxa_all,
-            biotimbre_ids=tuple(args.biotimbre_id or ()),
-            date_from=args.date_from,
-            date_to=args.date_to,
-            latitude=args.latitude,
-            longitude=args.longitude,
-            radius_km=args.radius_km,
-            exclude_item_ids=tuple(args.exclude or ()),
-            speeds=tuple(args.speed or ()),
+    _one_audio_source(args)
+    if args.inat_filters and args.inat is None:
+        raise ValidationError("--inat-filters needs --inat.", "arguments")
+    if (args.audio is not None or args.inat is not None) and args.speed:
+        raise ValidationError(
+            "--speed is for a search by the filters alone. With a query "
+            "recording, --query-speed picks the speed: it embeds the query "
+            "at it and searches only the items stored at it.",
+            "arguments",
         )
-        if args.audio is None:
+    with _service(args) as service, ExitStack() as stack:
+        query = Path(args.audio) if args.audio is not None else None
+        observation = None
+        if args.inat is not None:
+            query, observation, _sound = stack.enter_context(
+                _inat_recording(args, service.settings)
+            )
+        filters = _search_filters(
+            args, observation if args.inat_filters else None
+        )
+        if query is None:
             given = [
                 "--" + name.replace("_", "-")
                 for name in _QUERY_ONLY
@@ -597,7 +761,7 @@ def cmd_search(args: argparse.Namespace) -> int:
             _print_hits(hits, show_all_models=False, scored=False)
             return 0
         hits = service.search(
-            args.audio,
+            query,
             filters=filters,
             k=args.top_k,
             metric=args.metric,
@@ -615,15 +779,14 @@ def cmd_search(args: argparse.Namespace) -> int:
         # After the search, which has already refused an unusable segment, and
         # over the segment it resolved: a start alone means the cap from there.
         start, end = audio_io.resolve_query_segment(
-            audio_io.read_properties(args.audio).duration_s,
+            audio_io.read_properties(query).duration_s,
             args.start_time,
             args.end_time,
             service.settings.max_query_duration_s,
         )
-        peak = audio_io.over_range_peak(args.audio, start_time=start, end_time=end)
+        peak = audio_io.over_range_peak(query, start_time=start, end_time=end)
         if peak is not None:
-            name = Path(args.audio).name
-            print_warning(audio_io.over_range_message(name, peak))
+            print_warning(audio_io.over_range_message(query.name, peak))
         if not hits and args.query_speed is not None:
             speeds = service.stats()["speeds"]
             if float(args.query_speed) not in speeds:
@@ -638,6 +801,55 @@ def cmd_search(args: argparse.Namespace) -> int:
                 return 0
         _print_hits(hits, show_all_models=True)
     return 0
+
+
+#: Radius around an observation's coordinates that --inat-filters searches,
+#: as the search page's own observation fetch does.
+OBSERVATION_RADIUS_KM = 25.0
+
+
+def _search_filters(args: argparse.Namespace, observation=None) -> SearchFilters:
+    """The search's filters, completed from an observation for --inat-filters.
+
+    What the observation supplies only fills a filter its option left unset:
+    its taxon for --taxa, and its coordinates, within --radius-km or 25 km, for
+    the location. Not its date, which says when one recording was made rather
+    than when the animal calls. What was taken is printed, since nothing else
+    would show it.
+    """
+    taxa = tuple(args.taxa or ())
+    latitude, longitude, radius = args.latitude, args.longitude, args.radius_km
+    if observation is not None:
+        taken = []
+        if not taxa and observation.taxon:
+            taxa = (observation.taxon,)
+            taken.append(f"taxa {observation.taxon!r}")
+        if latitude is None and longitude is None:
+            if observation.latitude is not None and observation.longitude is not None:
+                latitude, longitude = observation.latitude, observation.longitude
+                radius = radius if radius is not None else OBSERVATION_RADIUS_KM
+                taken.append(
+                    f"within {radius:g} km of {latitude:g},{longitude:g}"
+                )
+            elif observation.obscured:
+                print_warning(
+                    "iNaturalist hides this observation's location, so it is "
+                    "not used as a filter."
+                )
+        if taken:
+            print(f"Filters from the observation: {'; '.join(taken)}.")
+    return SearchFilters(
+        taxa=taxa,
+        taxa_match_all=args.taxa_all,
+        biotimbre_ids=tuple(args.biotimbre_id or ()),
+        date_from=args.date_from,
+        date_to=args.date_to,
+        latitude=latitude,
+        longitude=longitude,
+        radius_km=radius,
+        exclude_item_ids=tuple(args.exclude or ()),
+        speeds=tuple(args.speed or ()),
+    )
 
 
 def cmd_models(args: argparse.Namespace) -> int:
@@ -1014,6 +1226,47 @@ def _add_import_options(parser: argparse.ArgumentParser, source: str) -> None:
     )
 
 
+def _inat_options(parser: argparse.ArgumentParser, *, searching: bool) -> None:
+    """The options add and search share for fetching from iNaturalist."""
+    group = parser.add_argument_group("iNaturalist")
+    group.add_argument(
+        "--inat",
+        metavar="OBSERVATION",
+        help="Fetch the recording from this iNaturalist observation, by ID or "
+             "URL, instead of giving AUDIO. "
+             + (
+                 "It becomes the query; its taxon and location are used as "
+                 "filters only with --inat-filters."
+                 if searching else
+                 "Its date, time, location, taxon and observer fill the "
+                 "metadata, its page becomes --link, and a credit line with the "
+                 "recording's licence goes in the notes; any of these options "
+                 "given replaces what the observation says. An obscured "
+                 "location is not used: give --latitude and --longitude."
+             )
+             + " Most recordings there are AAC (.m4a), which needs ffmpeg on "
+             "the PATH to decode.",
+    )
+    group.add_argument(
+        "--inat-sound",
+        type=int,
+        metavar="N",
+        help="Which of the observation's recordings to use, counting from 1. "
+             "Default: the first. The recordings and their licences are listed "
+             "when there are several.",
+    )
+    if searching:
+        group.add_argument(
+            "--inat-filters",
+            action="store_true",
+            help="Also narrow the search by the observation: to its taxon, "
+                 "unless --taxa is given, and to within --radius-km (25 km if "
+                 "not given) of its location, unless --latitude/--longitude "
+                 "are. Not by its date, which says when one recording was made, "
+                 "not when the animal calls.",
+        )
+
+
 def _metadata_options(
     parser: argparse.ArgumentParser, *, editing: bool
 ) -> argparse._ArgumentGroup:
@@ -1276,7 +1529,9 @@ def build_parser() -> argparse.ArgumentParser:
             "several channels), records its metadata, and computes its "
             "embeddings with every active model. Any format libsndfile reads "
             "is accepted: WAV, FLAC, OGG, AIFF and more.\n\n"
-            "Metadata comes from one of two places. With --sidecar, or when "
+            "Metadata comes from one of three places. With --inat, from the "
+            "iNaturalist observation the recording is fetched from, with any "
+            "option given taking precedence. With --sidecar, or when "
             "--date is not given, it is read from a sidecar file (format below) — "
             "without --sidecar, the file next to AUDIO with the same name and a "
             ".txt suffix. Otherwise it comes from the options below, "
@@ -1300,14 +1555,19 @@ def build_parser() -> argparse.ArgumentParser:
             "  biotimbre add katydid.wav --date 2021-03-05 --time 22:10:00 \\\n"
             "      --latitude -26.9 --longitude -48.7 --taxa orthoptera insecta \\\n"
             "      --device Audiomoth --highpass 8000 --lowpass 40000 --speed 0.25\n"
-            "  biotimbre add dawn.wav --trim 92 99 --apply-highpass 1500 --normalise"
+            "  biotimbre add dawn.wav --trim 92 99 --apply-highpass 1500 --normalise\n"
+            "  biotimbre add --inat 400139850                # fetch and fill from it\n"
+            "  biotimbre add --inat 400139850 --trim 2 7 --taxa cicadidae"
         ),
     )
     p_add.add_argument(
         "audio",
+        nargs="?",
         help="The recording to add. It is copied into the library; the original "
-             "is not moved or changed.",
+             "is not moved or changed. Leave it out with --inat, which fetches "
+             "the recording instead.",
     )
+    _inat_options(p_add, searching=False)
 
     source = p_add.add_argument_group("Metadata source")
     source.add_argument(
@@ -1547,7 +1807,8 @@ def build_parser() -> argparse.ArgumentParser:
             "  biotimbre search dawn_chorus.wav --start-time 92 --end-time 99\n"
             "  biotimbre search query.wav --fusion perch_v2 --min-score 0.6\n"
             "  biotimbre search noisy.wav --apply-highpass 1500     # cut the hum\n"
-            "  biotimbre search --taxa cicadidae --date-from 2024-01-01 -k 50"
+            "  biotimbre search --taxa cicadidae --date-from 2024-01-01 -k 50\n"
+            "  biotimbre search --inat 400139850 --inat-filters"
         ),
     )
     p_search.add_argument(
@@ -1585,6 +1846,8 @@ def build_parser() -> argparse.ArgumentParser:
              "query, to compare with items added with --speed 0.25. biotimbre "
              "stats lists the speeds in use.",
     )
+
+    _inat_options(p_search, searching=True)
 
     query_filter = p_search.add_argument_group(
         "Query filter (applied to the query before embedding)"

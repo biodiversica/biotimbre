@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
-import httpx
+import httpx2
 
 from biotimbre.domain.errors import BiotimbreError, NotFoundError, ValidationError
 
@@ -114,10 +114,22 @@ class Observation:
     sounds: tuple[Sound, ...] = ()
 
     @property
+    def credit_prefix(self) -> str:
+        """How every :meth:`credit` line for this observation starts."""
+        return f"iNaturalist observation {self.id}"
+
+    @property
     def credit(self) -> str:
-        """A one-line provenance note, for an item's ``notes``."""
-        parts = [f"iNaturalist observation {self.id}"]
-        sound = self.sounds[0] if self.sounds else None
+        """:meth:`credit_for` the first recording."""
+        return self.credit_for(self.sounds[0] if self.sounds else None)
+
+    def credit_for(self, sound: Sound | None) -> str:
+        """A one-line provenance note for one recording, for an item's ``notes``.
+
+        For the recording actually used: two recordings of one observation can
+        carry different licences, and the note is what says which applies.
+        """
+        parts = [self.credit_prefix]
         if sound and sound.attribution:
             parts.append(sound.attribution)
         elif sound and sound.license_code:
@@ -228,7 +240,7 @@ def observation_from_payload(payload: dict) -> Observation:
 
 
 def fetch_observation(
-    observation_id: int, *, client: httpx.Client | None = None
+    observation_id: int, *, client: httpx2.Client | None = None
 ) -> Observation:
     """Read one observation from iNaturalist. Blocking.
 
@@ -244,7 +256,7 @@ def fetch_observation(
         BiotimbreError: If iNaturalist cannot be reached or answers oddly.
     """
     owned = client is None
-    client = client or httpx.Client(
+    client = client or httpx2.Client(
         timeout=TIMEOUT_S, headers={"User-Agent": USER_AGENT}
     )
     try:
@@ -255,7 +267,7 @@ def fetch_observation(
         payload = response.json()
     except (NotFoundError, BiotimbreError):
         raise
-    except httpx.HTTPError as exc:
+    except httpx2.HTTPError as exc:
         raise BiotimbreError(f"Could not reach iNaturalist: {exc}") from exc
     except ValueError as exc:  # not JSON
         raise BiotimbreError(f"iNaturalist answered unreadably: {exc}") from exc
@@ -278,7 +290,7 @@ def download_sound(
     sound: Sound,
     destination: str | Path,
     *,
-    client: httpx.Client | None = None,
+    client: httpx2.Client | None = None,
     on_progress: Callable[[int, int], None] | None = None,
 ) -> Path:
     """Download one recording, decoding it if libsndfile could not read it.
@@ -322,7 +334,7 @@ def download_sound(
     landing = encoded if sound.needs_transcoding else target
 
     owned = client is None
-    client = client or httpx.Client(
+    client = client or httpx2.Client(
         timeout=TIMEOUT_S, headers={"User-Agent": USER_AGENT}, follow_redirects=True
     )
     try:
@@ -338,7 +350,7 @@ def download_sound(
                     received += len(chunk)
                     if on_progress is not None:
                         on_progress(received, total)
-    except httpx.HTTPError as exc:
+    except httpx2.HTTPError as exc:
         landing.unlink(missing_ok=True)
         raise BiotimbreError(f"Could not download the recording: {exc}") from exc
     finally:

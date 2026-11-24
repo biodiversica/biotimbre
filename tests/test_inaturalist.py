@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 import soundfile as sf
 
-httpx = pytest.importorskip("httpx")
+httpx2 = pytest.importorskip("httpx2")
 
 from biotimbre.domain.errors import (  # noqa: E402
     BiotimbreError,
@@ -41,9 +41,9 @@ PAYLOAD = {
 }
 
 
-def client_for(handler) -> httpx.Client:
+def client_for(handler) -> httpx2.Client:
     """A client whose requests are answered by ``handler``."""
-    return httpx.Client(transport=httpx.MockTransport(handler))
+    return httpx2.Client(transport=httpx2.MockTransport(handler))
 
 
 class TestObservationId:
@@ -119,25 +119,25 @@ class TestFetching:
     def test_fetches_and_parses(self):
         def handler(request):
             assert request.url.path.endswith("/observations/400139850")
-            return httpx.Response(200, json=PAYLOAD)
+            return httpx2.Response(200, json=PAYLOAD)
 
         with client_for(handler) as client:
             observation = inat.fetch_observation(400139850, client=client)
         assert observation.taxon == "Guyalna bonaerensis"
 
     def test_missing_observation_is_not_found(self):
-        with client_for(lambda request: httpx.Response(404)) as client:
+        with client_for(lambda request: httpx2.Response(404)) as client:
             with pytest.raises(NotFoundError, match="400139850"):
                 inat.fetch_observation(400139850, client=client)
 
     def test_an_empty_result_is_not_found(self):
-        with client_for(lambda r: httpx.Response(200, json={"results": []})) as client:
+        with client_for(lambda r: httpx2.Response(200, json={"results": []})) as client:
             with pytest.raises(NotFoundError):
                 inat.fetch_observation(1, client=client)
 
     def test_an_unreachable_api_says_so(self):
         def handler(request):
-            raise httpx.ConnectError("no route to host")
+            raise httpx2.ConnectError("no route to host")
 
         with client_for(handler) as client:
             with pytest.raises(BiotimbreError, match="Could not reach iNaturalist"):
@@ -155,7 +155,7 @@ class TestDownloading:
         sound = inat.Sound(id=1, url="https://x/1.wav", content_type="audio/wav")
         assert sound.needs_transcoding is False
 
-        with client_for(lambda r: httpx.Response(200, content=wav_bytes)) as client:
+        with client_for(lambda r: httpx2.Response(200, content=wav_bytes)) as client:
             written = inat.download_sound(sound, tmp_path / "q.wav", client=client)
         assert written.read_bytes() == wav_bytes
 
@@ -172,7 +172,7 @@ class TestDownloading:
         sound = inat.Sound(id=1, url="https://x/1.wav")
 
         def handler(request):
-            return httpx.Response(
+            return httpx2.Response(
                 200,
                 content=wav_bytes,
                 headers={"content-length": str(len(wav_bytes))},
@@ -198,7 +198,7 @@ class TestDownloading:
 
         def handler(request):
             # Chunked, as a server that does not know the size would send it.
-            return httpx.Response(200, content=iter([wav_bytes]))
+            return httpx2.Response(200, content=iter([wav_bytes]))
 
         with client_for(handler) as client:
             inat.download_sound(
@@ -215,7 +215,7 @@ class TestDownloading:
 
     def test_a_failed_download_leaves_no_half_file(self, tmp_path):
         target = tmp_path / "q.wav"
-        with client_for(lambda r: httpx.Response(500)) as client:
+        with client_for(lambda r: httpx2.Response(500)) as client:
             with pytest.raises(BiotimbreError):
                 inat.download_sound(
                     inat.Sound(id=1, url="https://x/1.wav"), target, client=client
@@ -224,7 +224,7 @@ class TestDownloading:
 
     def test_a_failed_download_says_so(self, tmp_path):
         sound = inat.Sound(id=1, url="https://x/1.wav")
-        with client_for(lambda r: httpx.Response(500)) as client:
+        with client_for(lambda r: httpx2.Response(500)) as client:
             with pytest.raises(BiotimbreError, match="Could not download"):
                 inat.download_sound(sound, tmp_path / "q.wav", client=client)
 
@@ -245,7 +245,7 @@ class TestDownloading:
 
         sound = inat.Sound(id=1, url="https://x/1.m4a", content_type="audio/mp4")
         with client_for(
-            lambda r: httpx.Response(200, content=encoded.read_bytes())
+            lambda r: httpx2.Response(200, content=encoded.read_bytes())
         ) as client:
             written = inat.download_sound(sound, tmp_path / "q.wav", client=client)
 

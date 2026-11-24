@@ -309,12 +309,13 @@ removida assim que uma biblioteca é aberta.
 ```bash
 biotimbre init [--name NOME] [--skip-models]   # --name é obrigatório até que um nome seja definido
 biotimbre add AUDIO [--sidecar ARQUIVO | opções de metadados] [opções de processamento]
+biotimbre add --inat OBSERVAÇÃO [opções de metadados] [opções de processamento]
 biotimbre import-dir DIR                       # todo arquivo acompanhado de um sidecar
 biotimbre list [--biotimbre-id ID] [--limit N]
 biotimbre show ITEM_ID
 biotimbre edit ITEM_ID [opções de metadados] [--clear CAMPO...]
 biotimbre delete ITEM_ID [-y] [--keep-audio]
-biotimbre search [AUDIO] [-k N] [filtros]          # sem AUDIO: só pelos filtros
+biotimbre search [AUDIO | --inat OBSERVAÇÃO] [-k N] [filtros]   # sem nenhum: só pelos filtros
 biotimbre models                               # modelos registrados e contagem de vetores
 biotimbre backfill MODEL_ID                    # calcula embeddings dos itens que não os têm para este modelo
 biotimbre export-npy ITEM_ID MODEL_ID SAIDA [--with-audio]
@@ -712,6 +713,27 @@ iNaturalist; uma gravação com todos os direitos reservados é sinalizada; e
 observações abaixo do grau de pesquisa são indicadas, pois sua identificação
 ainda pode mudar. Uma barra de progresso é exibida durante o download da
 gravação.
+
+Quando uma observação tem várias gravações, a usada é escolhida numa lista, e o
+crédito em `notes` traz a licença dessa gravação.
+
+Na linha de comando, `--inat` toma o lugar do arquivo de áudio:
+
+```bash
+biotimbre add --inat 400139850                    # baixar e preencher os metadados
+biotimbre add --inat 400139850 --trim 2 7 --taxa cicadidae   # as opções têm precedência
+biotimbre search --inat 400139850 --start-time 2 --end-time 7
+biotimbre search --inat 400139850 --inat-filters  # também restringir pelo táxon e local
+```
+
+`add --inat` preenche os mesmos campos que a página Biblioteca; qualquer opção
+de metadados informada substitui o que a observação diz, e um local ocultado
+precisa ser informado com `--latitude` e `--longitude`. `search --inat` usa a
+gravação apenas como consulta: ao contrário da página de busca, só aplica o
+táxon e o raio de 25 km da observação com `--inat-filters`, já que um filtro
+definido na linha de comando passaria despercebido. `--inat-sound N` escolhe
+outra das gravações da observação. As mesmas ressalvas são exibidas como
+avisos.
 
 A maior parte do áudio do iNaturalist está em AAC, em um contêiner `.m4a`, que
 a libsndfile não consegue ler; por isso, a decodificação exige o **ffmpeg**.

@@ -291,12 +291,13 @@ no library is open and is withdrawn as soon as one is.
 ```bash
 biotimbre init [--name NAME] [--skip-models]   # --name is required until one is set
 biotimbre add AUDIO [--sidecar FILE | metadata options] [processing options]
+biotimbre add --inat OBSERVATION [metadata options] [processing options]
 biotimbre import-dir DIR                       # every file paired with a sidecar
 biotimbre list [--biotimbre-id ID] [--limit N]
 biotimbre show ITEM_ID
 biotimbre edit ITEM_ID [metadata options] [--clear FIELD...]
 biotimbre delete ITEM_ID [-y] [--keep-audio]
-biotimbre search [AUDIO] [-k N] [filters]          # without AUDIO: by filters alone
+biotimbre search [AUDIO | --inat OBSERVATION] [-k N] [filters]   # neither: by filters alone
 biotimbre models                               # registered models and vector counts
 biotimbre backfill MODEL_ID                    # embed items missing this model
 biotimbre export-npy ITEM_ID MODEL_ID OUT [--with-audio]
@@ -671,6 +672,26 @@ blank rather than filled with iNaturalist's randomised point, an
 all-rights-reserved recording is flagged, and observations below research
 grade are noted, since their identification may still change. A progress bar
 is shown while the recording is downloaded.
+
+When an observation has several recordings, the one used is chosen from a
+list, and the credit in `notes` is that recording's own licence.
+
+From the command line, `--inat` takes the place of the audio file:
+
+```bash
+biotimbre add --inat 400139850                    # fetch it and fill the metadata
+biotimbre add --inat 400139850 --trim 2 7 --taxa cicadidae   # options take precedence
+biotimbre search --inat 400139850 --start-time 2 --end-time 7
+biotimbre search --inat 400139850 --inat-filters  # also narrow by its taxon and place
+```
+
+`add --inat` fills the same fields as the Library page; any metadata option
+given replaces what the observation says, and an obscured location has to be
+given with `--latitude` and `--longitude`. `search --inat` uses the recording
+as the query only: unlike the Search page, it applies the observation's taxon
+and 25 km radius only with `--inat-filters`, since a filter set on the command
+line would otherwise go unseen. `--inat-sound N` picks another of the
+observation's recordings. The same caveats are printed as warnings.
 
 Most iNaturalist audio is AAC in an `.m4a` container, which libsndfile cannot
 read, so decoding requires **ffmpeg**. Without ffmpeg, the download fails with

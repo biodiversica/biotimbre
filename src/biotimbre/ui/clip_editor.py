@@ -832,6 +832,7 @@ class Handoff:
         speed: Speed it was searched at.
         observation: The iNaturalist observation it was fetched from, if any,
             for the add form to take the metadata from.
+        sound: Which of the observation's recordings it is, for the credit.
     """
 
     name: str
@@ -843,10 +844,11 @@ class Handoff:
     normalise: bool
     speed: float
     observation: Any = None
+    sound: Any = None
 
 
 async def hand_over(
-    clip: ClipState, *, speed: float, observation: Any = None
+    clip: ClipState, *, speed: float, observation: Any = None, sound: Any = None
 ) -> str:
     """Leave a copy of a staged recording, and its settings, to be taken over.
 
@@ -857,6 +859,7 @@ async def hand_over(
         clip: The staged recording and what was chosen for it.
         speed: Speed chosen for it.
         observation: The observation it was fetched from, if any.
+        sound: Which of its recordings, if any.
 
     Returns:
         The token to take it over by.
@@ -879,6 +882,7 @@ async def hand_over(
         normalise=clip.normalise,
         speed=speed,
         observation=observation,
+        sound=sound,
     )
     return token
 

@@ -117,7 +117,8 @@ def fetch_panel(
     t: Translator,
     *,
     stage: Callable[..., Awaitable[None]],
-    after: Callable[[Observation], None] | None = None,
+    after: Callable[[Observation, Sound], None] | None = None,
+    on_switch: Callable[[Observation, Sound], None] | None = None,
 ) -> FetchPanel:
     """Render the field, button, progress bar and provenance line.
 
@@ -127,8 +128,12 @@ def fetch_panel(
             recording and does whatever the page does with it. Raising a
             :class:`~biotimbre.domain.errors.BiotimbreError` reports it and
             leaves the page as it was.
-        after: Called once a recording is staged, to fill in whatever the page
-            fills in from an observation.
+        after: Called with the observation and its recording once one is
+            staged, to fill in whatever the page fills in from an observation.
+        on_switch: Called when another of the observation's recordings takes
+            its place, for what depends on which recording it is — its
+            licence. What ``after`` filled is not filled again, since the
+            reader may have changed it since.
 
     Returns:
         The panel, for the page to hide its field while a recording is loaded.
@@ -176,6 +181,8 @@ def fetch_panel(
     async def switch_sound(observation: Observation, sound: Sound) -> None:
         """Take a different recording from the same observation."""
         if await use_sound(observation, sound):
+            if on_switch is not None:
+                on_switch(observation, sound)
             panel.show(observation, sound)
 
     async def fetch() -> None:
@@ -216,7 +223,7 @@ def fetch_panel(
         if not await use_sound(observation, sound):
             return
         if after is not None:
-            after(observation)
+            after(observation, sound)
         panel.show(observation, sound)
 
     picker = ui.row().classes("items-center gap-2 w-full")

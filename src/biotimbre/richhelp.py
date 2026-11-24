@@ -21,6 +21,8 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from typing import IO, Any, NoReturn
 
 from rich import box
@@ -479,6 +481,7 @@ def print_error(message: str) -> None:
     markup, and printed with ``soft_wrap`` so Rich does not break it into lines
     of its own: a terminal wraps it anyway, and a log keeps it whole.
     """
+    _flush_stdout()
     _console(stderr=True).print(
         Text(f"error: {message}", style=STYLE_ERROR), soft_wrap=True, highlight=False
     )
@@ -486,6 +489,57 @@ def print_error(message: str) -> None:
 
 def print_warning(message: str) -> None:
     """Write ``warning: message`` to stderr, in yellow."""
+    _flush_stdout()
     _console(stderr=True).print(
         Text(f"warning: {message}", style=STYLE_WARNING), soft_wrap=True, highlight=False
     )
+
+
+def _flush_stdout() -> None:
+    """Put out what stdout holds, so a message lands after what it is about.
+
+    stdout is block-buffered when piped and stderr is not; without this, a
+    warning about a line already printed can arrive above it.
+    """
+    import sys
+
+    try:
+        sys.stdout.flush()
+    except (OSError, ValueError):
+        pass
+
+
+@contextmanager
+def download_progress(description: str) -> Iterator[Callable[[int, int], None]]:
+    """A download's progress bar on stderr, as a ``(received, total)`` callback.
+
+    Drawn only on a terminal and gone once done, so a log or a pipe gets
+    nothing but the command's own report. A total of 0 means the server did
+    not say how big the file is, and the bar then shows bytes alone.
+    """
+    console = _console(stderr=True)
+    if not console.is_terminal:
+        yield lambda received, total: None
+        return
+    from rich.progress import (
+        BarColumn,
+        DownloadColumn,
+        Progress,
+        TextColumn,
+        TransferSpeedColumn,
+    )
+
+    with Progress(
+        TextColumn("{task.description}"),
+        BarColumn(),
+        DownloadColumn(),
+        TransferSpeedColumn(),
+        console=console,
+        transient=True,
+    ) as progress:
+        task = progress.add_task(description, total=None)
+
+        def update(received: int, total: int) -> None:
+            progress.update(task, completed=received, total=total or None)
+
+        yield update
