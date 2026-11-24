@@ -1580,3 +1580,78 @@ class TestChangingLanguage:
         await user.should_see(f"inat-{observation.id}.wav", retries=200)
         # The attribution goes with the recording: the licence asks for it.
         await user.should_see("some rights reserved")
+
+
+class TestSelectedResultsBundle:
+    """Ticked results are shared as one bundle; a new search starts unticked."""
+
+    @staticmethod
+    def _add_two(state):
+        import dataclasses
+
+        from biotimbre.domain.item import Location
+        from biotimbre.io.sidecar import draft_from_sidecar
+
+        ids = []
+        for name in ("GUYVIR", "ZAMTYM"):
+            draft = dataclasses.replace(
+                draft_from_sidecar(EXAMPLES_DIR / f"{name}.txt"),
+                location=Location(-26.3, -48.85),
+            )
+            ids.append(state.call(
+                state.service.add_item, EXAMPLES_DIR / f"{name}.wav", draft,
+                compute_embeddings=False,
+            ).item.item_id)
+        return ids
+
+    async def _results(self, user: User, installed_state):
+        ids = self._add_two(installed_state)
+        await user.open("/search")
+        await user.should_see("Choose a recording to search with")
+        TestResultMap._centre(user).value = "-26.3, -48.85"
+        TestResultMap._numbers(user)["Radius"].value = 10.0
+        TestResultMap._run_search(user)
+        await user.should_see("2 match(es)")
+        return ids
+
+    async def test_the_ticked_results_export_as_one_bundle(self, user: User, installed_state):
+        import io
+        import zipfile
+
+        from nicegui.testing.user_interaction import UserInteraction
+
+        await self._results(user, installed_state)
+        await user.should_not_see(marker="selection-bar")
+
+        boxes = list(user.find(marker="select-result").elements)
+        assert len(boxes) == 2
+        boxes[0].value = True
+        await user.should_see("1 selected")
+        boxes[1].value = True
+        await user.should_see("Export 2 as bundle")
+
+        UserInteraction(
+            user, set(user.find(marker="export-selected-bundle").elements), None
+        ).click()
+        response = await user.download.next(timeout=10.0)
+        with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
+            audio = [n for n in archive.namelist() if n.endswith("audio.wav")]
+        assert len(audio) == 2
+        # Sent, so the selection is done with.
+        await user.should_not_see("2 selected")
+
+    async def test_select_all_and_clear(self, user: User, installed_state):
+        await self._results(user, installed_state)
+        next(iter(user.find(marker="select-all-results").elements)).value = True
+        await user.should_see("2 selected")
+        user.find("Clear selection").click()
+        await user.should_not_see(marker="selection-bar")
+        assert not any(box.value for box in user.find(marker="select-result").elements)
+
+    async def test_a_new_search_starts_unticked(self, user: User, installed_state):
+        await self._results(user, installed_state)
+        next(iter(user.find(marker="select-result").elements)).value = True
+        await user.should_see("1 selected")
+        TestResultMap._run_search(user)
+        await user.should_see("2 match(es)")
+        await user.should_not_see(marker="selection-bar")

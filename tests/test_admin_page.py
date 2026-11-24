@@ -1822,3 +1822,58 @@ def _choose_language(user: User, code: str) -> None:
         if isinstance(element.options, dict) and code in element.options
     )
     select.value = code
+
+
+@pytest.mark.usefixtures("installed_state")
+class TestSelectedItemsBundle:
+    """Items ticked in the library list are shared as one bundle."""
+
+    @staticmethod
+    def _add(state, name: str):
+        from biotimbre.io.sidecar import draft_from_sidecar
+
+        return state.call(
+            state.service.add_item,
+            EXAMPLES_DIR / f"{name}.wav",
+            draft_from_sidecar(EXAMPLES_DIR / f"{name}.txt"),
+            compute_embeddings=False,
+        ).item
+
+    async def test_ticked_rows_export_as_one_bundle(self, user: User, installed_state):
+        import io
+        import zipfile
+
+        from nicegui.testing.user_interaction import UserInteraction
+
+        first = self._add(installed_state, "GUYVIR")
+        self._add(installed_state, "ZAMTYM")
+        await user.open("/")
+        await user.should_see("2 item(s)")
+        await user.should_not_see(marker="selection-bar")
+
+        # As Quasar reports a ticked row.
+        user.find(marker="items-table").trigger(
+            "selection",
+            args={"added": True, "rows": [{"item_id": first.item_id}],
+                  "keys": [first.item_id]},
+        )
+        await user.should_see("Export 1 as bundle")
+
+        UserInteraction(
+            user, set(user.find(marker="export-selected-bundle").elements), None
+        ).click()
+        response = await user.download.next(timeout=10.0)
+        with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
+            names = archive.namelist()
+        assert len([n for n in names if n.endswith("audio.wav")]) == 1
+        await user.should_not_see(marker="selection-bar")
+
+    async def test_unticking_hides_the_bar(self, user: User, installed_state):
+        item = self._add(installed_state, "GUYVIR")
+        await user.open("/")
+        await user.should_see("1 item(s)")
+        table = user.find(marker="items-table")
+        table.trigger("selection", args={"added": True, "rows": [{"item_id": item.item_id}], "keys": [item.item_id]})
+        await user.should_see("1 selected")
+        table.trigger("selection", args={"added": False, "rows": [{"item_id": item.item_id}], "keys": [item.item_id]})
+        await user.should_not_see(marker="selection-bar")

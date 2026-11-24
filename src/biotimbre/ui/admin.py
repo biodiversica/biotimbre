@@ -18,6 +18,7 @@ from biotimbre.embeddings import audio as audio_io
 from biotimbre.i18n import Translator
 from biotimbre.sources import inaturalist
 from biotimbre.ui import inat, maps
+from biotimbre.ui.exports import SelectionBar
 from biotimbre.ui.sections import foldable_card
 from biotimbre.ui.sharing import import_card
 from biotimbre.ui.suggestions import library_suggestions
@@ -781,9 +782,28 @@ async def _items_table(
             }
             for item in items
         ]
+        # Ticked items, for sharing several as one bundle. A tick is not a
+        # row click: Quasar's checkbox stops the click there, so ticking never
+        # opens the item.
+        order = [row["item_id"] for row in rows]
+
+        def selected_ids() -> list[int]:
+            ticked = {int(row["item_id"]) for row in table.selected}
+            return [item_id for item_id in order if item_id in ticked]
+
+        def untick() -> None:
+            table.selected = []
+            table.update()
+
+        bar = SelectionBar(t, on_clear=untick)
         table = ui.table(
-            columns=columns, rows=rows, row_key="item_id", pagination=15
-        ).classes("w-full")
+            columns=columns,
+            rows=rows,
+            row_key="item_id",
+            pagination=15,
+            selection="multiple",
+            on_select=lambda _event: bar.update(selected_ids()),
+        ).classes("w-full").mark("items-table")
         table.on(
             "rowClick",
             lambda event: _open_detail(t, int(event.args[1]["item_id"]), on_changed),

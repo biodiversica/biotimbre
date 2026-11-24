@@ -179,7 +179,9 @@ A página Biblioteca é dividida em três seções.
   exportá-lo, editá-lo ou excluí-lo. A edição emite um aviso antes de salvar
   uma alteração de `speed`, pois isso exige o recálculo dos embeddings.
   **Exportar CSV** baixa os metadados de todos os itens em uma tabela (consulte
-  [Exportação de Dados](#exportação-de-dados)).
+  [Exportação de Dados](#exportação-de-dados)). Marcar itens na lista (a caixa
+  do cabeçalho marca uma página inteira) exibe **Exportar N como pacote**, que
+  os baixa como um único `.btz` compartilhável, com ou sem os embeddings.
 - **Adicionar um item** — envia uma gravação e seus metadados. O espectrograma
   e a taxa de amostragem são exibidos antes que algo seja armazenado, com o
   limite de frequência de cada modelo indicado. A gravação pode ser recortada,
@@ -230,7 +232,10 @@ para comparação auditiva. Cada resultado oferece ainda:
   biblioteca.
 
 **Exportar CSV**, ao lado da contagem de resultados, baixa os resultados
-exibidos em uma tabela. **Adicionar à biblioteca…** abre o formulário de
+exibidos em uma tabela. Marcar resultados (ou **Selecionar tudo**) exibe
+**Exportar N como pacote**, que baixa os marcados como um único `.btz`
+compartilhável; uma nova busca começa sem nada marcado. **Adicionar à
+biblioteca…** abre o formulário de
 adição da página Biblioteca com a gravação da consulta e todas as suas
 configurações (e, para uma gravação obtida do iNaturalist, os metadados da
 observação), para que uma nova gravação possa ser adicionada à biblioteca.

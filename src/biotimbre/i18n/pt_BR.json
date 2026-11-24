@@ -180,7 +180,14 @@
     "embeddings_many": "Embeddings {model} ({count} janelas, .zip)",
     "embeddings_with_audio": "Embeddings {model} + trechos de áudio a {rate} Hz (.zip)",
     "no_embeddings": "Ainda sem embeddings",
-    "bundle": "Pacote para compartilhar (.btz)"
+    "bundle": "Pacote para compartilhar (.btz)",
+    "selected": "{count} selecionado(s)",
+    "bundle_selected": "Exportar {count} como pacote",
+    "with_embeddings": "Com embeddings",
+    "with_embeddings_help": "Inclui os vetores, para que a biblioteca de destino não precise calculá-los. Desligado, o arquivo fica com cerca de metade do tamanho.",
+    "clear_selection": "Limpar seleção",
+    "select": "Selecionar para exportar",
+    "select_all": "Selecionar tudo"
   },
   "share": {
     "import_heading": "Importar itens",

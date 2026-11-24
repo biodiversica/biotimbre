@@ -173,7 +173,9 @@ The Library page is divided into three collapsible sections.
   waveform, a player, and buttons to export, edit or delete it. Editing warns
   before saving a change of `speed`, since that requires recomputing the
   embeddings. **Export CSV** downloads the metadata of every item as a table
-  (see [Exporting Data](#exporting-data)).
+  (see [Exporting Data](#exporting-data)). Ticking items in the list (the box
+  in the header ticks a whole page) shows **Export N as bundle**, which
+  downloads them as one shareable `.btz`, with or without their embeddings.
 - **Add an item** — uploads a recording and its metadata. The spectrogram and
   sample rate are shown before anything is stored, with each model's frequency
   limit indicated. The recording can be trimmed, filtered and normalised before
@@ -218,7 +220,9 @@ also provides:
   clipboard, for use in the biotimbre ID filter or in another library.
 
 **Export CSV**, next to the result count, downloads the displayed results as a
-table. **Add to library…** opens the Library page's add form with the query
+table. Ticking results (or **Select all**) shows **Export N as bundle**, which
+downloads the ticked ones as one shareable `.btz`; a new search starts with
+nothing ticked. **Add to library…** opens the Library page's add form with the query
 recording and all of its settings (and, for a recording fetched from
 iNaturalist, the observation's metadata) so that a new recording can be added
 to the library. Nothing is stored until the form is saved. This option is not

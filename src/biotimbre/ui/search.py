@@ -14,6 +14,8 @@ selection is explicit and visible rather than a silent truncation.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from nicegui import app, ui
 
 from biotimbre.domain.errors import BiotimbreError, ValidationError
@@ -39,7 +41,7 @@ from biotimbre.ui.clipboard import copy_on_click
 from biotimbre.ui.coordinates import CoordinatesInput
 from biotimbre.ui.details import open_detail
 from biotimbre.ui import inat, maps
-from biotimbre.ui.exports import export_button
+from biotimbre.ui.exports import SelectionBar, export_button
 from biotimbre.ui.forms import input_values, set_inputs
 from biotimbre.ui.layout import current_views, notify_error
 from biotimbre.ui.playback import item_player
@@ -129,23 +131,42 @@ def _embedding_counts(item_ids: list[int]) -> dict[int, dict[str, int]]:
 
 
 async def _result_card(
-    t: Translator, hit: SearchHit, rank: int, counts: dict[str, int]
-) -> None:
+    t: Translator,
+    hit: SearchHit,
+    rank: int,
+    counts: dict[str, int],
+    *,
+    on_tick: Callable[[int, bool], None] | None = None,
+) -> ui.checkbox | None:
     """One search result: score, metadata, marked spectrogram and a player.
 
     A hit with no per-model scores came from a metadata-only search, where
     there is no query to compare against: the score, the per-model column and
     the matched window are all omitted rather than shown as zeroes.
+
+    Args:
+        on_tick: Told ``(item_id, ticked)`` when the card's selection box
+            changes. ``None`` draws no box.
+
+    Returns:
+        The selection box, if one was drawn.
     """
     state = get_state()
     item = hit.item
     span = hit.matched_span
     scored = bool(hit.per_model)
+    tick: ui.checkbox | None = None
 
     with ui.card().classes("w-full p-3 gap-2 bg-card"):
         with ui.row().classes("items-start justify-between w-full gap-4"):
             with ui.column().classes("gap-1 grow"):
                 with ui.row().classes("items-baseline gap-3"):
+                    if on_tick is not None:
+                        tick = ui.checkbox(
+                            on_change=lambda event: on_tick(item.item_id, event.value)
+                        ).props("dense").tooltip(t("export.select")).mark(
+                            "select-result"
+                        )
                     ui.label(f"{rank}.").classes("text-muted")
                     if scored:
                         ui.label(f"{hit.score:+.4f}").classes(
@@ -248,6 +269,7 @@ async def _result_card(
                             item.link_to_full_recording,
                             new_tab=True,
                         ).classes("text-xs text-link")
+    return tick
 
 
 async def _download_results_csv(t: Translator, hits: list[SearchHit]) -> None:
@@ -784,10 +806,39 @@ async def render(t: Translator) -> None:
                 ).props("flat dense no-caps").tooltip(
                     t("search.export_csv_help")
                 ).mark("export-results-csv")
+                select_all = ui.checkbox(
+                    t("export.select_all"),
+                    on_change=lambda event: tick_all(bool(event.value)),
+                ).props("dense").mark("select-all-results")
+
+            # Ticked results, for sharing several as one bundle. Drawn anew,
+            # and so empty, with every search: a selection from the last
+            # results cannot be exported with the new ones by mistake.
+            order = [hit.item.item_id for hit in hits]
+            ticked: set[int] = set()
+            boxes: dict[int, ui.checkbox] = {}
+
+            def tick(item_id: int, value: bool) -> None:
+                (ticked.add if value else ticked.discard)(item_id)
+                bar.update([i for i in order if i in ticked])
+
+            def tick_all(value: bool) -> None:
+                for box in boxes.values():
+                    box.value = value  # each box's handler updates the bar
+
+            def untick() -> None:
+                select_all.value = False
+                tick_all(False)
+
+            bar = SelectionBar(t, on_clear=untick)
             if not scored:
                 ui.label(t("search.metadata_only")).classes("text-xs text-muted")
             for rank, hit in enumerate(hits, start=1):
-                await _result_card(t, hit, rank, counts.get(hit.item.item_id, {}))
+                box = await _result_card(
+                    t, hit, rank, counts.get(hit.item.item_id, {}), on_tick=tick
+                )
+                if box is not None:
+                    boxes[hit.item.item_id] = box
             if any(h.query_speed != 1.0 for h in hits):
                 speeds = sorted({h.query_speed for h in hits if h.query_speed != 1.0})
                 ui.label(

@@ -12,11 +12,19 @@ and a command-line export of the same rows are interchangeable.
 
 from __future__ import annotations
 
+import atexit
+import shutil
+import tempfile
+import time
+from collections.abc import Callable
+from pathlib import Path
+from uuid import uuid4
+
 from nicegui import ui
 
 from biotimbre.domain.errors import BiotimbreError
 from biotimbre.i18n import Translator
-from biotimbre.service import audio_filename
+from biotimbre.service import audio_filename, bundle_filename
 from biotimbre.ui.layout import notify_error
 from biotimbre.ui.state import get_state
 
@@ -128,3 +136,116 @@ def export_button(t: Translator, item_id: int, counts: dict[str, int]) -> ui.but
             if not counts:
                 ui.menu_item(t("export.no_embeddings")).props("disable")
     return button
+
+
+# ── several items as one bundle ───────────────────────────────────────────────
+
+#: Where multi-item bundles are written before the browser fetches them, made
+#: on first use. A bundle of many items can be hundreds of megabytes, which is
+#: too much to build in memory and hand over as content.
+_EXPORT_DIR: Path | None = None
+
+#: How long a written bundle is kept for the browser to fetch.
+_EXPORT_TTL_S = 600.0
+
+
+def _export_path(name: str) -> Path:
+    """A fresh path for a bundle about to be written, clearing stale ones."""
+    global _EXPORT_DIR
+    if _EXPORT_DIR is None:
+        _EXPORT_DIR = Path(tempfile.mkdtemp(prefix="biotimbre-exports-"))
+        atexit.register(shutil.rmtree, _EXPORT_DIR, True)
+    now = time.time()
+    for old in _EXPORT_DIR.iterdir():
+        try:
+            if now - old.stat().st_mtime > _EXPORT_TTL_S:
+                shutil.rmtree(old, ignore_errors=True)
+        except OSError:
+            pass
+    folder = _EXPORT_DIR / uuid4().hex[:12]
+    folder.mkdir()
+    return folder / name
+
+
+async def download_bundle(
+    t: Translator, item_ids: list[int], *, include_embeddings: bool = True
+) -> bool:
+    """Send a bundle of several items to the browser.
+
+    Written to a file rather than built in memory, then served from it.
+
+    Returns:
+        Whether it was sent.
+    """
+    state = get_state()
+    target = _export_path(bundle_filename(item_ids))
+    try:
+        path = await state.run(
+            state.service.export_bundle,
+            item_ids,
+            target,
+            include_embeddings=include_embeddings,
+        )
+    except BiotimbreError as exc:
+        notify_error(t, exc)
+        return False
+    ui.download.file(path, path.name, "application/zip")
+    return True
+
+
+class SelectionBar:
+    """What to do with the items ticked in a list: for now, share them.
+
+    Hidden while nothing is ticked, and showing how many are, so what is about
+    to be exported can be seen before it is.
+
+    Args:
+        t: Active translator.
+        on_clear: Unticks everything in the list the bar belongs to.
+    """
+
+    def __init__(self, t: Translator, *, on_clear: Callable[[], None]):
+        self._t = t
+        self._ids: list[int] = []
+        self._on_clear = on_clear
+        self.row = ui.row().classes(
+            "items-center gap-2 w-full px-3 py-1 rounded bg-surface"
+        ).mark("selection-bar")
+        with self.row:
+            self._count = ui.label().classes("text-sm")
+            self._export = ui.button(
+                icon="inventory_2", on_click=self._export_clicked
+            ).props("flat dense no-caps").mark("export-selected-bundle")
+            self._embeddings = ui.switch(
+                t("export.with_embeddings"), value=True
+            ).props("dense").tooltip(t("export.with_embeddings_help"))
+            ui.button(
+                t("export.clear_selection"), icon="clear", on_click=self.clear
+            ).props("flat dense no-caps")
+        self.update([])
+
+    @property
+    def item_ids(self) -> list[int]:
+        """The items ticked, in the list's order."""
+        return list(self._ids)
+
+    def update(self, item_ids: list[int]) -> None:
+        """Show the bar for these items, or hide it for none."""
+        self._ids = list(item_ids)
+        count = len(self._ids)
+        self._count.set_text(self._t("export.selected", count=count))
+        self._export.set_text(self._t("export.bundle_selected", count=count))
+        self.row.set_visibility(bool(count))
+
+    def clear(self) -> None:
+        """Untick everything."""
+        self._on_clear()
+        self.update([])
+
+    async def _export_clicked(self) -> None:
+        if not self._ids:
+            return
+        if await download_bundle(
+            self._t, self._ids, include_embeddings=bool(self._embeddings.value)
+        ):
+            self.clear()

@@ -180,7 +180,14 @@
     "embeddings_many": "{model} embeddings ({count} windows, .zip)",
     "embeddings_with_audio": "{model} embeddings + audio clips at {rate} Hz (.zip)",
     "no_embeddings": "No embeddings yet",
-    "bundle": "Shareable bundle (.btz)"
+    "bundle": "Shareable bundle (.btz)",
+    "selected": "{count} selected",
+    "bundle_selected": "Export {count} as bundle",
+    "with_embeddings": "With embeddings",
+    "with_embeddings_help": "Include the vectors, so the receiving library need not compute them. Off makes the file about half the size.",
+    "clear_selection": "Clear selection",
+    "select": "Select for export",
+    "select_all": "Select all"
   },
   "share": {
     "import_heading": "Import items",
