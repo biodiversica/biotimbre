@@ -26,7 +26,7 @@ from biotimbre.domain.errors import BiotimbreError
 from biotimbre.i18n import Translator
 from biotimbre.ui.browser import DirectoryBrowser
 from biotimbre.ui.layout import notify_error
-from biotimbre.ui.routes import holds_library, unregister_browser
+from biotimbre.ui.routes import holds_library, register_browser, unregister_browser
 from biotimbre.ui.state import get_state
 
 #: Per-browser storage key for libraries opened before, newest first.
@@ -104,6 +104,61 @@ def new_library_problem(target: Path) -> str | None:
     except OSError:
         return "not_empty"
     return None
+
+
+async def leave_library(t: Translator) -> None:
+    """Close the open library and go to the chooser, to open or create another.
+
+    The chooser's folder listing comes back with it, as it is there while no
+    library is open; the library left is first among the recent ones, so it is
+    one click away.
+    """
+    state = get_state()
+    if state.settings.search_only:
+        # A search-only run serves one library, and may not choose another.
+        return
+    try:
+        if state.is_open:
+            remember_library(state.settings.data_dir)
+        await state.run(state.leave_library)
+    except BiotimbreError as exc:
+        notify_error(t, exc)
+        return
+    register_browser(app)
+    ui.navigate.to("/")
+    # Every other tab on this server was showing the library just closed, and
+    # would fail at its next click; they go to the chooser too.
+    from nicegui import Client
+
+    here = ui.context.client
+    for client in list(Client.instances.values()):
+        if client is here or not client.has_socket_connection:
+            continue
+        try:
+            with client:
+                ui.navigate.to("/")
+        except Exception:  # a tab gone in the meantime; it reloads on return
+            continue
+
+
+def confirm_leave(t: Translator, library_name: str) -> None:
+    """Ask before leaving the library: unsaved work on its pages goes with it."""
+    with ui.dialog() as dialog, ui.card().classes("max-w-md gap-3"):
+        ui.label(t("setup.switch_title", name=library_name)).classes(
+            "text-base font-medium"
+        )
+        ui.label(t("setup.switch_explain")).classes("text-sm text-muted")
+        with ui.row().classes("justify-end w-full gap-2"):
+            ui.button(t("common.cancel"), on_click=dialog.close).props("flat")
+
+            async def leave() -> None:
+                dialog.close()
+                await leave_library(t)
+
+            ui.button(t("setup.switch_do"), on_click=leave).props(
+                "color=primary"
+            ).mark("switch-library-confirm")
+    dialog.open()
 
 
 def render(t: Translator) -> None:

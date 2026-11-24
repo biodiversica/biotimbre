@@ -42,7 +42,11 @@
     "is_library": "biblioteca",
     "recent": "Abertas antes",
     "no_library": "nenhuma biblioteca aberta",
-    "search_only_missing": "Nada para buscar: esta instância foi iniciada apenas para busca e nenhuma biblioteca foi indicada. Inicie novamente com --data-dir apontando para uma biblioteca existente."
+    "search_only_missing": "Nada para buscar: esta instância foi iniciada apenas para busca e nenhuma biblioteca foi indicada. Inicie novamente com --data-dir apontando para uma biblioteca existente.",
+    "switch": "Trocar de biblioteca: fechar esta e abrir ou criar outra",
+    "switch_title": "Fechar {name}?",
+    "switch_explain": "O que não foi salvo nestas páginas — uma gravação sendo adicionada, uma consulta, resultados — é descartado. A biblioteca em si não muda, e fica em primeiro lugar entre as recentes, para voltar a ela.",
+    "switch_do": "Fechar e escolher outra"
   },
   "common": {
     "save": "Salvar",

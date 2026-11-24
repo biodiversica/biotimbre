@@ -118,9 +118,14 @@ def register_browser(app) -> None:
     mounted archive — so the listing is not confined to a root. The protection
     is the loopback bind, as it is for everything else here.
 
+    Safe to call again: a library closed to choose another brings it back,
+    and a second copy of the route would answer the same requests twice over.
+
     Args:
         app: The application to register on.
     """
+    if any(getattr(route, "path", None) == BROWSE_ROUTE for route in app.routes):
+        return
 
     @app.get(BROWSE_ROUTE)
     async def browse(path: str | None = None):

@@ -301,6 +301,13 @@ external drives and mounted archives. Because this listing is the only part
 of the interface where a request names a filesystem path, it exists only while
 no library is open and is withdrawn as soon as one is.
 
+To change library later, the **⇄** button beside the library's name in the
+header closes it, after asking, and returns to this page, with the library just
+closed offered first to open again. Anything not saved on the pages — a
+recording being added, a query — is dropped; the library itself is not
+changed. Other browser tabs on the same server go to this page too. A
+search-only run has no such button: it serves one library and no other.
+
 ## Command-Line Interface
 
 ### Command Reference

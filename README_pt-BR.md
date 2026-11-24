@@ -320,6 +320,14 @@ parte da interface em que uma requisição indica um caminho do sistema de
 arquivos, ela existe apenas enquanto nenhuma biblioteca está aberta e é
 removida assim que uma biblioteca é aberta.
 
+Para trocar de biblioteca depois, o botão **⇄** ao lado do nome da biblioteca,
+no cabeçalho, a fecha, após confirmar, e volta a esta página, com a biblioteca
+recém-fechada oferecida em primeiro lugar para ser aberta de novo. O que não foi
+salvo nas páginas — uma gravação sendo adicionada, uma consulta — é descartado;
+a biblioteca em si não muda. As outras abas do navegador no mesmo servidor
+também vão para esta página. Uma execução somente busca não tem esse botão:
+ela serve uma única biblioteca.
+
 ## Interface de Linha de Comando
 
 ### Referência de Comandos

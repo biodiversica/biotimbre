@@ -323,3 +323,86 @@ class TestSetupPage:
         assert _field(user, "setup-name").value == "data"
         assert _field(user, "setup-location").value == str(tmp_path)
         await user.should_see(f"Creates {tmp_path / 'data'}")
+
+
+@pytest.mark.usefixtures("shared_pool")
+class TestSwitchingLibrary:
+    """Closing the open library from the header, to open or create another."""
+
+    @pytest.fixture
+    def opened(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.delenv("BIOTIMBRE_CONFIG", raising=False)
+        first = make_library(tmp_path / "first", "First")
+        state = AppState(load_settings(data_dir=first))
+        set_state(state)
+        yield state
+        state.close_library()
+
+    async def _switch(self, user: User) -> None:
+        await user.open("/")
+        await user.should_see("First")
+        # Once the page has loaded, as a person would: switching mid-load is
+        # covered on its own below.
+        await user.should_see("The library is empty", retries=50)
+        user.find(marker="switch-library").click()
+        await user.should_see("Close First?")
+        user.find(marker="switch-library-confirm").click()
+        await user.should_see("Choose a library", retries=50)
+
+    async def test_it_closes_the_library_and_shows_the_chooser(
+        self, user: User, opened, tmp_path
+    ):
+        from biotimbre.ui.routes import BROWSE_ROUTE
+
+        await self._switch(user)
+        assert opened.is_open is False
+        # The folder listing the chooser needs is back, once.
+        from nicegui import app
+
+        assert [r.path for r in app.routes].count(BROWSE_ROUTE) == 1
+        # The library left is what the chooser offers to open again.
+        assert _field(user, "setup-path").value == str(tmp_path / "first")
+
+    async def test_another_library_can_then_be_opened(
+        self, user: User, opened, tmp_path
+    ):
+        second = make_library(tmp_path / "second", "Second")
+        await self._switch(user)
+        _field(user, "setup-path").value = str(second)
+        user.find(marker="setup-open").click()
+        await user.should_see("Library items", retries=200)
+        assert opened.service.identity().name == "Second"
+
+    async def test_cancel_changes_nothing(self, user: User, opened):
+        await user.open("/")
+        await user.should_see("First")
+        user.find(marker="switch-library").click()
+        await user.should_see("Close First?")
+        user.find("Cancel").click()
+        assert opened.is_open is True
+        await user.should_see("Library items")
+
+    async def test_a_search_only_run_offers_no_switch(self, user: User, opened):
+        import dataclasses
+
+        opened.settings = dataclasses.replace(opened.settings, search_only=True)
+        await user.open("/search")
+        await user.should_see("First")
+        await user.should_not_see(marker="switch-library")
+
+
+class TestStaleWork:
+    def test_work_for_a_closed_library_is_refused_cleanly(self, tmp_path, monkeypatch):
+        from biotimbre.domain.errors import BiotimbreError
+
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.delenv("BIOTIMBRE_CONFIG", raising=False)
+        state = AppState(load_settings(data_dir=make_library(tmp_path / "a", "A")))
+        try:
+            stale = state.service.list_items  # asked for while open
+            state.leave_library()
+            with pytest.raises(BiotimbreError, match="has been closed"):
+                state.call(stale)
+        finally:
+            state.close_library()

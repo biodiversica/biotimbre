@@ -42,7 +42,11 @@
     "is_library": "library",
     "recent": "Opened before",
     "no_library": "no library open",
-    "search_only_missing": "Nothing to search: this instance was started for searching only, and no library was given. Start it again with --data-dir pointing at an existing library."
+    "search_only_missing": "Nothing to search: this instance was started for searching only, and no library was given. Start it again with --data-dir pointing at an existing library.",
+    "switch": "Switch library: close this one, and open or create another",
+    "switch_title": "Close {name}?",
+    "switch_explain": "Anything on these pages that has not been saved — a recording being added, a query, results — is dropped. The library itself is not changed, and stays first among the recent ones, to come back to.",
+    "switch_do": "Close and choose another"
   },
   "common": {
     "save": "Save",

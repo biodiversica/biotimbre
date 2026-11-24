@@ -417,6 +417,19 @@ def page(active: str):
                         ).style("color: var(--bt-header-inactive-text)").tooltip(
                             identity.uuid
                         )
+                        if not settings.search_only:
+                            # Beside the name it changes. Not on a search-only
+                            # run, which serves one library and no other.
+                            from biotimbre.ui.setup import confirm_leave
+
+                            ui.button(
+                                icon="swap_horiz",
+                                on_click=lambda: confirm_leave(t, library_name),
+                            ).props("flat dense round size=sm").style(
+                                "color: var(--bt-header-inactive-text)"
+                            ).classes("shrink-0").tooltip(
+                                t("setup.switch")
+                            ).mark("switch-library")
                         if settings.search_only:
                             # Beside the library's name, because that is the
                             # question this answers: which library, and in what

@@ -34,6 +34,7 @@ from biotimbre.config import Settings, load_settings
 from biotimbre.db.connection import initialize, open_read_only
 from biotimbre.embeddings.extractor import ExtractorPool
 from biotimbre.db.repository import Repository
+from biotimbre.domain.errors import BiotimbreError
 from biotimbre.service import LibraryService, with_library_models
 
 T = TypeVar("T")
@@ -345,6 +346,22 @@ class AppState:
             self._connection = None
             self._service = None
 
+    def leave_library(self) -> None:
+        """Close the library so that another can be chosen.
+
+        Besides closing it, drops what was handed between this library's
+        pages — a query on its way to the add form, an item sent to search,
+        work kept across a change of language — since it names this library's
+        items and recordings, and would otherwise turn up in the next one.
+        The models stay loaded.
+        """
+        with self._lock:
+            self.close_library()
+            for token in list(self.handoffs):
+                self.queries.discard(token)
+            self.handoffs.clear()
+            self.carried.clear()
+
     # ── concurrency ───────────────────────────────────────────────────────────
 
     def call(self, work: Callable[..., T], *args: Any, **kwargs: Any) -> T:
@@ -360,8 +377,19 @@ class AppState:
 
         Returns:
             Whatever ``work`` returns.
+
+        Raises:
+            BiotimbreError: If ``work`` belongs to a library that has been
+                closed since it was asked for — a page still loading when
+                another library was chosen — rather than a database error.
         """
         with self._lock:
+            owner = getattr(work, "__self__", None)
+            if isinstance(owner, LibraryService) and owner is not self._service:
+                raise BiotimbreError(
+                    "That library has been closed; this page belongs to it. "
+                    "Reload the page."
+                )
             return work(*args, **kwargs)
 
     async def run(self, work: Callable[..., T], *args: Any, **kwargs: Any) -> T:
