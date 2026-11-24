@@ -167,8 +167,8 @@ class TestSearchFilters:
         captured = {}
         original = cli._search_filters
 
-        def spy(args, observation=None):
-            captured["filters"] = original(args, observation)
+        def spy(args, observation=None, **kwargs):
+            captured["filters"] = original(args, observation, **kwargs)
             return captured["filters"]
 
         monkeypatch.setattr(cli, "_search_filters", spy)

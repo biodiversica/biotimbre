@@ -321,7 +321,7 @@ biotimbre list [--biotimbre-id ID] [--limit N]
 biotimbre show ITEM_ID
 biotimbre edit ITEM_ID [opções de metadados] [--clear CAMPO...]
 biotimbre delete ITEM_ID [-y] [--keep-audio]
-biotimbre search [AUDIO | --inat OBSERVAÇÃO] [-k N] [filtros]   # sem nenhum: só pelos filtros
+biotimbre search [AUDIO | --inat OBSERVAÇÃO | --item ITEM_ID] [-k N] [filtros]   # sem nenhum: pelos filtros
 biotimbre models                               # modelos registrados e contagem de vetores
 biotimbre backfill MODEL_ID                    # calcula embeddings dos itens que não os têm para este modelo
 biotimbre export-npy ITEM_ID MODEL_ID SAIDA [--with-audio]
@@ -363,6 +363,9 @@ biotimbre search dawn_chorus.wav --start-time 92 --end-time 99
 
 # Filtrar a consulta antes de calcular seus embeddings (a biblioteca não muda)
 biotimbre search noisy.wav --apply-highpass 1500
+
+# Buscar com um item que já está na biblioteca: o que mais soa como o item 12
+biotimbre search --item 12
 
 # Buscar só pelos metadados: sem gravação de consulta, mais recentes primeiro
 biotimbre search --taxa cicadidae --date-from 2024-01-01 -k 50

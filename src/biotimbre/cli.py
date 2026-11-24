@@ -778,7 +778,20 @@ def cmd_search(args: argparse.Namespace) -> int:
     _one_audio_source(args)
     if args.inat_filters and args.inat is None:
         raise ValidationError("--inat-filters needs --inat.", "arguments")
-    if (args.audio is not None or args.inat is not None) and args.speed:
+    if args.include_self and args.item is None:
+        raise ValidationError("--include-self needs --item.", "arguments")
+    sources = [
+        name for name, value in (
+            ("AUDIO", args.audio), ("--inat", args.inat), ("--item", args.item)
+        )
+        if value is not None
+    ]
+    if len(sources) > 1:
+        raise ValidationError(
+            f"Give one query: {' or '.join(sources)}, not more than one.",
+            "arguments",
+        )
+    if sources and args.speed:
         raise ValidationError(
             "--speed is for a search by the filters alone. With a query "
             "recording, --query-speed picks the speed: it embeds the query "
@@ -792,8 +805,21 @@ def cmd_search(args: argparse.Namespace) -> int:
             query, observation, _sound = stack.enter_context(
                 _inat_recording(args, service.settings)
             )
+        exclude: tuple[int, ...] = ()
+        if args.item is not None:
+            item = service.get_item(args.item)
+            query, _mime = service.get_audio(args.item)
+            query = Path(query)
+            print(
+                f"Query: item {item.item_id} ({item.taxa_display}, "
+                f"{item.date} {item.time})"
+            )
+            if not args.include_self:
+                # It would come first, scoring 1.0 against itself, and say
+                # nothing about the rest of the library.
+                exclude = (item.item_id,)
         filters = _search_filters(
-            args, observation if args.inat_filters else None
+            args, observation if args.inat_filters else None, exclude=exclude
         )
         if query is None:
             given = [
@@ -875,7 +901,9 @@ def _write_results(service, hits, destination: str | None) -> None:
 OBSERVATION_RADIUS_KM = 25.0
 
 
-def _search_filters(args: argparse.Namespace, observation=None) -> SearchFilters:
+def _search_filters(
+    args: argparse.Namespace, observation=None, *, exclude: tuple[int, ...] = ()
+) -> SearchFilters:
     """The search's filters, completed from an observation for --inat-filters.
 
     What the observation supplies only fills a filter its option left unset:
@@ -914,7 +942,7 @@ def _search_filters(args: argparse.Namespace, observation=None) -> SearchFilters
         latitude=latitude,
         longitude=longitude,
         radius_km=radius,
-        exclude_item_ids=tuple(args.exclude or ()),
+        exclude_item_ids=tuple(dict.fromkeys((*(args.exclude or ()), *exclude))),
         speeds=tuple(args.speed or ()),
     )
 
@@ -1953,7 +1981,9 @@ def build_parser() -> argparse.ArgumentParser:
             "items by their best-matching pair of windows. For each hit it "
             "prints the score, the item, the span of the item that matched and "
             "the model that scored best.\n\n"
-            "Without AUDIO, it searches by the filters alone: every item that "
+            "The query is AUDIO, a recording fetched with --inat, or a library "
+            "item's own with --item.\n\n"
+            "Without any of them, it searches by the filters alone: every item that "
             "matches them, newest first and unscored, up to --top-k. With no "
             "filters either, that is the most recent items.\n\n"
             "A query is at most 15 s (search.max_query_duration_s in the config "
@@ -1972,7 +2002,8 @@ def build_parser() -> argparse.ArgumentParser:
             "  biotimbre search query.wav --fusion perch_v2 --min-score 0.6\n"
             "  biotimbre search noisy.wav --apply-highpass 1500     # cut the hum\n"
             "  biotimbre search --taxa cicadidae --date-from 2024-01-01 -k 50\n"
-            "  biotimbre search --inat 400139850 --inat-filters"
+            "  biotimbre search --inat 400139850 --inat-filters\n"
+            "  biotimbre search --item 12 --taxa cicadidae      # more like item 12"
         ),
     )
     p_search.add_argument(
@@ -2012,6 +2043,24 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     _inat_options(p_search, searching=True)
+
+    from_library = p_search.add_argument_group("Query from the library")
+    from_library.add_argument(
+        "--item",
+        type=int,
+        metavar="ITEM_ID",
+        help="Search with this item's stored recording, instead of AUDIO or "
+             "--inat: find what in the library sounds like something already "
+             "in it. The segment, query filter and speed options apply to it "
+             "as to a file; an item longer than 15 s needs --start-time and "
+             "--end-time. The item itself is left out of the results.",
+    )
+    from_library.add_argument(
+        "--include-self",
+        action="store_true",
+        help="Keep the --item among the results. It comes first, scoring about "
+             "1 against itself: a check that the search works, not a finding.",
+    )
 
     p_search.add_argument(
         "--csv",
