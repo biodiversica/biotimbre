@@ -19,6 +19,15 @@ import os
 import tomllib
 from dataclasses import dataclass, field, replace
 from pathlib import Path
+from typing import Mapping
+
+from biotimbre.models_registry import (
+    DEFAULT_WINDOW_OVERLAP,
+    MODEL_SPECS,
+    ModelSpec,
+    get_spec,
+    sha256_revision,
+)
 
 DEFAULT_CONFIG_NAME = "biotimbre.toml"
 ENV_CONFIG = "BIOTIMBRE_CONFIG"
@@ -169,8 +178,17 @@ class Settings:
             (``<audio_dir>/<biotimbre_id>/<item_id>.wav``).
         model_cache_dir: Where ONNX model files are cached. ``None`` uses the
             Hugging Face default (``HF_HOME`` or ``~/.cache/huggingface``).
-        active_models: Model IDs to compute embeddings with on ingest. Must be
-            keys of :data:`biotimbre.models_registry.MODEL_SPECS`.
+        active_models: Model IDs to compute embeddings with on ingest. Each is
+            a built-in (:data:`biotimbre.models_registry.MODEL_SPECS`), one of
+            :attr:`custom_models`, or one the open library remembers.
+        active_models_chosen: Whether ``active_models`` was set explicitly —
+            ``models.active`` in a config file, or ``--models`` — rather than
+            defaulted. A default one grows to take in every user-defined model,
+            the library's included (:func:`biotimbre.service.with_library_models`);
+            a chosen one is used exactly as given.
+        custom_models: User-defined models, by ID: those under
+            ``[models.custom.<id>]`` in the config file, plus — once a library is
+            open — those it remembers from earlier registrations.
         data_dir_chosen: Whether the data directory was actually chosen —
             given on the command line or written in a config file — rather than
             defaulted to ``./data``. The interface asks for one on first run
@@ -223,6 +241,8 @@ class Settings:
     audio_dir: Path
     model_cache_dir: Path | None = None
     active_models: tuple[str, ...] = ("perch_v2", "birdnet_v2.4")
+    active_models_chosen: bool = False
+    custom_models: Mapping[str, ModelSpec] = field(default_factory=dict)
     data_dir_chosen: bool = True
     inaturalist_enabled: bool = True
     map_enabled: bool = True
@@ -242,6 +262,14 @@ class Settings:
     default_top_k: int = 10
     default_metric: str = "cosine"
     default_fusion: str = "max"
+
+    def model_spec(self, model_id: str) -> ModelSpec:
+        """The spec of a built-in or user-defined model.
+
+        Raises:
+            KeyError: If the model is not known, listing those that are.
+        """
+        return get_spec(model_id, self.custom_models)
 
     def ensure_dirs(self) -> None:
         """Create the data and audio directories if they do not exist."""
@@ -341,6 +369,90 @@ def find_config_file(explicit: str | os.PathLike[str] | None = None) -> Path | N
     return local.resolve() if local.is_file() else None
 
 
+#: Keys a ``[models.custom.<id>]`` table may hold.
+_CUSTOM_MODEL_KEYS = {
+    "repo_id",
+    "url",
+    "filename",
+    "revision",
+    "sha256",
+    "sample_rate",
+    "window_duration_s",
+    "window_overlap",
+    "description",
+}
+
+
+def _custom_models(section: object) -> dict[str, ModelSpec]:
+    """Parse ``[models.custom]`` into specs, by ID.
+
+    Args:
+        section: The ``models.custom`` table, one sub-table per model.
+
+    Returns:
+        The specs, in the order the file gives them.
+
+    Raises:
+        ValueError: On anything that would not make a usable model: an unknown
+            key, a built-in's ID, a local path, a missing field.
+    """
+    if not isinstance(section, dict):
+        raise ValueError(
+            "models.custom must hold one table per model, e.g. "
+            "[models.custom.my_model]."
+        )
+    specs: dict[str, ModelSpec] = {}
+    for model_id, table in section.items():
+        where = f"models.custom.{model_id}"
+        if not isinstance(table, dict):
+            raise ValueError(f"{where} must be a table.")
+        if model_id in MODEL_SPECS:
+            raise ValueError(
+                f"{where}: {model_id!r} is a built-in model; give yours "
+                f"another id."
+            )
+        if "path" in table:
+            raise ValueError(
+                f"{where}: local model files are not supported; give repo_id "
+                f"(Hugging Face) or url."
+            )
+        unknown = set(table) - _CUSTOM_MODEL_KEYS
+        if unknown:
+            raise ValueError(f"Unknown {where} key(s): {', '.join(sorted(unknown))}.")
+        for key in ("sample_rate", "window_duration_s"):
+            if key not in table:
+                raise ValueError(f"{where} needs {key}.")
+        if "url" in table and "revision" in table:
+            raise ValueError(
+                f"{where}: a url model is pinned with sha256, not revision."
+            )
+        if "repo_id" in table and "sha256" in table:
+            raise ValueError(
+                f"{where}: a Hugging Face model is pinned with revision, "
+                f"not sha256."
+            )
+        revision = table.get("revision")
+        if "sha256" in table:
+            revision = sha256_revision(str(table["sha256"]))
+        try:
+            specs[model_id] = ModelSpec(
+                model_id=model_id,
+                repo_id=table.get("repo_id"),
+                url=table.get("url"),
+                filename=str(table.get("filename", "")),
+                revision=None if revision is None else str(revision),
+                sample_rate=table["sample_rate"],
+                window_duration_s=float(table["window_duration_s"]),
+                window_overlap=float(
+                    table.get("window_overlap", DEFAULT_WINDOW_OVERLAP)
+                ),
+                description=str(table.get("description", "")),
+            )
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"{where}: {exc}") from None
+    return specs
+
+
 def load_settings(
     config_path: str | os.PathLike[str] | None = None,
     *,
@@ -395,7 +507,11 @@ def load_settings(
     )
 
     models_section = raw.get("models", {})
-    active = models_section.get("active", list(defaults.active_models))
+    custom_models = _custom_models(models_section.get("custom", {}))
+    active_chosen = "active" in models_section
+    active = models_section.get(
+        "active", [*defaults.active_models, *custom_models]
+    )
     if isinstance(active, str):
         active = [active]
     if not active:
@@ -502,6 +618,8 @@ def load_settings(
         audio_dir=audio_dir,
         model_cache_dir=model_cache_dir,
         active_models=tuple(active),
+        active_models_chosen=active_chosen,
+        custom_models=custom_models,
         language=language,
         data_dir_chosen=chosen is not None,
         inaturalist_enabled=inaturalist_enabled,

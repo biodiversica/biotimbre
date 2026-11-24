@@ -128,12 +128,10 @@ def _spec_fingerprint(spec: ModelSpec) -> str:
     """Preprocessing identity of a model.
 
     Included in the cache key so that re-registering a model with a different
-    window or overlap cannot serve vectors computed under the old parameters.
+    window or overlap — or, for a user-defined model, a different file — cannot
+    serve vectors computed under the old definition.
     """
-    return (
-        f"{spec.model_id}@{spec.sample_rate}/{spec.window_duration_s}"
-        f"/{spec.window_overlap}"
-    )
+    return f"{spec.model_id}@" + "/".join(str(part) for part in spec.recipe)
 
 
 class QueryEmbeddingCache:

@@ -62,7 +62,7 @@ from biotimbre.io.bundle import (
     write_bundle,
 )
 from biotimbre.io.table import items_csv, results_csv
-from biotimbre.models_registry import get_spec
+from biotimbre.models_registry import MODEL_SPECS, ModelSpec, spec_from_row
 from biotimbre.search.filters import SearchFilters, select_candidates
 from biotimbre.search.vector_search import (
     FusedScore,
@@ -81,6 +81,70 @@ from biotimbre.sharing import (
     local_fingerprints,
     plan_import,
 )
+
+
+def with_library_models(settings: Settings, rows: Sequence[Mapping]) -> Settings:
+    """Settings that also know the user-defined models a library remembers.
+
+    A library records every model it registers, with everything needed to fetch
+    it again and cut audio for it, so a model defined in one person's config
+    file keeps working for whoever opens the library next. This puts those
+    models beside the config file's own:
+
+    * A model the config file also defines is taken from the config file. If
+      that definition is an unpinned URL for the same file the library pinned,
+      the library's digest is kept, so a changed download is caught.
+    * Unless the active models were chosen explicitly, every user-defined model
+      becomes active, so the library's vectors for it are searched.
+
+    Whether the two definitions agree is checked where it matters, at
+    registration (:meth:`LibraryService.ensure_models_registered`).
+
+    Args:
+        settings: Settings as loaded from the configuration.
+        rows: The library's ``models`` rows.
+
+    Returns:
+        The same settings with :attr:`~Settings.custom_models` and, when it was
+        not chosen, :attr:`~Settings.active_models` extended.
+
+    Raises:
+        ValidationError: If a row cannot be read back as a model.
+    """
+    remembered: dict[str, ModelSpec] = {}
+    for row in rows:
+        model_id = str(row["model_id"])
+        if model_id in MODEL_SPECS:
+            continue
+        try:
+            stored = spec_from_row(row)
+        except ValueError as exc:
+            raise ValidationError(str(exc), "models") from None
+        configured = settings.custom_models.get(model_id)
+        if configured is None:
+            remembered[model_id] = stored
+        elif (
+            configured.url
+            and configured.revision is None
+            and (configured.source, configured.filename)
+            == (stored.source, stored.filename)
+        ):
+            remembered[model_id] = replace(configured, revision=stored.revision)
+    if not remembered:
+        return settings
+
+    custom = {**settings.custom_models, **remembered}
+    active = settings.active_models
+    if not settings.active_models_chosen:
+        active = (*active, *(m for m in custom if m not in active))
+    return replace(settings, custom_models=custom, active_models=tuple(active))
+
+
+#: Widest embedding registered without comment. Embedding backbones are
+#: typically 512 to 2048 wide (Perch 1536, BirdNET 1024); an output wider than
+#: this is more likely a classifier's per-class scores. See
+#: :meth:`LibraryService._note_width`.
+SUSPICIOUS_EMBEDDING_DIM = 4096
 
 
 #: Name of the library-wide CSV export, from the interface and the CLI alike.
@@ -325,9 +389,26 @@ class LibraryService:
             self.settings.db_path
         )
         self.repo = Repository(self._conn)
+        try:
+            self.settings = with_library_models(
+                self.settings, self.repo.model_rows()
+            )
+        except ValidationError:
+            if self._owns_connection:
+                self._conn.close()
+            raise
         self._owns_pool = pool is None
         self._pool: ExtractorPool | None = pool
         self._query_cache: QueryEmbeddingCache | None = None
+        #: Things worth telling the user that are not errors, such as a model
+        #: registered with more than one output. Frontends take them with
+        #: :meth:`pop_notices`.
+        self._notices: list[str] = []
+
+    def pop_notices(self) -> list[str]:
+        """Return the notices gathered so far, and forget them."""
+        notices, self._notices = self._notices, []
+        return notices
 
     # ── lifecycle ─────────────────────────────────────────────────────────────
 
@@ -352,8 +433,16 @@ class LibraryService:
     def pool(self) -> ExtractorPool:
         """The extractor pool, built on first use."""
         if self._pool is None:
+            # Checked here rather than on opening: browsing a library does not
+            # need its models, and a model can be registered after opening.
+            for model_id in self.settings.active_models:
+                try:
+                    self.settings.model_spec(model_id)
+                except KeyError as exc:
+                    raise ValidationError(exc.args[0], "models") from None
             self._pool = ExtractorPool(
                 self.settings.active_models,
+                specs=self.settings.custom_models,
                 cache_dir=self.settings.model_cache_dir,
                 max_batch=self.settings.inference_batch_size,
                 threads=self.settings.inference_threads,
@@ -453,8 +542,19 @@ class LibraryService:
                 model this operation has no use for — an import that only needs
                 one model's dimension, say.
 
+        A user-defined model is also checked against what the library
+        remembers of it: once vectors exist under its ID, the recipe that made
+        them — source, file, revision or digest, sample rate, window, overlap —
+        may not change, since new vectors would then be compared with old ones
+        that mean something else. That holds for a read-only service too, whose
+        query vectors would be just as wrong.
+
         Returns:
             Mapping of model ID to embedding dimension.
+
+        Raises:
+            ValidationError: If a user-defined model's recipe no longer matches
+                the vectors stored under its ID.
         """
         dims: dict[str, int] = {}
         for model_id in (
@@ -462,11 +562,108 @@ class LibraryService:
         ):
             extractor = self.pool.get(model_id)
             dim = extractor.embedding_dim()
+            self._check_recipe(extractor.spec)
+            if not self.read_only and self.repo.get_model(model_id) is None:
+                self._note_outputs(model_id, extractor.output_names)
+                self._note_width(model_id, dim)
+                self._note_shape(model_id, extractor.output_shape())
             if not self.read_only:
                 with self._transaction():
                     self.repo.register_model(extractor.spec, dim)
             dims[model_id] = dim
         return dims
+
+    def _note_outputs(self, model_id: str, outputs: Sequence[str]) -> None:
+        """Say which output is used, when a model being registered has several.
+
+        Only the first output is read as the embedding. For a backbone that is
+        the only one; for a model that also classifies it may be the class
+        scores, which search would then rank by with no error to show for it.
+        Said once, as the model joins the library.
+        """
+        if len(outputs) < 2:
+            return
+        self._notices.append(
+            f"model {model_id!r} has {len(outputs)} outputs "
+            f"({', '.join(outputs)}); biotimbre reads the first, "
+            f"{outputs[0]!r}, as the embedding. If that is not the model's "
+            f"embedding output (class scores, say), its search results will be "
+            f"poor: use a version of the model whose first output is the "
+            f"embedding."
+        )
+
+    def _note_shape(self, model_id: str, shape: Sequence[int]) -> None:
+        """Say so when a model being registered returns more than a vector.
+
+        A frame-wise or spatial output is averaged into one vector, keeping the
+        *last* axis as the features (see ``OnnxEmbedder._flatten_output``).
+        That is right for ``(time, features)`` and wrong for a channel-first
+        ``(channels, time)`` or ``(channels, height, width)`` map, which would
+        be averaged across its features instead — and the graph does not say
+        which it is. Only size-1 axes are dropped without comment.
+        """
+        per_window = [n for n in shape[1:] if n != 1]
+        if len(per_window) < 2:
+            return
+        shown = "(" + ", ".join(str(n) for n in shape[1:]) + ")"
+        averaged = " x ".join(str(n) for n in per_window[:-1])
+        self._notices.append(
+            f"model {model_id!r} returns a {shown} array per window rather than "
+            f"one vector. biotimbre averages it over {averaged} into a vector of "
+            f"the last axis, {per_window[-1]} values. That is right when the last "
+            f"axis holds the features, as in (time, features); if the model puts "
+            f"them first, as in (channels, time) or (channels, height, width), "
+            f"the vectors are averaged across the features and search results "
+            f"will be poor: use a version of the model that outputs a pooled "
+            f"embedding."
+        )
+
+    def _note_width(self, model_id: str, dim: int) -> None:
+        """Say so when a model being registered has a suspiciously wide output.
+
+        Embeddings are typically 512 to 2048 values wide; a classifier's scores
+        are one per class, often thousands. A classifier with no separate
+        embedding output gives no other sign that it is the wrong kind of model
+        — it registers and searches — so the width is the one hint there is.
+        A guess, and said as one.
+        """
+        if dim <= SUSPICIOUS_EMBEDDING_DIM:
+            return
+        self._notices.append(
+            f"model {model_id!r} returns {dim} values per window, more than "
+            f"embeddings usually have (512 to 2048). If they are class scores, "
+            f"one per species, rather than an embedding, its search results "
+            f"will be poor: use the model's embedding (backbone) version "
+            f"instead. If {dim} is the embedding's real width, ignore this."
+        )
+
+    def _check_recipe(self, spec: ModelSpec) -> None:
+        """Refuse a user-defined model whose recipe changed under stored vectors.
+
+        Built-in models are exempt: their definitions change only with a
+        release of biotimbre, which is where that decision belongs.
+        """
+        if spec.model_id in MODEL_SPECS:
+            return
+        row = self.repo.get_model(spec.model_id)
+        if row is None or not self.repo.has_embeddings(spec.model_id):
+            return
+        stored = spec_from_row(row)
+        if stored.recipe == spec.recipe:
+            return
+        fields = ("source", "filename", "revision", "sample_rate",
+                  "window_duration_s", "window_overlap")
+        changed = [
+            f"{name} {old!r} -> {new!r}"
+            for name, old, new in zip(fields, stored.recipe, spec.recipe)
+            if old != new
+        ]
+        raise ValidationError(
+            f"Model {spec.model_id!r} no longer matches the vectors this library "
+            f"holds for it ({'; '.join(changed)}). Define the changed model under "
+            f"a new id, and backfill it, rather than reusing this one.",
+            "models",
+        )
 
     def list_models(self) -> list[dict]:
         """Registered models with their embedding counts."""
@@ -489,7 +686,7 @@ class LibraryService:
         shifted = high * draft.speed
         warnings = []
         for model_id in self.settings.active_models:
-            nyquist = get_spec(model_id).nyquist_hz
+            nyquist = self.settings.model_spec(model_id).nyquist_hz
             if shifted > nyquist:
                 suggested = nyquist / high
                 warnings.append(
@@ -1085,9 +1282,9 @@ class LibraryService:
                 f"Item {item_id} has no {model_id} embeddings to export."
             )
         try:
-            spec = get_spec(model_id)
+            spec = self.settings.model_spec(model_id)
         except KeyError as exc:
-            raise ValidationError(str(exc), "model_id") from None
+            raise ValidationError(exc.args[0], "model_id") from None
 
         item = self.repo.get_item(item_id)
         source = self.settings.absolute_audio_path(item.audio_path)

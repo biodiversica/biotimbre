@@ -14,6 +14,8 @@ import argparse
 import dataclasses
 import faulthandler
 import sys
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 from biotimbre import __version__
@@ -31,14 +33,40 @@ from biotimbre.service import IngestResult, LibraryService, SearchHit
 from biotimbre.sharing import ImportPolicy
 
 
-def _service(args: argparse.Namespace) -> LibraryService:
-    """Build a service from global CLI options."""
-    settings = load_settings(args.config, data_dir=args.data_dir)
+@contextmanager
+def _service(args: argparse.Namespace) -> Iterator[LibraryService]:
+    """Open the library from global CLI options, for one command.
+
+    On the way out, prints what the service noted that is not an error, such
+    as a newly registered model with more than one output.
+    """
+    settings = _load_settings(args)
     if args.models:
-        settings = type(settings)(
-            **{**settings.__dict__, "active_models": tuple(args.models)}
+        settings = dataclasses.replace(
+            settings, active_models=tuple(args.models), active_models_chosen=True
         )
-    return LibraryService(settings)
+    with LibraryService(settings) as service:
+        try:
+            yield service
+        finally:
+            notices = service.pop_notices()
+            if notices:
+                # After the command's own report, not before it: stdout is
+                # block-buffered when piped, and stderr is not.
+                sys.stdout.flush()
+            for notice in notices:
+                print_warning(notice)
+
+
+def _load_settings(args: argparse.Namespace):
+    """Load the configuration, reporting a bad one as a user error."""
+    try:
+        return load_settings(args.config, data_dir=args.data_dir)
+    except ValueError as exc:
+        # load_settings raises ValueError for a config file it cannot use: an
+        # unknown key, a custom model missing its sample rate. That is the
+        # user's to fix, not a crash.
+        raise ValidationError(str(exc), "config file") from None
 
 
 def _print_ingest(result: IngestResult) -> None:
@@ -411,7 +439,10 @@ def cmd_models(args: argparse.Namespace) -> int:
             return 0
         for model in models:
             print(f"{model['model_id']}")
-            print(f"  source        {model['source']}/{model['filename']}")
+            print(f"  source        {model['source']}")
+            print(f"  file          {model['filename']}")
+            if model["revision"]:
+                print(f"  revision      {model['revision']}")
             print(f"  sample_rate   {model['sample_rate']} Hz")
             print(f"  window        {model['window_duration_s']} s "
                   f"(overlap {model['window_overlap']})")
@@ -549,13 +580,14 @@ def cmd_gui(args: argparse.Namespace) -> int:
         )
         return 2
 
-    settings = load_settings(args.config, data_dir=args.data_dir)
+    settings = _load_settings(args)
     # Kept as overrides rather than only folded into ``settings``: opening a
     # library from the browser reloads the configuration, and a flag typed for
     # this run has to survive that.
     overrides: dict[str, object] = {}
     if args.models:
         overrides["active_models"] = tuple(args.models)
+        overrides["active_models_chosen"] = True
     if args.no_map:
         # The one part of the interface that reaches the network just by being
         # looked at, so it can be refused for a single run without editing the
@@ -652,6 +684,21 @@ _SIDECAR_HELP = (
     "; are comments. Required: date, time, location. Optional: "
     + ", ".join(f for f in SIDECAR_FIELDS if f not in ("date", "time", "location"))
     + ". A misspelt field name is an error, not ignored."
+)
+
+#: How to define a model of one's own. In the help of the command that lists
+#: models, since that is where someone looking for one goes.
+_CUSTOM_MODELS_HELP = (
+    "Other models are defined in the config file, one table each: "
+    "[models.custom.my_model] with repo_id = \"owner/repo\" and filename = "
+    "\"model.onnx\" (optionally revision = \"<commit>\") for a Hugging Face "
+    "model, or url = \"https://...\" (optionally sha256 = \"<hex>\") for a "
+    "file elsewhere; plus sample_rate, window_duration_s and optionally "
+    "window_overlap (default 0.5). Local files are not accepted. The graph "
+    "must take raw mono audio, shaped (windows, samples), and return one "
+    "embedding per window. Once registered, the "
+    "library remembers the model, so it keeps working without that config "
+    "file. Its definition may not change once vectors exist under its id."
 )
 
 _DATE_HELP = "YYYY-MM-DD"
@@ -798,8 +845,10 @@ def build_parser() -> argparse.ArgumentParser:
         nargs="+",
         metavar="MODEL_ID",
         help="Compute embeddings with these models for this run only, instead of "
-             "models.active from the config file (by default all of them). "
-             f"Known models: {known_models}. Since this option takes several "
+             "models.active from the config file. By default every known model "
+             f"is used: the built-in ones ({known_models}), those defined under "
+             "[models.custom.<id>] in the config file, and those the library "
+             "remembers from earlier runs. Since this option takes several "
              "values, put -- after them, or write --models=ID for one: "
              "biotimbre --models perch_v2 -- add x.wav.",
     )
@@ -1301,10 +1350,13 @@ def build_parser() -> argparse.ArgumentParser:
         panel="Library",
         summary="List the models registered in this library.",
         description=(
-            "For each model: where its ONNX file comes from, the sample rate it "
-            "takes audio at, its window length and overlap, the size of its "
-            "vectors, and how many vectors the library holds for it. A model "
-            "is registered by init, or by the first command that uses it."
+            "For each model: where its ONNX file comes from (a Hugging Face "
+            "repository or a URL) and which revision or file digest, the "
+            "sample rate it takes audio at, its window length and overlap, the "
+            "size of its vectors, and how many vectors the library holds for "
+            "it. A model is registered by init, or by the first command that "
+            "uses it.\n\n"
+            + _CUSTOM_MODELS_HELP
         ),
         examples="  biotimbre models",
     )
@@ -1330,7 +1382,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_backfill.add_argument(
         "model_id",
-        help=f"The model to embed with. Known models: {known_models}.",
+        help=f"The model to embed with: a built-in one ({known_models}), or one "
+             "defined in the config file or remembered by the library.",
     )
     p_backfill.set_defaults(func=cmd_backfill)
 
@@ -1353,7 +1406,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_export.add_argument("item_id", type=int, help="The item to export.")
     p_export.add_argument(
         "model_id",
-        help=f"Whose embeddings to export. Known models: {known_models}.",
+        help="Whose embeddings to export, as `biotimbre models` lists them.",
     )
     p_export.add_argument(
         "output",

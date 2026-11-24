@@ -16,7 +16,6 @@ from nicegui import ui
 
 from biotimbre.domain.errors import BiotimbreError
 from biotimbre.i18n import Translator
-from biotimbre.models_registry import MODEL_SPECS
 from biotimbre.service import audio_filename
 from biotimbre.ui.layout import notify_error
 from biotimbre.ui.state import get_state
@@ -111,7 +110,10 @@ def export_button(t: Translator, item_id: int, counts: dict[str, int]) -> ui.but
                 )
                 # Only for a model whose preprocessing is known: the clips are
                 # cut again from the audio, the way that model cuts them.
-                spec = MODEL_SPECS.get(model)
+                try:
+                    spec = get_state().service.settings.model_spec(model)
+                except KeyError:
+                    spec = None
                 if spec is not None:
                     ui.menu_item(
                         t(

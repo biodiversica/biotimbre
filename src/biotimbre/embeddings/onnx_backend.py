@@ -12,6 +12,12 @@ Two properties of the graph are discovered rather than assumed:
 
 Both matter because getting them wrong produces either a crash or — worse —
 silently mis-shaped vectors.
+
+The input's **element type** is read too. Most graphs take float32 audio,
+including FP16 ones exported to keep float32 at their edges, but a graph
+converted to FP16 throughout takes float16 and refuses anything else; the audio
+is converted to whichever the graph declares. Outputs, of either width, become
+float32: that is what the library stores and searches.
 """
 
 from __future__ import annotations
@@ -22,6 +28,13 @@ import numpy as np
 
 from biotimbre.domain.errors import EmbeddingError
 from biotimbre.embeddings.runtime import onnxruntime_problem
+
+#: ONNX tensor types an audio input may declare, and the numpy type fed to each.
+INPUT_DTYPES = {
+    "tensor(float)": np.float32,
+    "tensor(float16)": np.float16,
+    "tensor(double)": np.float64,
+}
 
 #: Threads per inference session. ``0`` leaves the choice to onnxruntime.
 #:
@@ -91,6 +104,7 @@ class OnnxEmbedder:
         self._output_name: str = ""
         self._embedding_dim: int | None = None
         self._dynamic_batch: bool = False
+        self._input_dtype: type = np.float32
 
     # ── lifecycle ─────────────────────────────────────────────────────────────
 
@@ -131,8 +145,16 @@ class OnnxEmbedder:
                 f"{'inputs' if not inputs else 'outputs'}."
             )
 
+        input_type = inputs[0].type
+        if input_type not in INPUT_DTYPES:
+            raise EmbeddingError(
+                f"Model {self._model_id!r} takes {input_type} input; audio can "
+                f"only be given as {', '.join(INPUT_DTYPES)}."
+            )
+
         self._session = session
         self._input_name = inputs[0].name
+        self._input_dtype = INPUT_DTYPES[input_type]
 
         if self._requested_output is None:
             self._output_name = outputs[0].name
@@ -176,6 +198,19 @@ class OnnxEmbedder:
         return self._output_name
 
     @property
+    def output_names(self) -> tuple[str, ...]:
+        """Every output the graph declares, in order. Embeddings come from
+        :attr:`output_name`, the first unless another was asked for."""
+        self._ensure_session()
+        return tuple(o.name for o in self._session.get_outputs())
+
+    @property
+    def input_dtype(self) -> type:
+        """The numpy type audio is fed to the graph as."""
+        self._ensure_session()
+        return self._input_dtype
+
+    @property
     def has_dynamic_batch(self) -> bool:
         """Whether the graph accepts more than one window per call."""
         self._ensure_session()
@@ -207,6 +242,23 @@ class OnnxEmbedder:
         self._embedding_dim = int(vectors.shape[-1])
         return self._embedding_dim
 
+    def output_shape(self, window_samples: int) -> tuple[int, ...]:
+        """The raw shape the graph returns for one window, before flattening.
+
+        Measured with one inference on silence, since a declared shape is often
+        partly dynamic. :meth:`run` reduces whatever this is to one vector per
+        window; this is what it started from.
+
+        Args:
+            window_samples: Input length the model expects.
+
+        Returns:
+            The output's shape, batch axis included.
+        """
+        self._ensure_session()
+        probe = np.zeros((1, window_samples), dtype=self._input_dtype)
+        return tuple(int(n) for n in self._infer(probe).shape)
+
     # ── inference ─────────────────────────────────────────────────────────────
 
     def run(self, windows: np.ndarray) -> np.ndarray:
@@ -217,7 +269,8 @@ class OnnxEmbedder:
         dynamic batch dimension is driven one window at a time.
 
         Args:
-            windows: ``(n_windows, window_samples)`` float32 audio.
+            windows: ``(n_windows, window_samples)`` audio, float32 or any
+                width: it is converted to the graph's input type.
 
         Returns:
             An ``(n_windows, embedding_dim)`` float32 array.
@@ -235,7 +288,9 @@ class OnnxEmbedder:
         if windows.shape[0] == 0:
             raise EmbeddingError("Cannot embed an empty batch of windows.")
 
-        batch = np.ascontiguousarray(windows, dtype=np.float32)
+        # Converted here, once, rather than by the caller: whatever the graph
+        # declares, the rest of the pipeline works in float32.
+        batch = np.ascontiguousarray(windows, dtype=self._input_dtype)
         step = self._max_batch if self._dynamic_batch else 1
 
         outputs = [
@@ -247,6 +302,15 @@ class OnnxEmbedder:
             raise EmbeddingError(
                 f"Model {self._model_id!r} returned {vectors.shape[0]} vectors "
                 f"for {batch.shape[0]} windows."
+            )
+        if not np.isfinite(vectors).all():
+            # Stored, such a vector would score as NaN against every query.
+            # FP16 graphs are where this happens, when an activation exceeds
+            # the format's range of about 65 000.
+            raise EmbeddingError(
+                f"Model {self._model_id!r} returned non-finite values (NaN or "
+                f"infinity). An FP16 model can overflow on loud input; try the "
+                f"FP32 build."
             )
         return vectors
 

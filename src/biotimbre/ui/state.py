@@ -33,7 +33,8 @@ from typing import Any, TypeVar
 from biotimbre.config import Settings, load_settings
 from biotimbre.db.connection import initialize, open_read_only
 from biotimbre.embeddings.extractor import ExtractorPool
-from biotimbre.service import LibraryService
+from biotimbre.db.repository import Repository
+from biotimbre.service import LibraryService, with_library_models
 
 T = TypeVar("T")
 
@@ -186,16 +187,15 @@ class AppState:
             self.overrides["search_only"] = True
         self._lock = threading.RLock()
 
-        # The models do not depend on which library is open — only on the model
-        # cache — so warm-up can start while the reader is still choosing one,
-        # and choosing one does not pay for it again.
-        self.pool = ExtractorPool(
-            self.settings.active_models,
-            cache_dir=self.settings.model_cache_dir,
-            max_batch=self.settings.inference_batch_size,
-            threads=self.settings.inference_threads,
-        )
+        # The configured models do not depend on which library is open — only on
+        # the model cache — so warm-up can start while the reader is still
+        # choosing one, and choosing one does not pay for it again. A library
+        # that remembers models of its own replaces the pool when it is opened.
+        self.pool = self._make_pool(self.settings)
         self.models = ModelStatus()
+        #: Whether a warm-up thread has been started; until it has, a pool
+        #: replaced by :meth:`open_library` is warmed by that first one.
+        self._warming_started = False
         self.queries = QueryStore()
         #: Queries handed from the search page to the add form, by the token
         #: their file is staged under in :attr:`queries`. See
@@ -267,12 +267,20 @@ class AppState:
             else:
                 settings.ensure_dirs()
                 connection = initialize(settings.db_path, allow_threads=True)
-            service = LibraryService(
-                settings,
-                connection=connection,
-                pool=self.pool,
-                read_only=settings.search_only,
-            )
+            try:
+                settings = with_library_models(
+                    settings, Repository(connection).model_rows()
+                )
+                replaced = self._replace_pool_for(settings)
+                service = LibraryService(
+                    settings,
+                    connection=connection,
+                    pool=self.pool,
+                    read_only=settings.search_only,
+                )
+            except BaseException:
+                connection.close()
+                raise
             if name and not settings.search_only and not service.identity().name:
                 service.rename(name)
 
@@ -280,11 +288,39 @@ class AppState:
             self.settings = settings
             self._connection = connection
             self._service = service
-            if self.models.ready:
+            if replaced:
+                # Models this library remembers, or no longer the ones loaded:
+                # the new pool is warmed like the first one was.
+                self.models = ModelStatus()
+                if self._warming_started:
+                    self.start_warming()
+            elif self.models.ready:
                 # The sessions are already built; the new library still has to
                 # learn their dimensions before anything can be embedded.
                 service.ensure_models_registered()
+                self._report_notices()
             return settings
+
+    def _make_pool(self, settings: Settings) -> ExtractorPool:
+        return ExtractorPool(
+            settings.active_models,
+            specs=settings.custom_models,
+            cache_dir=settings.model_cache_dir,
+            max_batch=settings.inference_batch_size,
+            threads=settings.inference_threads,
+        )
+
+    def _replace_pool_for(self, settings: Settings) -> bool:
+        """Give the pool the models ``settings`` names, if it has others.
+
+        Returns:
+            Whether the pool was replaced.
+        """
+        if self.pool.serves(settings.active_models, settings.custom_models):
+            return False
+        self.pool.close()
+        self.pool = self._make_pool(settings)
+        return True
 
     def apply_overrides(self, settings: Settings) -> Settings:
         """Put the command line's last word back on freshly loaded settings.
@@ -354,17 +390,33 @@ class AppState:
         it does not depend on which library it is — and the models are
         registered when one is opened.
         """
-        if self.models.ready:
+        self._warming_started = True
+        while not self.models.ready:
+            pool = self.pool
+            try:
+                if self.is_open:
+                    dimensions = self.call(self.service.ensure_models_registered)
+                    self._report_notices()
+                else:
+                    dimensions = self.call(self._session_dimensions)
+            except Exception as exc:  # download failure, missing file, bad graph
+                if self.pool is pool:
+                    self.models = ModelStatus(ready=False, failed=str(exc))
+                    return
+                continue
+            # A library opened meanwhile may have replaced the pool, and its
+            # models are the ones that have to be ready.
+            if self.pool is pool:
+                self.models = ModelStatus(ready=True, dimensions=dimensions)
+
+    def _report_notices(self) -> None:
+        """Print the open library's notices to the console the server runs in."""
+        if self._service is None:
             return
-        try:
-            if self.is_open:
-                dimensions = self.call(self.service.ensure_models_registered)
-            else:
-                dimensions = self.call(self._session_dimensions)
-        except Exception as exc:  # download failure, missing file, bad graph
-            self.models = ModelStatus(ready=False, failed=str(exc))
-            return
-        self.models = ModelStatus(ready=True, dimensions=dimensions)
+        from biotimbre.richhelp import print_warning
+
+        for notice in self._service.pop_notices():
+            print_warning(notice)
 
     def _session_dimensions(self) -> dict[str, int]:
         """Build every active model's session, without a library to record it in."""
@@ -379,6 +431,7 @@ class AppState:
         The server starts serving immediately, so a first run that has to download
         70 MB shows progress instead of an unresponsive page.
         """
+        self._warming_started = True
         thread = threading.Thread(
             target=self.warm_models, name="biotimbre-warm-models", daemon=True
         )

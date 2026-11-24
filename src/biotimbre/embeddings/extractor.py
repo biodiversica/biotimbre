@@ -7,9 +7,10 @@ across many files — loading a 45 MB graph per item would dominate ingest time.
 
 from __future__ import annotations
 
+import dataclasses
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Sequence
+from typing import Mapping, Sequence
 
 import numpy as np
 
@@ -19,7 +20,12 @@ from biotimbre.embeddings.onnx_backend import (
     DEFAULT_THREADS,
     OnnxEmbedder,
 )
-from biotimbre.models_registry import ModelSpec, get_spec, resolve_model_file
+from biotimbre.models_registry import (
+    ModelSpec,
+    get_spec,
+    resolve_model_file,
+    resolve_url_file,
+)
 
 
 @dataclass(frozen=True)
@@ -78,12 +84,17 @@ class Extractor:
         max_batch: int = DEFAULT_MAX_BATCH,
         threads: int = DEFAULT_THREADS,
     ):
+        if model_path is not None:
+            self._model_path = Path(model_path)
+        elif spec.url:
+            # The digest is what identifies a URL model's file, so the spec
+            # carries it from here on and the library records it.
+            self._model_path, digest = resolve_url_file(spec, cache_dir)
+            spec = dataclasses.replace(spec, revision=digest)
+        else:
+            self._model_path = resolve_model_file(spec, cache_dir)
+        #: The model's spec. For a URL model, pinned to the file actually used.
         self.spec = spec
-        self._model_path = (
-            Path(model_path)
-            if model_path is not None
-            else resolve_model_file(spec, cache_dir)
-        )
         self._embedder = OnnxEmbedder(
             self._model_path,
             model_id=spec.model_id,
@@ -100,6 +111,15 @@ class Extractor:
     def model_path(self) -> Path:
         """Local path to the resolved ONNX file."""
         return self._model_path
+
+    @property
+    def output_names(self) -> tuple[str, ...]:
+        """Every output the graph declares; embeddings are read from the first."""
+        return self._embedder.output_names
+
+    def output_shape(self) -> tuple[int, ...]:
+        """The raw shape the graph returns for one window, batch axis included."""
+        return self._embedder.output_shape(self.spec.window_samples)
 
     def embedding_dim(self) -> int:
         """This model's embedding width, read from the graph."""
@@ -167,6 +187,8 @@ class ExtractorPool:
 
     Args:
         model_ids: Models to serve.
+        specs: User-defined models among them, by ID. The rest are built-in
+            models, looked up in the registry.
         cache_dir: Model cache directory.
         max_batch: Windows per inference call, applied to every extractor.
         threads: Threads per session, applied to every extractor.
@@ -176,11 +198,13 @@ class ExtractorPool:
         self,
         model_ids: tuple[str, ...] | list[str],
         *,
+        specs: Mapping[str, ModelSpec] | None = None,
         cache_dir: Path | None = None,
         max_batch: int = DEFAULT_MAX_BATCH,
         threads: int = DEFAULT_THREADS,
     ):
         self._model_ids = tuple(model_ids)
+        self._specs = dict(specs or {})
         self._cache_dir = cache_dir
         self._max_batch = max_batch
         self._threads = threads
@@ -190,6 +214,17 @@ class ExtractorPool:
     def model_ids(self) -> tuple[str, ...]:
         """IDs this pool can serve."""
         return self._model_ids
+
+    def serves(self, model_ids: Sequence[str], specs: Mapping[str, ModelSpec]) -> bool:
+        """Whether this pool serves exactly these models, defined this way.
+
+        A frontend that keeps one pool across libraries asks this when another
+        library is opened: one that remembers different models needs a new
+        pool.
+        """
+        return tuple(model_ids) == self._model_ids and all(
+            self._specs.get(m) == specs.get(m) for m in {*self._specs, *specs}
+        )
 
     def get(self, model_id: str) -> Extractor:
         """Return the extractor for a model, building it on first use.
@@ -211,7 +246,7 @@ class ExtractorPool:
             )
         if model_id not in self._extractors:
             self._extractors[model_id] = Extractor(
-                get_spec(model_id),
+                get_spec(model_id, self._specs),
                 cache_dir=self._cache_dir,
                 max_batch=self._max_batch,
                 threads=self._threads,

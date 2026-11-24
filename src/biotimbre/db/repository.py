@@ -756,6 +756,24 @@ class Repository:
         ).fetchone()
         return dict(row) if row is not None else None
 
+    def model_rows(self) -> list[dict]:
+        """Every registered model's row, without counting its vectors.
+
+        Returns:
+            Row dicts, ordered by ID.
+        """
+        rows = self._conn.execute(
+            "SELECT * FROM models ORDER BY model_id"
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+    def has_embeddings(self, model_id: str) -> bool:
+        """Whether any vector is stored for a model."""
+        row = self._conn.execute(
+            "SELECT 1 FROM embeddings WHERE model_id = ? LIMIT 1", (model_id,)
+        ).fetchone()
+        return row is not None
+
     def list_models(self) -> list[dict]:
         """All registered models with their embedding counts.
 
