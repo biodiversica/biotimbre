@@ -14,6 +14,7 @@ from typing import Mapping, Sequence
 
 import numpy as np
 
+from biotimbre.domain.errors import EmbeddingError
 from biotimbre.embeddings import audio as audio_io
 from biotimbre.embeddings.onnx_backend import (
     DEFAULT_MAX_BATCH,
@@ -119,10 +120,36 @@ class Extractor:
 
     def output_shape(self) -> tuple[int, ...]:
         """The raw shape the graph returns for one window, batch axis included."""
+        self.check_window()
         return self._embedder.output_shape(self.spec.window_samples)
+
+    def check_window(self) -> None:
+        """Refuse a window length the graph cannot take, saying which it can.
+
+        Windows are always cut to :attr:`ModelSpec.window_samples`, so a graph
+        with a fixed input length of anything else fails on every one of them
+        — with onnxruntime's own message about dimensions, which does not say
+        what to change in the model's definition.
+
+        Raises:
+            EmbeddingError: If the graph's fixed input length differs.
+        """
+        required = self._embedder.input_length
+        spec = self.spec
+        if required is None or required == spec.window_samples:
+            return
+        raise EmbeddingError(
+            f"Model {spec.model_id!r} takes windows of {required} samples — "
+            f"{required / spec.sample_rate:g} s at its sample rate of "
+            f"{spec.sample_rate} Hz — but is defined with window_duration_s = "
+            f"{spec.window_duration_s:g} ({spec.window_samples} samples). Set "
+            f"window_duration_s = {required / spec.sample_rate:g}, or correct "
+            f"sample_rate if that is what is wrong."
+        )
 
     def embedding_dim(self) -> int:
         """This model's embedding width, read from the graph."""
+        self.check_window()
         return self._embedder.embedding_dim(self.spec.window_samples)
 
     def embed_array(
@@ -142,6 +169,7 @@ class Extractor:
             EmbeddingError: If inference fails.
             ValidationError: If the audio or speed is unusable.
         """
+        self.check_window()
         windows, spans = audio_io.prepare_windows(
             samples,
             native_rate,

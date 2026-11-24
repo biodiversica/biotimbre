@@ -65,6 +65,7 @@ from biotimbre.io.table import items_csv, results_csv
 from biotimbre.models_registry import MODEL_SPECS, ModelSpec, spec_from_row
 from biotimbre.search.filters import SearchFilters, select_candidates
 from biotimbre.search.vector_search import (
+    FUSIONS,
     FusedScore,
     WindowMatch,
     fuse,
@@ -567,6 +568,7 @@ class LibraryService:
                 self._note_outputs(model_id, extractor.output_names)
                 self._note_width(model_id, dim)
                 self._note_shape(model_id, extractor.output_shape())
+                self._note_backfill(model_id)
             if not self.read_only:
                 with self._transaction():
                     self.repo.register_model(extractor.spec, dim)
@@ -590,6 +592,57 @@ class LibraryService:
             f"embedding output (class scores, say), its search results will be "
             f"poor: use a version of the model whose first output is the "
             f"embedding."
+        )
+
+    def _fusion_model_ready(self, fusion: str) -> bool:
+        """Explain why a search ranked by one model has nothing from it.
+
+        Called when no candidate was scored by the model ``fusion`` names. An
+        unknown name is left to :func:`fuse` to refuse.
+
+        Returns:
+            False when the model does have vectors and only the filters left
+            none of them in, which is a search with no matches.
+
+        Raises:
+            ValidationError: If the model is not used in this run, or no item
+                has vectors from it yet.
+        """
+        if fusion not in self.settings.active_models:
+            try:
+                self.settings.model_spec(fusion)
+            except KeyError:
+                return True
+            raise ValidationError(
+                f"Cannot rank by {fusion!r}: it is not one of the models this "
+                f"run uses ({', '.join(self.settings.active_models)}). Add it to "
+                f"models.active in the config file, or to --models.",
+                "fusion",
+            )
+        if not self.repo.has_embeddings(fusion):
+            raise ValidationError(
+                f"Cannot rank by {fusion!r}: no item has vectors from it yet. "
+                f"Run `biotimbre backfill {fusion}` to compute them.",
+                "fusion",
+            )
+        return False
+
+    def _note_backfill(self, model_id: str) -> None:
+        """Say so when a model joins a library that already has items.
+
+        Those items have no vectors from it, and nothing computes them on its
+        own: search simply cannot find them through this model until a
+        backfill does. Registration happens before an item being added is
+        stored, so that item is not counted.
+        """
+        missing = len(self.repo.items_missing_embeddings(model_id))
+        if not missing:
+            return
+        self._notices.append(
+            f"model {model_id!r} is new to this library, which already holds "
+            f"{missing} item(s) with no vectors from it. Search cannot find "
+            f"those items through {model_id} until `biotimbre backfill "
+            f"{model_id}` computes them."
         )
 
     def _note_shape(self, model_id: str, shape: Sequence[int]) -> None:
@@ -2079,6 +2132,10 @@ class LibraryService:
         per_model = self._score_all_models(
             queries, resolved_speeds, candidates, metric
         )
+
+        if fusion not in FUSIONS and fusion not in per_model:
+            if not self._fusion_model_ready(fusion):
+                return []
 
         hits: list[SearchHit] = []
         for entry in top_k(fuse(per_model, fusion), k, min_score):

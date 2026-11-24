@@ -505,6 +505,53 @@ class TestLibraryMemory:
         err = capsys.readouterr().err
         assert "warning: model 'my_hf' has 2 outputs" in err
 
+    def test_a_model_new_to_a_library_with_items_asks_for_a_backfill(
+        self, tmp_path
+    ):
+        settings = _library(tmp_path, custom_models={"my_hf": HF_SPEC})
+        with LibraryService(settings, pool=_FakePool(HF_SPEC)) as service:
+            for name in ("GUYVIR.wav", "ZAMTYM.wav"):
+                service.add_item(
+                    EXAMPLES_DIR / name,
+                    ItemDraft(
+                        date="2020-01-12",
+                        time="09:40:21",
+                        location=Location(-26.0, -48.0),
+                    ),
+                    compute_embeddings=False,
+                )
+            service.ensure_models_registered(["my_hf"])
+            (notice,) = service.pop_notices()
+            assert "2 item(s) with no vectors" in notice
+            assert "biotimbre backfill my_hf" in notice
+
+    def test_ranking_by_a_model_without_vectors_says_to_backfill(self, tmp_path):
+        settings = _library(
+            tmp_path, custom_models={"my_hf": HF_SPEC}, active_models=("my_hf",)
+        )
+        with LibraryService(settings, pool=_FakePool()) as service:
+            with pytest.raises(ValidationError, match="backfill my_hf"):
+                service._fusion_model_ready("my_hf")
+
+    def test_ranking_by_an_inactive_model_says_how_to_use_it(self, tmp_path):
+        settings = _library(
+            tmp_path,
+            custom_models={"my_hf": HF_SPEC},
+            active_models=("perch_v2",),
+            active_models_chosen=True,
+        )
+        with LibraryService(settings, pool=_FakePool()) as service:
+            with pytest.raises(ValidationError, match="not one of the models"):
+                service._fusion_model_ready("my_hf")
+
+    def test_ranking_by_a_model_the_filters_excluded_finds_nothing(self, tmp_path):
+        settings = _library(
+            tmp_path, custom_models={"my_hf": HF_SPEC}, active_models=("my_hf",)
+        )
+        _register(settings, HF_SPEC, with_vectors=True)
+        with LibraryService(settings, pool=_FakePool()) as service:
+            assert service._fusion_model_ready("my_hf") is False
+
     def test_an_unknown_active_model_is_a_clean_error(self, tmp_path):
         settings = _library(
             tmp_path, active_models=("nope",), active_models_chosen=True
@@ -525,13 +572,16 @@ class _Node:
 class _FakeSession:
     """An inference session whose input type is whatever the test says."""
 
-    def __init__(self, input_type: str, output: np.ndarray | None = None):
+    def __init__(
+        self, input_type: str, output: np.ndarray | None = None, samples=16
+    ):
         self._input_type = input_type
         self._output = output
+        self._samples = samples
         self.fed: list[np.ndarray] = []
 
     def get_inputs(self):
-        return [_Node("audio", self._input_type, ["batch", 16])]
+        return [_Node("audio", self._input_type, ["batch", self._samples])]
 
     def get_outputs(self):
         return [_Node("embedding", "tensor(float16)", ["batch", 4])]
@@ -578,6 +628,33 @@ class TestInputType:
         assert embedder.output_shape(16) == (1, 1280, 5, 3)
         # What the note warns about: the last axis is kept as the features.
         assert embedder.run(np.zeros((1, 16), dtype=np.float32)).shape == (1, 3)
+
+    def test_a_window_the_graph_cannot_take_says_which_it_can(self, monkeypatch):
+        from biotimbre.embeddings.extractor import Extractor
+
+        _embedder(monkeypatch, _FakeSession("tensor(float)", samples=144_000))
+        spec = ModelSpec(
+            model_id="bn",
+            repo_id="a/b",
+            filename="m.onnx",
+            sample_rate=48_000,
+            window_duration_s=2.0,
+        )
+        extractor = Extractor(spec, model_path="model.onnx")
+        with pytest.raises(EmbeddingError, match="window_duration_s = 3"):
+            extractor.embedding_dim()
+        with pytest.raises(EmbeddingError, match="144000 samples"):
+            extractor.embed_array(np.zeros(48_000, dtype=np.float32), 48_000)
+
+    def test_a_graph_of_any_length_is_not_checked(self, monkeypatch):
+        from biotimbre.embeddings.extractor import Extractor
+
+        _embedder(monkeypatch, _FakeSession("tensor(float)", samples="time"))
+        spec = ModelSpec(
+            model_id="any", repo_id="a/b", filename="m.onnx",
+            sample_rate=16, window_duration_s=2.0,
+        )
+        Extractor(spec, model_path="model.onnx").check_window()
 
     def test_an_input_that_is_not_audio_is_refused(self, monkeypatch):
         embedder = _embedder(monkeypatch, _FakeSession("tensor(int64)"))

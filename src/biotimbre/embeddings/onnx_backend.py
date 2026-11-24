@@ -105,6 +105,7 @@ class OnnxEmbedder:
         self._embedding_dim: int | None = None
         self._dynamic_batch: bool = False
         self._input_dtype: type = np.float32
+        self._input_length: int | None = None
 
     # ── lifecycle ─────────────────────────────────────────────────────────────
 
@@ -173,6 +174,8 @@ class OnnxEmbedder:
         self._dynamic_batch = bool(input_shape) and not isinstance(
             input_shape[0], int
         )
+        samples = input_shape[-1] if len(input_shape) >= 2 else None
+        self._input_length = samples if isinstance(samples, int) else None
 
         output_shape = next(
             o.shape for o in outputs if o.name == self._output_name
@@ -196,6 +199,12 @@ class OnnxEmbedder:
         """Name of the graph output embeddings are read from."""
         self._ensure_session()
         return self._output_name
+
+    @property
+    def input_length(self) -> int | None:
+        """Samples per window the graph requires, or ``None`` if it takes any."""
+        self._ensure_session()
+        return self._input_length
 
     @property
     def output_names(self) -> tuple[str, ...]:
