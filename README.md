@@ -170,7 +170,8 @@ The Library page is divided into three collapsible sections.
   taxa, each with its number of items; when there are many taxa, the most
   frequent are shown first and the rest can be expanded. Selecting an item
   opens a dialog with its full metadata, its spectrogram or
-  waveform, a player, and buttons to export, edit or delete it. Editing warns
+  waveform, a player, and buttons to export, edit or delete it, or to **Find
+  similar** items (see the Search page below). Editing warns
   before saving a change of `speed`, since that requires recomputing the
   embeddings. **Export CSV** downloads the metadata of every item as a table
   (see [Exporting Data](#exporting-data)). Ticking items in the list (the box
@@ -216,6 +217,7 @@ also provides:
 - **Details** — a read-only dialog with the item's full metadata, as on the
   Library page but without the edit and delete options.
 - **Export** — the item's audio, its embeddings or a shareable bundle.
+- **Find similar** — searches the library with that item's recording.
 - A shortened biotimbre ID which, when clicked, copies the full UUID to the
   clipboard, for use in the biotimbre ID filter or in another library.
 
@@ -227,6 +229,14 @@ recording and all of its settings (and, for a recording fetched from
 iNaturalist, the observation's metadata) so that a new recording can be added
 to the library. Nothing is stored until the form is saved. This option is not
 available in search-only mode.
+
+**Find similar**, on a result or in an item's dialog, makes a library item the
+query: its stored recording is staged as an upload would be, ready to be
+trimmed or filtered, and the query area names the item. The item is left out
+of its own results, where it would come first with a score of 1, unless
+**Include the item itself** is ticked. The query speed is the item's own, so
+an item stored slowed down is compared with the others stored at that speed.
+From the command line, the same is `biotimbre search --item ITEM_ID`.
 
 ### Search-Only Mode
 

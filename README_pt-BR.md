@@ -176,7 +176,8 @@ A página Biblioteca é dividida em três seções.
   táxons, os mais frequentes são exibidos primeiro e os demais podem ser
   expandidos. Selecionar um item abre uma janela com todos os seus
   metadados, seu espectrograma ou forma de onda, um reprodutor e botões para
-  exportá-lo, editá-lo ou excluí-lo. A edição emite um aviso antes de salvar
+  exportá-lo, editá-lo ou excluí-lo, ou para **Buscar semelhantes** (veja a
+  página de busca abaixo). A edição emite um aviso antes de salvar
   uma alteração de `speed`, pois isso exige o recálculo dos embeddings.
   **Exportar CSV** baixa os metadados de todos os itens em uma tabela (consulte
   [Exportação de Dados](#exportação-de-dados)). Marcar itens na lista (a caixa
@@ -227,6 +228,7 @@ para comparação auditiva. Cada resultado oferece ainda:
   como na página Biblioteca, porém sem as opções de edição e exclusão.
 - **Exportar** — o áudio do item, seus embeddings ou um pacote para
   compartilhamento.
+- **Buscar semelhantes** — busca na biblioteca com a gravação desse item.
 - Um ID de biotimbre abreviado que, ao ser clicado, copia o UUID completo para
   a área de transferência, para uso no filtro de ID do biotimbre ou em outra
   biblioteca.
@@ -241,6 +243,15 @@ configurações (e, para uma gravação obtida do iNaturalist, os metadados da
 observação), para que uma nova gravação possa ser adicionada à biblioteca.
 Nada é armazenado até que o formulário seja salvo. Essa opção não está
 disponível no modo somente busca.
+
+**Buscar semelhantes**, num resultado ou na janela de um item, faz de um item
+da biblioteca a consulta: sua gravação armazenada é preparada como um arquivo
+enviado, pronta para ser recortada ou filtrada, e a área da consulta indica o
+item. O item fica fora dos próprios resultados, onde viria primeiro com
+pontuação 1, a menos que **Incluir o próprio item** esteja marcado. A
+velocidade da consulta é a do próprio item, de modo que um item armazenado
+desacelerado é comparado com os outros armazenados nessa velocidade. Na linha
+de comando, o equivalente é `biotimbre search --item ITEM_ID`.
 
 ### Modo Somente Busca
 
