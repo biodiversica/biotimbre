@@ -337,7 +337,8 @@ class TestEndToEndCli:
         # The query is itself in the library, so it must top the ranking at ~1.0.
         assert "1. score +1.0000" in search_out
         assert "matched" in search_out
-        assert "perch_v2=" in search_out
+        assert "models    birdnet_v2.4 +" in search_out
+        assert "perch_v2 +" in search_out
 
         assert run(data_dir, "models") == 0
         assert "dimensions    1536" in capsys.readouterr().out
@@ -447,7 +448,7 @@ class TestEndToEndCli:
 
         assert run(data_dir, "search", str(GUYVIR_WAV), "-k", "1") == 0
         out = capsys.readouterr().out
-        assert "indexed at speed 0.5" in out
+        assert "speed     indexed at 0.5" in out
         assert "1. score +1.0000" in out
 
 

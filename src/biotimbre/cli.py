@@ -163,51 +163,112 @@ def _print_plan(plan, *, outcome=None) -> None:
         print(f"       warning: {warning}")
 
 
+def _stdout() -> "Console":
+    """A Rich console on stdout, for output that is more than lines of text.
+
+    Plain text whenever stdout is not a terminal — a file, a pipe, a test —
+    so what scripts read is unchanged by the styling and the links.
+    """
+    from rich.console import Console
+
+    return Console(highlight=False, soft_wrap=True)
+
+
+def _audio_link(settings, item) -> "Text":
+    """An item's stored audio, as its absolute path, linked to the file.
+
+    The link is a terminal hyperlink to a ``file://`` URL: clicked in a
+    terminal that supports them (GNOME Terminal, Konsole, Windows Terminal,
+    iTerm2, kitty, WezTerm, VS Code's), it opens the recording in the
+    system's player. Elsewhere it is the path, to copy into one.
+    """
+    from rich.style import Style
+    from rich.text import Text
+
+    path = settings.absolute_audio_path(item.audio_path).resolve()
+    return Text(str(path), style=Style(link=path.as_uri()))
+
+
+def _url_link(url: str) -> "Text":
+    """A URL as a terminal hyperlink, for terminals that do not spot it."""
+    from rich.style import Style
+    from rich.text import Text
+
+    return Text(url, style=Style(link=url))
+
+
 def _print_hits(
-    hits: list[SearchHit], *, show_all_models: bool, scored: bool = True
+    hits: list[SearchHit], settings, *, show_all_models: bool, scored: bool = True
 ) -> None:
-    """Report search results.
+    """Report search results, one block each, ruled apart.
+
+    The first line of each — rank, score, item, biotimbre — is what scripts
+    match on and stays as it was; the rest are labelled rows beneath it.
 
     Args:
         hits: The results, best first.
+        settings: The library's settings, to find each item's audio.
         show_all_models: Also print each model's score.
         scored: False for a search by filters alone, which has no query to
             score against: the results are listed newest first.
     """
+    from rich.rule import Rule
+    from rich.text import Text
+
     if not hits:
         print("No matches." if scored else "No items match these filters.")
         return
 
+    console = _stdout()
     for rank, hit in enumerate(hits, start=1):
         item = hit.item
         span = hit.matched_span
-        score = f"score {hit.score:+.4f}  " if scored else ""
-        print(
-            f"{rank:>3}. {score}item {item.item_id}  "
-            f"biotimbre {item.biotimbre_id}"
-        )
-        print(
-            f"      {item.taxa_display}  |  {item.date} {item.time}  |  "
-            f"{item.location}"
-        )
-        if span is not None:
-            print(
-                f"      matched {span[0]:.2f}-{span[1]:.2f} s of "
-                f"{item.duration_s:.2f} s  (best: {hit.best_model})"
-            )
+        console.print(Rule(style="dim"))
+        header = Text(f"{rank:>3}. ")
+        if scored:
+            header.append(f"score {hit.score:+.4f}", style="bold")
+            header.append("  ")
+        header.append(f"item {item.item_id}", style="bold")
+        header.append(f"  biotimbre {item.biotimbre_id}", style="dim")
+        console.print(header)
+
+        rows: list[tuple[str, Text | str]] = [
+            ("taxa", item.taxa_display),
+            ("recorded", f"{item.date} {item.time}"),
+        ]
+        where = str(item.location)
         if hit.distance_km is not None:
-            print(f"      {hit.distance_km:.1f} km from the search centre")
-        if item.is_speed_shifted:
-            print(f"      indexed at speed {item.speed:g}")
+            where += f"   ({hit.distance_km:.1f} km from the search centre)"
+        rows.append(("location", where))
+        if span is not None:
+            rows.append((
+                "matched",
+                f"{span[0]:.2f}-{span[1]:.2f} s of {item.duration_s:.2f} s, "
+                f"best {hit.best_model}",
+            ))
         if show_all_models and len(hit.per_model) > 1:
-            breakdown = "  ".join(
-                f"{model}={score:+.4f}"
-                for model, score in sorted(hit.per_model.items())
-            )
-            print(f"      {breakdown}")
+            rows.append((
+                "models",
+                "   ".join(
+                    f"{model} {value:+.4f}"
+                    for model, value in sorted(hit.per_model.items())
+                ),
+            ))
+        if item.is_speed_shifted:
+            rows.append(("speed", f"indexed at {item.speed:g}"))
         if item.device:
-            print(f"      device {item.device}")
-        print(f"      audio  {item.audio_path}")
+            rows.append(("device", item.device))
+        rows.append(("audio", _audio_link(settings, item)))
+        if item.link_to_full_recording:
+            rows.append(("full", _url_link(item.link_to_full_recording)))
+
+        for label, value in rows:
+            # One line each, never wrapped: a path cut in two cannot be
+            # pasted, and a log should hold each value whole.
+            line = Text(f"      {label:<9} ", style="dim")
+            line.append(value if isinstance(value, Text) else Text(value))
+            console.print(line)
+    console.print(Rule(style="dim"))
 
 
 # ── commands ──────────────────────────────────────────────────────────────────
@@ -697,6 +758,8 @@ def cmd_list(args: argparse.Namespace) -> int:
 
 def cmd_show(args: argparse.Namespace) -> int:
     """Show one item in full."""
+    from rich.text import Text
+
     with _service(args) as service:
         item = service.get_item(args.item_id)
         counts = service.repo.embedding_counts(args.item_id)
@@ -720,9 +783,13 @@ def cmd_show(args: argparse.Namespace) -> int:
             ("humidity", f"{item.humidity:g} %" if item.humidity is not None else "-"),
             ("speed", f"{item.speed:g}"),
             ("sample_window", str(item.sample_window or "-")),
-            ("link", item.link_to_full_recording or "-"),
+            (
+                "link",
+                _url_link(item.link_to_full_recording)
+                if item.link_to_full_recording else "-",
+            ),
             ("notes", item.notes or "-"),
-            ("audio", item.audio_path),
+            ("audio", _audio_link(service.settings, item)),
             ("sha256", item.audio_sha256),
             ("duration", f"{item.duration_s:.3f} s"),
             ("sample_rate", f"{item.sample_rate} Hz"),
@@ -731,8 +798,12 @@ def cmd_show(args: argparse.Namespace) -> int:
             ("updated", item.updated_at),
         ]
         width = max(len(str(name)) for name, _ in rows)
+        console = _stdout()
         for name, value in rows:
-            print(f"{name:<{width}}  {value}")
+            if isinstance(value, Text):  # a link: the audio's file, or a URL
+                console.print(Text(f"{name:<{width}}  ") + value)
+            else:
+                print(f"{name:<{width}}  {value}")
         print(f"{'embeddings':<{width}}  " + (
             ", ".join(f"{m}={n}" for m, n in sorted(counts.items())) or "none"
         ))
@@ -835,7 +906,7 @@ def cmd_search(args: argparse.Namespace) -> int:
                     "arguments",
                 )
             hits = service.filter_items(filters, k=args.top_k)
-            _print_hits(hits, show_all_models=False, scored=False)
+            _print_hits(hits, service.settings, show_all_models=False, scored=False)
             _write_results(service, hits, args.csv)
             return 0
         hits = service.search(
@@ -878,7 +949,7 @@ def cmd_search(args: argparse.Namespace) -> int:
                 )
                 _write_results(service, hits, args.csv)
                 return 0
-        _print_hits(hits, show_all_models=True)
+        _print_hits(hits, service.settings, show_all_models=True)
         _write_results(service, hits, args.csv)
     return 0
 

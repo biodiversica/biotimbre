@@ -110,3 +110,46 @@ class TestBundleFromCsv:
         _add_three(run)
         assert run("export-bundle", "-o", "b.btz") == 2
         assert "No items to export" in capsys.readouterr().err
+
+
+class TestResultLayout:
+    """Search results as blocks: a rule, the header, labelled rows."""
+
+    def test_each_result_is_ruled_off_with_labelled_rows(self, run, tmp_path, capsys):
+        _add_three(run)
+        capsys.readouterr()
+        assert run("search", "--taxa", "orthoptera") == 0
+        lines = capsys.readouterr().out.splitlines()
+        assert set(lines[0]) == {"─"} and set(lines[-1]) == {"─"}
+        assert lines[1].startswith("  1. item 3  biotimbre ")
+        labels = [line.split()[0] for line in lines[2:-1]]
+        assert labels == ["taxa", "recorded", "location", "audio"]
+
+    def test_the_audio_row_is_the_stored_file(self, run, tmp_path, capsys):
+        from pathlib import Path
+
+        _add_three(run)
+        capsys.readouterr()
+        run("search", "--taxa", "orthoptera")
+        audio = next(l for l in capsys.readouterr().out.splitlines() if "audio" in l)
+        path = Path(audio.split(None, 1)[1])
+        assert path.is_absolute() and path.is_file()
+
+    def test_in_a_terminal_it_is_a_link_to_the_file(self):
+        import io
+        from pathlib import Path
+        from types import SimpleNamespace
+
+        from rich.console import Console
+
+        from biotimbre.cli import _audio_link
+
+        settings = SimpleNamespace(absolute_audio_path=lambda p: Path("/lib") / p)
+        item = SimpleNamespace(audio_path="audio/ab/1.wav")
+        buffer = io.StringIO()
+        Console(file=buffer, force_terminal=True, width=200).print(
+            _audio_link(settings, item)
+        )
+        # OSC 8: what terminals that support links turn into a clickable one.
+        assert "\x1b]8;" in buffer.getvalue()
+        assert Path("/lib/audio/ab/1.wav").resolve().as_uri() in buffer.getvalue()

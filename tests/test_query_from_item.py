@@ -64,5 +64,6 @@ class TestSearch:
         _add(run, "ZAMTYM")
         capsys.readouterr()
         assert run("search", "--item", "1", "--include-self") == 0
-        first_hit = capsys.readouterr().out.split("\n")[1]
-        assert "score +1.0000  item 1" in first_hit
+        lines = capsys.readouterr().out.splitlines()
+        # The query line, a rule, then the first result.
+        assert "score +1.0000  item 1" in lines[2]

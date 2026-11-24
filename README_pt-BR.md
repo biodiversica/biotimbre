@@ -399,6 +399,12 @@ numa busca só pelos filtros, `--speed` (itens armazenados nessas velocidades).
 gravação; `--apply-highpass`/`--apply-lowpass` *filtram*. Todas as opções são
 explicadas em detalhe por `biotimbre COMANDO --help` (em inglês).
 
+Os resultados de busca e `show` informam o áudio de cada item pelo caminho
+completo do arquivo armazenado. Num terminal que aceita links (GNOME Terminal,
+Konsole, Windows Terminal, iTerm2, kitty, WezTerm, VS Code), basta clicar no
+caminho para tocar a gravação no reprodutor de áudio do sistema; nos demais, ele
+pode ser copiado para um.
+
 ## Metadados
 
 ### Campos

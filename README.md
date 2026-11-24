@@ -379,6 +379,11 @@ and, in a search by filters alone, `--speed` (items stored at these speeds).
 a recording; `--apply-highpass`/`--apply-lowpass` *filter* it. Every option is
 explained in full by `biotimbre COMMAND --help`.
 
+Search results and `show` give each item's audio as the full path of its stored
+file. In a terminal that supports links (GNOME Terminal, Konsole, Windows
+Terminal, iTerm2, kitty, WezTerm, VS Code), the path can be clicked to play the
+recording in the system's audio player; elsewhere it can be copied into one.
+
 ## Metadata
 
 ### Fields
