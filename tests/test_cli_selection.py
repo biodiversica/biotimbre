@@ -147,9 +147,13 @@ class TestResultLayout:
         settings = SimpleNamespace(absolute_audio_path=lambda p: Path("/lib") / p)
         item = SimpleNamespace(audio_path="audio/ab/1.wav")
         buffer = io.StringIO()
-        Console(file=buffer, force_terminal=True, width=200).print(
-            _audio_link(settings, item)
-        )
+        # legacy_windows=False: on a Windows runner Rich otherwise takes the
+        # console for the classic one, which it drives through the Win32 API
+        # and which cannot show links at all, so it leaves them out. Windows
+        # Terminal and VS Code are not legacy, and do get them.
+        Console(
+            file=buffer, force_terminal=True, legacy_windows=False, width=200
+        ).print(_audio_link(settings, item))
         # OSC 8: what terminals that support links turn into a clickable one.
         assert "\x1b]8;" in buffer.getvalue()
         assert Path("/lib/audio/ab/1.wav").resolve().as_uri() in buffer.getvalue()
