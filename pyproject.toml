@@ -13,6 +13,8 @@ dependencies = [
     # Perch v2's graph is ONNX IR version 10, which 1.17 cannot load.
     "onnxruntime>=1.18",
     "huggingface_hub>=0.20",
+    # The --help screens and error messages of the command line.
+    "rich>=13.0",
 ]
 
 [project.urls]

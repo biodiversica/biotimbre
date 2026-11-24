@@ -325,7 +325,12 @@ biotimbre stats
 biotimbre gui [--host H] [--port P] [--no-browser] [--no-map] [--search-only]
 ```
 
-Opções globais: `--data-dir`, `--config`, `--models`.
+Opções globais: `--data-dir`, `--config`, `--models`. Elas vêm antes do
+comando, por exemplo `biotimbre --data-dir ~/minha-biblioteca list`.
+
+`biotimbre --help` lista todos os comandos, e `biotimbre COMANDO --help`
+explica em detalhe cada um de seus argumentos e opções, com exemplos (em
+inglês).
 
 ### Exemplos
 

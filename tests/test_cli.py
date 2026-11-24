@@ -106,6 +106,71 @@ class TestArgumentParsing:
         with pytest.raises(SystemExit):
             build_parser().parse_args([])
 
+    def test_models_option_ends_with_a_double_dash(self):
+        # The help tells users to write this, since --models would otherwise
+        # take the command name as one more model.
+        args = build_parser().parse_args(["--models", "perch_v2", "--", "add", "x.wav"])
+        assert (args.models, args.command, args.audio) == (["perch_v2"], "add", "x.wav")
+
+
+def _subparsers(parser):
+    import argparse
+
+    action = next(
+        a for a in parser._actions if isinstance(a, argparse._SubParsersAction)
+    )
+    return action.choices
+
+
+class TestHelp:
+    """The CLI is the only interface of a CLI-only install, so its help is the
+    manual: every command and every parameter has to explain itself."""
+
+    def test_every_parameter_has_help(self):
+        import argparse
+
+        parser = build_parser()
+        undocumented = [
+            f"{name}: {action.dest}"
+            for name, sub in {"biotimbre": parser, **_subparsers(parser)}.items()
+            for action in sub._actions
+            if not (action.help or "").strip()
+            # The commands themselves, drawn as the Commands panels.
+            and not isinstance(action, argparse._SubParsersAction)
+        ]
+        assert undocumented == []
+
+    def test_every_command_has_a_description_and_examples(self):
+        for name, sub in _subparsers(build_parser()).items():
+            assert sub.description, name
+            assert sub.epilog, name
+
+    def test_top_level_help_lists_every_command(self, capsys):
+        with pytest.raises(SystemExit) as exit_info:
+            main(["--help"])
+        assert exit_info.value.code == 0
+        out = capsys.readouterr().out
+        for name in _subparsers(build_parser()):
+            assert name in out
+        assert "--data-dir" in out
+
+    def test_command_help_shows_groups_and_defaults(self, capsys):
+        with pytest.raises(SystemExit):
+            main(["search", "--help"])
+        out = capsys.readouterr().out
+        assert "Usage: biotimbre search [OPTIONS] AUDIO" in out
+        assert "Filters (applied before scoring)" in out
+        assert "[cosine|dot|euclidean]" in out
+
+    def test_usage_error_is_a_panel_on_stderr(self, capsys):
+        with pytest.raises(SystemExit) as exit_info:
+            main(["search", "q.wav", "--metric", "nope"])
+        assert exit_info.value.code == 2
+        err = capsys.readouterr().err
+        assert "Error" in err
+        assert "invalid choice" in err
+        assert "biotimbre search -h" in err
+
 
 class TestMetadataOnlyCommands:
     def test_init_without_models(self, data_dir, capsys):
