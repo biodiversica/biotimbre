@@ -374,6 +374,17 @@ class TestSwitchingLibrary:
         await user.should_see("Library items", retries=200)
         assert opened.service.identity().name == "Second"
 
+    async def test_the_button_takes_the_header_colour(self, user: User, opened):
+        # Not Quasar's primary, whose text-primary is !important and wins over
+        # the header colour: in the light theme that is a dark green on the
+        # dark header, all but invisible.
+        await user.open("/")
+        await user.should_see("First")
+        button = next(iter(user.find(marker="switch-library").elements))
+        assert button._props.get("color") is None
+        assert "var(--bt-header-text)" in button._style.get("color", "")
+        assert "size" not in button._props
+
     async def test_cancel_changes_nothing(self, user: User, opened):
         await user.open("/")
         await user.should_see("First")

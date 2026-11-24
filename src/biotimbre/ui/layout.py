@@ -422,11 +422,17 @@ def page(active: str):
                             # run, which serves one library and no other.
                             from biotimbre.ui.setup import confirm_leave
 
+                            # color=None, as the theme button has: Quasar's
+                            # default primary would otherwise win over the
+                            # header colour (its text-primary is !important),
+                            # and the light theme's dark green all but
+                            # vanishes on the header. Full size, like it.
                             ui.button(
                                 icon="swap_horiz",
+                                color=None,
                                 on_click=lambda: confirm_leave(t, library_name),
-                            ).props("flat dense round size=sm").style(
-                                "color: var(--bt-header-inactive-text)"
+                            ).props("flat dense round").style(
+                                "color: var(--bt-header-text)"
                             ).classes("shrink-0").tooltip(
                                 t("setup.switch")
                             ).mark("switch-library")
