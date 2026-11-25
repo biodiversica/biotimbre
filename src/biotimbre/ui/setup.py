@@ -234,7 +234,10 @@ def _create_panel(t: Translator, finish, *, location: Path, name: str) -> None:
     ui.label(t("setup.location_hint")).classes("text-xs text-muted")
 
     browser = DirectoryBrowser(
-        t, lambda data: location_input.set_value(data["path"]), closable=True
+        t,
+        lambda data: location_input.set_value(data["path"]),
+        closable=True,
+        show_path=False,
     )
     browser.hide()
     browse.on_click(
@@ -295,7 +298,9 @@ def _open_panel(
             "dense outlined"
         ).classes("grow").mark("setup-path")
 
-    browser = DirectoryBrowser(t, lambda data: path_input.set_value(data["path"]))
+    browser = DirectoryBrowser(
+        t, lambda data: path_input.set_value(data["path"]), show_path=False
+    )
 
     async def go_to_typed() -> None:
         """Follow a path typed into the field, so it browses as well as tells."""

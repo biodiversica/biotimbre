@@ -324,6 +324,39 @@ class TestSetupPage:
         assert _field(user, "setup-location").value == str(tmp_path)
         await user.should_see(f"Creates {tmp_path / 'data'}")
 
+    @staticmethod
+    def _path_labels(user: User, path: str) -> list:
+        return [e for e in user.find(ui.label).elements if e.text == path]
+
+    async def test_browsing_to_open_shows_the_folder_only_in_the_field(
+        self, user: User, chooser, tmp_path
+    ):
+        existing = make_library(tmp_path / "configured", "Configured")
+        chooser(suggested=existing)
+
+        await user.open("/")
+        await user.should_see("Up", retries=60)  # the listing is drawn
+        path = _field(user, "setup-path").value
+        assert path == str(existing)
+        assert self._path_labels(user, path) == []
+
+    async def test_browsing_to_create_shows_the_folder_only_in_the_field(
+        self, user: User, chooser, tmp_path
+    ):
+        from nicegui.testing.user_interaction import UserInteraction
+
+        chooser(suggested=tmp_path / "data")
+        await user.open("/")
+        browse = next(
+            e for e in user.find(ui.button).elements
+            if e._props.get("label") == "Browse"
+        )
+        UserInteraction(user, {browse}, None).click()
+        await user.should_see("Up", retries=60)
+        path = _field(user, "setup-location").value
+        assert path == str(tmp_path)
+        assert self._path_labels(user, path) == []
+
 
 @pytest.mark.usefixtures("shared_pool")
 class TestSwitchingLibrary:

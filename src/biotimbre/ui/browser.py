@@ -32,6 +32,9 @@ class DirectoryBrowser:
             follow — every folder, or only libraries, as that field needs.
         closable: Offer a button that hides the listing again, for a listing
             opened on demand rather than shown from the start.
+        show_path: Write the folder shown above its contents. Off for a field
+            that ``on_navigate`` fills with every folder: the path is already
+            there, and saying it twice only repeats it.
     """
 
     def __init__(
@@ -40,10 +43,12 @@ class DirectoryBrowser:
         on_navigate: Callable[[dict], None],
         *,
         closable: bool = False,
+        show_path: bool = True,
     ):
         self._t = t
         self._on_navigate = on_navigate
         self._closable = closable
+        self._show_path = show_path
         self.container = ui.column().classes("w-full gap-1")
 
     def hide(self) -> None:
@@ -64,7 +69,10 @@ class DirectoryBrowser:
         self._on_navigate(data)
         with self.container:
             with ui.row().classes("items-center gap-2 flex-wrap w-full"):
-                ui.label(data["path"]).classes("text-sm font-mono grow")
+                if self._show_path:
+                    ui.label(data["path"]).classes("text-sm font-mono grow")
+                else:
+                    ui.space()
                 if data["parent"]:
                     ui.button(
                         t("setup.parent"),
