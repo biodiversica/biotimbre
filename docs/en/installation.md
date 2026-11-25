@@ -64,6 +64,45 @@ and neither is uv, which other programs may use. A plain
 that no longer works: delete it by hand (on Windows, **biotimbre** on the
 Desktop and in the Start menu).
 
+**What uninstalling leaves behind.** biotimbre's own environment, with every
+Python package installed for it, is removed, together with the `biotimbre`
+command. What it was installed with stays, even with `=all`, since the
+uninstaller cannot tell whether anything else uses it:
+
+| Left in place | Where | Why |
+|---|---|---|
+| uv | `~/.local/bin/uv` and `uvx` (`.exe` on Windows) | Other programs may use it. |
+| Python 3.12 | `uv python dir` | uv's own Python, which other uv tools may use. If a Python 3.12 was already installed, uv used it and downloaded none. |
+| uv's download cache | `uv cache dir` | Shared by everything uv installs. It holds the downloaded packages, onnxruntime and numpy the largest, and can take several hundred MB. |
+| Visual C++ Redistributable (Windows) | Windows' installed apps | A system component other programs use. |
+| `~/biotimbre` and every library | | Libraries are never removed. |
+
+If nothing else on the machine uses uv, the rest can be removed by hand after
+uninstalling:
+
+```bash
+uv cache clean                # every downloaded package
+uv python uninstall 3.12      # uv's Python, if it downloaded one
+```
+
+and then uv itself, by deleting `uv` and `uvx` from `~/.local/bin`.
+
+None of the cache commands can break an installed program: an environment
+does not read the cache once it is installed, and each command waits while
+another uv is using the cache (`--force` skips that check). They differ in
+what they delete:
+
+- `uv cache prune` deletes only what nothing refers to any more, such as
+  entries left by older uv versions. It is the most cautious, but the
+  downloaded packages are still referred to, so after uninstalling it frees
+  little.
+- `uv cache clean PACKAGE...` deletes only the packages named.
+  `uv cache clean biotimbre` removes biotimbre's own entries, which are small;
+  the space is in its dependencies, which other tools may share.
+- `uv cache clean` deletes the whole cache, for every program. It frees the
+  most, and anything installed with uv later downloads its packages again;
+  until then, installing offline from the cache no longer works.
+
 **With uv or pip.** The web interface is an optional extra, so a headless or
 command-line-only installation stays small:
 

@@ -65,6 +65,46 @@ outros programas podem usar. Um simples `uv tool uninstall biotimbre` remove
 apenas o programa e deixa um atalho que não funciona mais: apague-o à mão (no
 Windows, **biotimbre** na Área de Trabalho e no menu Iniciar).
 
+**O que a desinstalação deixa.** O ambiente próprio do biotimbre, com todos os
+pacotes Python instalados para ele, é removido, junto com o comando
+`biotimbre`. O que foi usado para instalá-lo permanece, mesmo com `=all`, pois
+o desinstalador não tem como saber se outra coisa o utiliza:
+
+| Permanece | Onde | Por quê |
+|---|---|---|
+| uv | `~/.local/bin/uv` e `uvx` (`.exe` no Windows) | Outros programas podem usá-lo. |
+| Python 3.12 | `uv python dir` | O Python do próprio uv, que outras ferramentas do uv podem usar. Se já havia um Python 3.12 instalado, o uv usou esse e não baixou nenhum. |
+| O cache de downloads do uv | `uv cache dir` | Compartilhado por tudo o que o uv instala. Guarda os pacotes baixados, sendo onnxruntime e numpy os maiores, e pode ocupar várias centenas de MB. |
+| Visual C++ Redistributable (Windows) | Aplicativos instalados do Windows | Um componente do sistema usado por outros programas. |
+| `~/biotimbre` e todas as bibliotecas | | As bibliotecas nunca são removidas. |
+
+Se nada mais na máquina usa o uv, o restante pode ser removido à mão depois da
+desinstalação:
+
+```bash
+uv cache clean                # todos os pacotes baixados
+uv python uninstall 3.12      # o Python do uv, se ele baixou um
+```
+
+e, por fim, o próprio uv, apagando `uv` e `uvx` de `~/.local/bin`.
+
+Nenhum dos comandos de cache pode quebrar um programa instalado: um ambiente
+não lê o cache depois de instalado, e cada comando espera enquanto outro uv
+estiver usando o cache (`--force` dispensa essa verificação). Eles diferem no
+que apagam:
+
+- `uv cache prune` apaga apenas o que nada mais referencia, como entradas
+  deixadas por versões antigas do uv. É o mais cauteloso, mas os pacotes
+  baixados continuam referenciados, então depois da desinstalação ele libera
+  pouco.
+- `uv cache clean PACOTE...` apaga apenas os pacotes indicados.
+  `uv cache clean biotimbre` remove as entradas do próprio biotimbre, que são
+  pequenas; o espaço está nas dependências, que outras ferramentas podem
+  compartilhar.
+- `uv cache clean` apaga o cache inteiro, de todos os programas. É o que mais
+  libera, e tudo o que for instalado com o uv depois baixa seus pacotes de
+  novo; até lá, instalar off-line a partir do cache deixa de funcionar.
+
 **Com uv ou pip.** A interface web é um extra opcional, de modo que uma
 instalação sem interface ou apenas de linha de comando continua pequena:
 
