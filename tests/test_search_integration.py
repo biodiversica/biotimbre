@@ -11,7 +11,7 @@ import pytest
 
 from biotimbre.domain.item import ItemDraft, Location, SampleWindow
 from biotimbre.search.filters import SearchFilters, select_candidates
-from biotimbre.search.vector_search import fuse, reduce_to_items, score_matrix, top_k
+from biotimbre.search.vector_search import rank, reduce_to_items, score_matrix, top_k
 from conftest import add_item
 
 DIM = 8
@@ -37,11 +37,11 @@ def run_search(
     query_per_model: dict[str, np.ndarray],
     filters: SearchFilters | None = None,
     *,
-    fusion: str = "max",
+    rank_by: str = "fake_model",
     k: int = 10,
     batch_size: int = 4,
 ):
-    """Full search path: filter, stream, score, reduce, fuse, truncate."""
+    """Full search path: filter, stream, score, reduce, rank, truncate."""
     filters = filters or SearchFilters()
     candidates, _ = select_candidates(repo.connection, filters)
 
@@ -54,7 +54,7 @@ def run_search(
             best = reduce_to_items(score_matrix(query, matrix, "cosine"), keys, into=best)
         if best:
             per_model[model_id] = best
-    return top_k(fuse(per_model, fusion), k)
+    return top_k(rank(per_model, rank_by), k)
 
 
 @pytest.fixture
@@ -185,8 +185,21 @@ class TestFilterChangesTopK:
 
 
 class TestModelDisagreement:
-    def test_max_fusion_surfaces_either_model(self, repo, library):
+    def test_each_model_ranks_by_its_own_scores(self, repo, library):
         # Under the second model, C is the exact match while A is orthogonal.
+        repo.set_embeddings(library["A"], "other_model", [(0.0, 5.0, basis(1))])
+        repo.set_embeddings(library["C"], "other_model", [(0.0, 5.0, basis(0))])
+        queries = {
+            "fake_model": basis(0).reshape(1, -1),
+            "other_model": basis(0).reshape(1, -1),
+        }
+
+        by_fake = run_search(repo, queries, rank_by="fake_model", k=1)
+        by_other = run_search(repo, queries, rank_by="other_model", k=1)
+        assert by_fake[0].item_id == library["A"]
+        assert by_other[0].item_id == library["C"]
+
+    def test_disagreement_shows_in_the_other_models_rank(self, repo, library):
         repo.set_embeddings(library["A"], "other_model", [(0.0, 5.0, basis(1))])
         repo.set_embeddings(library["C"], "other_model", [(0.0, 5.0, basis(0))])
 
@@ -196,35 +209,15 @@ class TestModelDisagreement:
                 "fake_model": basis(0).reshape(1, -1),
                 "other_model": basis(0).reshape(1, -1),
             },
-            fusion="max",
         )
-        by_id = {r.item_id: r for r in results}
-        # A wins on fake_model, C wins on other_model; both score ~1.0.
-        assert by_id[library["A"]].score == pytest.approx(1.0, abs=1e-5)
-        assert by_id[library["C"]].score == pytest.approx(1.0, abs=1e-5)
-        assert by_id[library["A"]].best_model == "fake_model"
-        assert by_id[library["C"]].best_model == "other_model"
+        top = results[0]
+        assert top.item_id == library["A"]
+        assert top.ranks == {"fake_model": 1, "other_model": 2}
+        assert top.per_model["other_model"] == pytest.approx(0.0, abs=1e-6)
 
-    def test_mean_fusion_penalises_disagreement(self, repo, library):
-        repo.set_embeddings(library["A"], "other_model", [(0.0, 5.0, basis(1))])
-        repo.set_embeddings(library["C"], "other_model", [(0.0, 5.0, basis(1))])
-
-        results = run_search(
-            repo,
-            {
-                "fake_model": basis(0).reshape(1, -1),
-                "other_model": basis(0).reshape(1, -1),
-            },
-            fusion="mean",
-        )
-        by_id = {r.item_id: r for r in results}
-        # A: 1.0 and 0.0 -> 0.5. C: 0.0 and 0.0 -> 0.0.
-        assert by_id[library["A"]].score == pytest.approx(0.5, abs=1e-5)
-        assert by_id[library["C"]].score == pytest.approx(0.0, abs=1e-6)
-
-    def test_item_without_second_model_is_not_penalised(self, repo, library):
-        # B has no other_model embeddings, mimicking a pending backfill. Under
-        # mean fusion it must be judged on the model that did score it.
+    def test_item_without_second_model_is_still_ranked(self, repo, library):
+        # B has no other_model embeddings, mimicking a pending backfill. It is
+        # ranked on the model that did score it, and has no other score.
         repo.set_embeddings(library["A"], "other_model", [(0.0, 5.0, basis(1))])
 
         results = run_search(
@@ -233,24 +226,9 @@ class TestModelDisagreement:
                 "fake_model": basis(0).reshape(1, -1),
                 "other_model": basis(0).reshape(1, -1),
             },
-            fusion="mean",
         )
         by_id = {r.item_id: r for r in results}
         assert set(by_id[library["B"]].per_model) == {"fake_model"}
         assert by_id[library["B"]].score == pytest.approx(
             float(np.cos(0.3 * np.pi / 2)), abs=1e-5
         )
-
-    def test_single_model_fusion_ignores_the_other(self, repo, library):
-        repo.set_embeddings(library["C"], "other_model", [(0.0, 5.0, basis(0))])
-        results = run_search(
-            repo,
-            {
-                "fake_model": basis(0).reshape(1, -1),
-                "other_model": basis(0).reshape(1, -1),
-            },
-            fusion="fake_model",
-            k=1,
-        )
-        assert results[0].item_id == library["A"]
-        assert set(results[0].per_model) == {"fake_model"}

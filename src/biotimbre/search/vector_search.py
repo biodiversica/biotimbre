@@ -1,4 +1,4 @@
-"""Similarity scoring, per-item reduction, and cross-model fusion.
+"""Similarity scoring, per-item reduction, and ranking by one model.
 
 Three stages, each a separate function so each can be tested against
 known-correct answers:
@@ -7,7 +7,8 @@ known-correct answers:
    windows.
 2. :func:`reduce_to_items` — collapse a window-level score matrix to one score
    per item by taking the best window pair, remembering which pair won.
-3. :func:`fuse` — combine per-model item scores into one ranking.
+3. :func:`rank` — order items by one model's scores, with the other models'
+   scores and ranks beside them rather than combined into them.
 
 The max-over-pairs reduction in stage 2 is what lets a long query match a short
 library item on a single shared syllable, instead of being penalised for all the
@@ -26,9 +27,6 @@ from biotimbre.domain.errors import ValidationError
 _EPSILON = 1e-8
 
 METRICS = ("cosine", "dot", "euclidean")
-
-#: How per-model scores combine into one ranking.
-FUSIONS = ("max", "mean")
 
 
 def normalize_rows(matrix: np.ndarray) -> np.ndarray:
@@ -179,102 +177,91 @@ def reduce_to_items(
 
 
 @dataclass
-class FusedScore:
-    """One item's combined score across models.
+class RankedItem:
+    """One item in a ranking by one model, with the other models beside it.
 
     Attributes:
         item_id: The item.
-        score: Fused score used for ranking.
-        per_model: Each contributing model's score.
-        matches: Each contributing model's winning window pair.
+        score: The ranking model's score, on that model's own scale.
+        per_model: Every model's score for the item, the ranking one included.
+            Only comparable within a model: each model's scores have their own
+            baseline and spread.
+        ranks: Every model's rank for the item, 1 for its best, among the items
+            that model scored.
+        matches: Every model's winning window pair.
     """
 
     item_id: int
     score: float
     per_model: dict[str, float] = field(default_factory=dict)
+    ranks: dict[str, int] = field(default_factory=dict)
     matches: dict[str, WindowMatch] = field(default_factory=dict)
 
-    @property
-    def best_model(self) -> str | None:
-        """Model that produced the highest individual score, if any."""
-        if not self.per_model:
-            return None
-        return max(self.per_model, key=lambda model: self.per_model[model])
+
+def _ranks(matches: dict[int, WindowMatch]) -> dict[int, int]:
+    """Each item's 1-based rank in one model's scores, ties on item ID."""
+    order = sorted(matches, key=lambda item_id: (-matches[item_id].score, item_id))
+    return {item_id: position for position, item_id in enumerate(order, start=1)}
 
 
-def fuse(
-    per_model: dict[str, dict[int, WindowMatch]], method: str = "max"
-) -> list[FusedScore]:
-    """Combine per-model item scores into one descending ranking.
+def rank(
+    per_model: dict[str, dict[int, WindowMatch]], model: str
+) -> list[RankedItem]:
+    """Rank items by one model's scores, keeping the others' alongside.
 
-    ``max`` takes each item's best model, so a confident match from either model
-    surfaces the item. ``mean`` averages over the models that scored the item,
-    rewarding agreement.
+    Scores from different models are not combined. Each embedding space has its
+    own baseline (what an unrelated pair scores) and spread, so a cosine of 0.6
+    from one model and 0.6 from another are not the same claim, and taking the
+    larger or the mean of the two lets the model with the higher baseline decide.
+    Instead, each item carries every model's score and rank, each meaningful on
+    its own model's scale: agreement shows as a high rank from both.
 
-    An item missing from a model's results is not treated as scoring zero: the
-    model simply has no opinion, usually because that item has no embeddings for
-    it yet. Substituting zero would penalise items awaiting a backfill.
+    Only the items the ranking model scored are ranked. One it did not score
+    usually has no vectors from it yet, and has no place in its ranking; a
+    model that scored nothing ranks nothing.
 
     Args:
         per_model: Mapping of model ID to its item best-match map.
-        method: One of :data:`FUSIONS`, or a model ID to rank by that model
-            alone.
+        model: The model to rank by.
 
     Returns:
-        :class:`FusedScore` entries, highest first. Ties break on ascending item
+        :class:`RankedItem` entries, highest first. Ties break on ascending item
         ID so the ordering is deterministic.
-
-    Raises:
-        ValidationError: If ``method`` is neither a fusion nor a present model ID.
     """
-    if method not in FUSIONS and method not in per_model:
-        known = ", ".join(FUSIONS) + (
-            f", or a model id ({', '.join(sorted(per_model))})" if per_model else ""
-        )
-        raise ValidationError(
-            f"Unknown fusion {method!r}. Choose {known}.", "fusion"
-        )
+    if model not in per_model:
+        return []
 
-    contributing = (
-        {method: per_model[method]} if method in per_model and method not in FUSIONS
-        else per_model
-    )
-
-    item_ids: set[int] = set()
-    for matches in contributing.values():
-        item_ids.update(matches)
-
-    fused: list[FusedScore] = []
-    for item_id in item_ids:
+    ranks = {model_id: _ranks(matches) for model_id, matches in per_model.items()}
+    ranked: list[RankedItem] = []
+    for item_id in sorted(ranks[model], key=ranks[model].__getitem__):
         scores: dict[str, float] = {}
+        item_ranks: dict[str, int] = {}
         matches: dict[str, WindowMatch] = {}
-        for model_id, model_matches in contributing.items():
+        for model_id, model_matches in per_model.items():
             match = model_matches.get(item_id)
             if match is not None:
                 scores[model_id] = match.score
+                item_ranks[model_id] = ranks[model_id][item_id]
                 matches[model_id] = match
-        if not scores:
-            continue
-        values = list(scores.values())
-        combined = max(values) if method != "mean" else float(np.mean(values))
-        fused.append(
-            FusedScore(
+        ranked.append(
+            RankedItem(
                 item_id=item_id,
-                score=float(combined),
+                score=scores[model],
                 per_model=scores,
+                ranks=item_ranks,
                 matches=matches,
             )
         )
-
-    fused.sort(key=lambda entry: (-entry.score, entry.item_id))
-    return fused
+    return ranked
 
 
-def top_k(fused: list[FusedScore], k: int, min_score: float | None = None) -> list[FusedScore]:
+def top_k(
+    ranked: list[RankedItem], k: int, min_score: float | None = None
+) -> list[RankedItem]:
     """Take the best ``k`` entries, optionally above a score floor.
 
     Args:
-        fused: Descending list from :func:`fuse`.
+        ranked: Descending list from :func:`rank`.
         k: Maximum entries to return.
         min_score: Discard entries scoring below this.
 
@@ -286,5 +273,8 @@ def top_k(fused: list[FusedScore], k: int, min_score: float | None = None) -> li
     """
     if k < 1:
         raise ValidationError(f"top_k must be at least 1, got {k}.", "top_k")
-    selected = fused if min_score is None else [f for f in fused if f.score >= min_score]
+    selected = (
+        ranked if min_score is None
+        else [entry for entry in ranked if entry.score >= min_score]
+    )
     return selected[:k]

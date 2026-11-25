@@ -202,6 +202,18 @@ class TestValidation:
         assert settings.default_metric == "cosine"
         assert settings.max_query_duration_s == 15.0
         assert settings.active_models == ("perch_v2", "birdnet_v2.4")
+        assert settings.default_rank_by == "perch_v2"
+
+    def test_rank_by_is_read(self, tmp_path):
+        config = write_config(tmp_path, '[search]\nrank_by = "birdnet_v2.4"\n')
+        assert load_settings(config).default_rank_by == "birdnet_v2.4"
+
+    def test_the_retired_fusion_key_is_refused_with_its_replacement(self, tmp_path):
+        # Ignoring it would rank a file that asks for "mean" by one model
+        # without saying so.
+        config = write_config(tmp_path, '[search]\nfusion = "mean"\n')
+        with pytest.raises(ValueError, match="search.rank_by"):
+            load_settings(config)
 
 
 class TestMapSection:

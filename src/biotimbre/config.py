@@ -233,7 +233,8 @@ class Settings:
             file requires an explicit start/end.
         default_top_k: Default number of search hits returned.
         default_metric: Default similarity metric ("cosine" or "dot").
-        default_fusion: Default cross-model fusion ("max", "mean", or a model id).
+        default_rank_by: Model a search ranks by when none is asked for. One
+            not in ``active_models`` gives way to the first that is.
     """
 
     data_dir: Path
@@ -261,7 +262,7 @@ class Settings:
     max_query_duration_s: float = 15.0
     default_top_k: int = 10
     default_metric: str = "cosine"
-    default_fusion: str = "max"
+    default_rank_by: str = "perch_v2"
 
     def model_spec(self, model_id: str) -> ModelSpec:
         """The spec of a built-in or user-defined model.
@@ -606,6 +607,15 @@ def load_settings(
     threads = int(models_section.get("inference_threads", defaults.inference_threads))
     if threads < 0:
         raise ValueError("models.inference_threads must be >= 0 (0 = automatic).")
+    if "fusion" in search:
+        # Refused rather than ignored: a file that still asks for "mean" would
+        # otherwise get a ranking by one model without being told.
+        raise ValueError(
+            "search.fusion is no longer read: models' scores are on different "
+            "scales, so they are not combined. Replace it with "
+            'search.rank_by = "<model id>", the model to rank by '
+            '(default "perch_v2").'
+        )
     max_query = float(
         search.get("max_query_duration_s", defaults.max_query_duration_s)
     )
@@ -638,5 +648,5 @@ def load_settings(
         max_query_duration_s=max_query,
         default_top_k=top_k,
         default_metric=search.get("metric", defaults.default_metric),
-        default_fusion=search.get("fusion", defaults.default_fusion),
+        default_rank_by=str(search.get("rank_by", defaults.default_rank_by)),
     )

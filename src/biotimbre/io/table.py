@@ -103,11 +103,13 @@ def results_csv(
     """Write search results as CSV text, in rank order.
 
     Each row is :func:`items_csv`'s row for the hit's item, after the columns
-    that describe the match: ``rank``, the fused ``score``, the ``best_model``,
-    the matched window in the item (``matched_start``, ``matched_end``), the
-    ``distance_km`` from a location filter's centre, the ``query_speed``, and
-    one ``score_<model>`` per model that scored any hit. A search with no query
-    audio scores nothing, so those columns are left empty rather than zero.
+    that describe the match: ``rank``, the ranking model's ``score``, that
+    model as ``ranked_by``, the window it matched in the item
+    (``matched_start``, ``matched_end``), the ``distance_km`` from a location
+    filter's centre, the ``query_speed``, then one ``score_<model>`` and one
+    ``rank_<model>`` per model that scored any hit, each on that model's own
+    scale. A search with no query audio scores nothing, so those columns are
+    left empty rather than zero.
 
     Args:
         hits: The results, best first.
@@ -122,12 +124,13 @@ def results_csv(
     leading = (
         "rank",
         "score",
-        "best_model",
+        "ranked_by",
         "matched_start",
         "matched_end",
         "distance_km",
         "query_speed",
         *(f"score_{model}" for model in scored_by),
+        *(f"rank_{model}" for model in scored_by),
     )
     rows = []
     for rank, hit in enumerate(hits, start=1):
@@ -137,12 +140,13 @@ def results_csv(
             (
                 rank,
                 hit.score if scored else None,
-                hit.best_model,
+                hit.model,
                 span[0] if span else None,
                 span[1] if span else None,
                 hit.distance_km,
                 hit.query_speed if scored else None,
                 *(hit.per_model.get(model) for model in scored_by),
+                *(hit.ranks.get(model) for model in scored_by),
             )
         )
     return _table(

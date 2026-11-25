@@ -220,6 +220,9 @@ def _print_hits(
         return
 
     console = _stdout()
+    if scored and hits[0].model is not None:
+        # Scores are only comparable within one model, so say whose they are.
+        console.print(Text(f"Ranked by {hits[0].model}.", style="dim"))
     for rank, hit in enumerate(hits, start=1):
         item = hit.item
         span = hit.matched_span
@@ -244,14 +247,16 @@ def _print_hits(
             rows.append((
                 "matched",
                 f"{span[0]:.2f}-{span[1]:.2f} s of {item.duration_s:.2f} s, "
-                f"best {hit.best_model}",
+                f"by {hit.model}",
             ))
-        if show_all_models and len(hit.per_model) > 1:
+        if show_all_models and hit.other_models:
+            # Each on its own model's scale: the rank says whether the models
+            # agree, which comparing the scores across models cannot.
             rows.append((
-                "models",
+                "others",
                 "   ".join(
-                    f"{model} {value:+.4f}"
-                    for model, value in sorted(hit.per_model.items())
+                    f"{model} {hit.per_model[model]:+.4f} (#{hit.ranks[model]})"
+                    for model in hit.other_models
                 ),
             ))
         if item.is_speed_shifted:
@@ -836,7 +841,7 @@ _QUERY_ONLY = (
     "end_time",
     "query_speed",
     "metric",
-    "fusion",
+    "rank_by",
     "min_score",
     "apply_highpass",
     "apply_lowpass",
@@ -914,7 +919,7 @@ def cmd_search(args: argparse.Namespace) -> int:
             filters=filters,
             k=args.top_k,
             metric=args.metric,
-            fusion=args.fusion,
+            rank_by=args.rank_by,
             min_score=args.min_score,
             query_speed=args.query_speed,
             start_time=args.start_time,
@@ -1635,7 +1640,7 @@ def build_parser() -> argparse.ArgumentParser:
              "directory, then built-in defaults. Relative paths in the file "
              "resolve against the file's own directory. It sets the library "
              "location, the active models, search defaults (top_k, metric, "
-             "fusion, the 15 s query limit) and the interface.",
+             "ranking model, the 15 s query limit) and the interface.",
     )
     parser.add_argument(
         "--data-dir",
@@ -2049,9 +2054,12 @@ def build_parser() -> argparse.ArgumentParser:
                 "or that match filters.",
         description=(
             "Embeds the query with every active model and ranks the library's "
-            "items by their best-matching pair of windows. For each hit it "
-            "prints the score, the item, the span of the item that matched and "
-            "the model that scored best.\n\n"
+            "items by their best-matching pair of windows, as one model scores "
+            "them: perch_v2 unless --rank-by names another. Each model's scores "
+            "have a scale of their own, so they are not combined; instead, each "
+            "hit also shows the other models' scores and where they ranked it. "
+            "For each hit it prints the score, the item and the span of the "
+            "item that matched.\n\n"
             "The query is AUDIO, a recording fetched with --inat, or a library "
             "item's own with --item.\n\n"
             "Without any of them, it searches by the filters alone: every item that "
@@ -2070,7 +2078,7 @@ def build_parser() -> argparse.ArgumentParser:
             "  biotimbre search query.wav -k 5 --taxa cicadidae \\\n"
             "      --latitude -26 --longitude -48 --radius-km 50 --date-from 2020-01-01\n"
             "  biotimbre search dawn_chorus.wav --start-time 92 --end-time 99\n"
-            "  biotimbre search query.wav --fusion perch_v2 --min-score 0.6\n"
+            "  biotimbre search query.wav --rank-by birdnet_v2.4 --min-score 0.6\n"
             "  biotimbre search noisy.wav --apply-highpass 1500     # cut the hum\n"
             "  biotimbre search --taxa cicadidae --date-from 2024-01-01 -k 50\n"
             "  biotimbre search --inat 400139850 --inat-filters\n"
@@ -2137,8 +2145,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--csv",
         metavar="FILE",
         help="Also write the results to this CSV, as the search page's export "
-             "does: rank, score, best model, matched span, distance, query "
-             "speed and each model's score, then every stored field of the "
+             "does: rank, score, ranking model, matched span, distance, query "
+             "speed and each model's score and rank, then every stored field of the "
              "item. An existing folder gets biotimbre_search_results.csv. "
              "export-bundle --items-from takes it back, to share the results "
              "kept after checking them.",
@@ -2190,20 +2198,21 @@ def build_parser() -> argparse.ArgumentParser:
              "if unset.",
     )
     ranking.add_argument(
-        "--fusion",
-        metavar="max|mean|MODEL_ID",
-        help="How the models' scores combine into one. 'max' takes each item's "
-             "best model, so a confident match from either surfaces it; 'mean' "
-             "averages the models, rewarding agreement; a model ID, e.g. "
-             "perch_v2, ranks by that model alone. Default: search.fusion from "
-             "the config file, max if unset.",
+        "--rank-by",
+        metavar="MODEL_ID",
+        help="The model whose scores rank the results, e.g. birdnet_v2.4. "
+             "Every active model still scores the items, and each hit shows "
+             "the others' scores and ranks beside it. Default: search.rank_by "
+             "from the config file, perch_v2 if unset, or the first active "
+             "model when that one is not active.",
     )
     ranking.add_argument(
         "--min-score",
         type=float,
         metavar="SCORE",
-        help="Leave out hits scoring below this, after fusion, on the "
-             "--metric's scale: e.g. 0.5 for cosine.",
+        help="Leave out hits scoring below this on the ranking model's scale, "
+             "with the --metric: e.g. 0.5 for cosine. Models' scales differ, so "
+             "a threshold chosen for one does not carry over to another.",
     )
 
     filters = p_search.add_argument_group("Filters (applied before scoring)")

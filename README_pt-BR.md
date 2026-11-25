@@ -216,13 +216,16 @@ mais semelhantes da biblioteca, ordenados por pontuação.
   apenas com filtros, sem gravação; nesse caso, os itens correspondentes são
   listados sem pontuação, dos mais recentes para os mais antigos.
 - **Opções** definem o número máximo de resultados, a métrica de
-  similaridade, a forma de combinar as pontuações dos modelos e uma pontuação
-  mínima. A **Velocidade da busca** da consulta começa vazia, o que busca em
+  similaridade, o modelo que ordena os resultados (Perch v2 por padrão) e uma
+  pontuação mínima na escala desse modelo. As pontuações de cada modelo têm
+  linha de base e dispersão próprias, então um 0,6 de um não equivale a um 0,6
+  de outro, e elas nunca são combinadas. A **Velocidade da busca** da consulta começa vazia, o que busca em
   todas as velocidades da biblioteca; um valor busca apenas os itens
   armazenados nele.
 
-Cada resultado exibe sua pontuação, o detalhamento por modelo, um reprodutor
-próprio e um espectrograma no qual está marcada a janela que gerou a
+Cada resultado exibe a pontuação do modelo que ordena, as pontuações dos
+outros modelos com a posição que cada um deu ao item (posições altas em ambos
+indicam que os modelos concordam), um reprodutor próprio e um espectrograma no qual está marcada a janela que gerou a
 pontuação. A consulta permanece disponível para reprodução no topo da página,
 para comparação auditiva. Cada resultado oferece ainda:
 
@@ -399,7 +402,7 @@ biotimbre edit 12 --taxa "guyalna bonaerensis" --clear device
 ```
 
 Outras opções de `search`: `--metric {cosine,dot,euclidean}`,
-`--fusion {max,mean,MODEL_ID}`, `--min-score`, `--query-speed`, `--taxa-all`,
+`--rank-by MODEL_ID` (padrão `perch_v2`), `--min-score`, `--query-speed`, `--taxa-all`,
 `--date-to`, `--biotimbre-id`, `--exclude`, `--apply-lowpass`, `--apply-filter-order` e,
 numa busca só pelos filtros, `--speed` (itens armazenados nessas velocidades).
 
@@ -664,9 +667,9 @@ codificação UTF-8 e vírgula como separador.
 - **Página Ferramenta de busca:** **Exportar CSV**, ao lado da contagem de
   resultados, exporta apenas os resultados exibidos, na ordem de
   classificação (`biotimbre_search_results.csv`). Cada linha é precedida pela
-  posição, pela pontuação combinada, pelo melhor modelo, pela janela
+  posição, pela pontuação do modelo que ordena, por esse modelo, pela janela
   correspondente, pela distância até o centro do filtro, pela velocidade da
-  consulta e pela pontuação de cada modelo. Em uma busca sem gravação, as
+  consulta e pela pontuação e posição de cada modelo. Em uma busca sem gravação, as
   colunas de pontuação ficam vazias.
 
 ## Compartilhamento de Itens entre Bibliotecas
@@ -939,7 +942,7 @@ inference_threads = 0      # 0 deixa o onnxruntime decidir
 [search]
 top_k = 10
 metric = "cosine"          # cosine | dot | euclidean
-fusion = "max"             # max | mean | ID de um modelo
+rank_by = "perch_v2"       # o modelo cujas pontuações ordenam os resultados
 batch_size = 8192
 query_cache_entries = 16
 max_query_duration_s = 15

@@ -65,5 +65,6 @@ class TestSearch:
         capsys.readouterr()
         assert run("search", "--item", "1", "--include-self") == 0
         lines = capsys.readouterr().out.splitlines()
-        # The query line, a rule, then the first result.
-        assert "score +1.0000  item 1" in lines[2]
+        # The query line, the ranking model, a rule, then the first result.
+        assert lines[1] == "Ranked by perch_v2."
+        assert "score +1.0000  item 1" in lines[3]

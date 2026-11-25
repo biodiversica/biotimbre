@@ -8,27 +8,25 @@ from biotimbre.search.filters import (
     select_candidates,
 )
 from biotimbre.search.vector_search import (
-    FUSIONS,
     METRICS,
-    FusedScore,
+    RankedItem,
     WindowMatch,
-    fuse,
     normalize_rows,
+    rank,
     reduce_to_items,
     score_matrix,
     top_k,
 )
 
 __all__ = [
-    "FUSIONS",
     "METRICS",
-    "FusedScore",
+    "RankedItem",
     "SearchFilters",
     "WindowMatch",
     "build_candidate_query",
-    "fuse",
     "haversine_km",
     "normalize_rows",
+    "rank",
     "reduce_to_items",
     "refine_by_distance",
     "score_matrix",

@@ -23,7 +23,7 @@ from biotimbre.domain.errors import BiotimbreError, ValidationError
 from biotimbre.domain.item import DEFAULT_SPEED
 from biotimbre.i18n import Translator
 from biotimbre.search.filters import SearchFilters
-from biotimbre.search.vector_search import FUSIONS, METRICS
+from biotimbre.search.vector_search import METRICS
 from biotimbre.service import SearchHit
 from biotimbre.sources import inaturalist
 from biotimbre.ui.clip_editor import (
@@ -174,7 +174,7 @@ async def _result_card(
                     if scored:
                         ui.label(f"{hit.score:+.4f}").classes(
                             "text-lg font-medium tabular-nums"
-                        )
+                        ).tooltip(t("search.ranked_by", model=hit.model))
                     ui.label(item.taxa_display).classes("text-sm")
                     # Shortened to stay out of the way; a click copies the
                     # whole ID, for the filter or another library.
@@ -199,13 +199,16 @@ async def _result_card(
                             t("search.indexed_at_speed", speed=f"{item.speed:g}")
                         ).classes("text-notice")
 
+            # The other models beside the ranking one, each on its own scale:
+            # where they ranked the item says whether they agree, which
+            # comparing their scores with this one's cannot.
             with ui.column().classes("items-end gap-1 min-w-40"):
-                for model, score in sorted(hit.per_model.items()):  # empty if unscored
-                    weight = (
-                        "font-medium" if model == hit.best_model else "text-muted"
-                    )
-                    ui.label(f"{model} {score:+.4f}").classes(
-                        f"text-xs tabular-nums {weight}"
+                for model in hit.other_models:  # empty if unscored
+                    ui.label(
+                        f"{model} {hit.per_model[model]:+.4f}  "
+                        + t("search.other_rank", rank=hit.ranks[model])
+                    ).classes("text-xs tabular-nums text-muted").mark(
+                        "result-other-model"
                     )
 
         if span is not None:
@@ -215,7 +218,7 @@ async def _result_card(
                     start=f"{span[0]:.2f}",
                     end=f"{span[1]:.2f}",
                 )
-                + f"  ({t('search.best_model', model=hit.best_model)})"
+                + f"  ({t('search.matched_by', model=hit.model)})"
             ).classes("text-xs text-muted")
 
         # Each result has its own view: looking at one waveform is no reason
@@ -404,7 +407,9 @@ def _options_panel(t: Translator) -> dict[str, ui.element]:
                 )
             )
             inputs["min_score"] = dense(
-                ui.number(t("search.min_score"), step=0.05)
+                ui.number(t("search.min_score"), step=0.05).tooltip(
+                    t("search.min_score_help")
+                )
             )
             inputs["metric"] = dense(
                 ui.select(
@@ -413,22 +418,12 @@ def _options_panel(t: Translator) -> dict[str, ui.element]:
                     label=t("search.metric"),
                 )
             )
-            fusion_options = {
-                "max": t("search.fusion_max"),
-                "mean": t("search.fusion_mean"),
-                **{model: model for model in settings.active_models},
-            }
-            default_fusion = (
-                settings.default_fusion
-                if settings.default_fusion in fusion_options
-                else "max"
-            )
-            inputs["fusion"] = dense(
+            inputs["rank_by"] = dense(
                 ui.select(
-                    options=fusion_options,
-                    value=default_fusion,
-                    label=t("search.fusion"),
-                )
+                    options=list(settings.active_models),
+                    value=get_state().service.default_rank_by(),
+                    label=t("search.rank_by"),
+                ).tooltip(t("search.rank_by_help")).mark("rank-by")
             )
     return inputs
 
@@ -825,7 +820,7 @@ async def render(t: Translator) -> None:
                     filters=search_filters,
                     k=top_k,
                     metric=options["metric"].value,
-                    fusion=options["fusion"].value,
+                    rank_by=options["rank_by"].value,
                     min_score=options["min_score"].value,
                     query_speed=speed,
                 )
@@ -864,6 +859,10 @@ async def render(t: Translator) -> None:
                 ui.label(t("search.result_count", count=len(hits))).classes(
                     "text-xs text-muted"
                 )
+                if scored and hits[0].model is not None:
+                    ui.label(t("search.ranked_by", model=hits[0].model)).classes(
+                        "text-xs text-muted"
+                    ).mark("results-ranked-by")
                 # The results on screen, not the library: what this search
                 # showed, in the order it showed them.
                 ui.button(

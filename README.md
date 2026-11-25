@@ -206,14 +206,19 @@ items, ranked by score.
   point, and biotimbre ID. A search may also be run with filters only and no
   recording, in which case the matching items are listed without scores,
   newest first.
-- **Options** set the maximum number of results, the similarity metric, how
-  the models' scores are combined, and a minimum score. The query's **Query
+- **Options** set the maximum number of results, the similarity metric, the
+  model to rank by (Perch v2 by default), and a minimum score on that model's
+  scale. Each model's scores have a baseline and spread of their own, so a
+  0.6 from one is not a 0.6 from another, and they are never combined. The
+  query's **Query
   speed** starts empty, which searches every speed in the library (see
   [Ultrasonic Recordings](#ultrasonic-recordings-and-the-speed-setting)); a
   value searches only the items stored at it.
 
-Each result shows its score, the per-model breakdown, its own player, and a
-spectrogram on which the window that produced the score is marked. The query
+Each result shows the ranking model's score, the other models' scores with
+the rank each gave the item (a high rank from both means the models agree),
+its own player, and a spectrogram on which the window that produced the score
+is marked. The query
 remains playable at the top of the page for comparison by ear. Each result
 also provides:
 
@@ -378,7 +383,7 @@ biotimbre edit 12 --taxa "guyalna bonaerensis" --clear device
 ```
 
 Further `search` options: `--metric {cosine,dot,euclidean}`,
-`--fusion {max,mean,MODEL_ID}`, `--min-score`, `--query-speed`, `--taxa-all`,
+`--rank-by MODEL_ID` (default `perch_v2`), `--min-score`, `--query-speed`, `--taxa-all`,
 `--date-to`, `--biotimbre-id`, `--exclude`, `--apply-lowpass`, `--apply-filter-order`,
 and, in a search by filters alone, `--speed` (items stored at these speeds).
 
@@ -625,9 +630,9 @@ comma-separated.
   `biotimbre export-csv OUT`, exports every item (`biotimbre_items.csv`).
 - **Search page:** **Export CSV** next to the result count exports the
   displayed results only, in rank order (`biotimbre_search_results.csv`).
-  Each row is preceded by the rank, the combined score, the best model, the
-  matched window, the distance from the filter's centre, the query speed and
-  the score of each model. For a search without a recording, the score
+  Each row is preceded by the rank, the ranking model's score, that model, the
+  matched window, the distance from the filter's centre, the query speed, and
+  the score and rank of each model. For a search without a recording, the score
   columns are left empty.
 
 ## Sharing Items Between Libraries
@@ -885,7 +890,7 @@ inference_threads = 0      # 0 lets onnxruntime decide
 [search]
 top_k = 10
 metric = "cosine"          # cosine | dot | euclidean
-fusion = "max"             # max | mean | a model ID
+rank_by = "perch_v2"       # the model whose scores rank the results
 batch_size = 8192
 query_cache_entries = 16
 max_query_duration_s = 15

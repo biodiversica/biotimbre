@@ -123,7 +123,9 @@ class TestResultsCsv:
             self._hit(
                 9,
                 score=0.91,
+                model="perch_v2",
                 per_model={"perch_v2": 0.91, "birdnet_v2.4": 0.80},
+                ranks={"perch_v2": 1, "birdnet_v2.4": 4},
                 matches={
                     "perch_v2": WindowMatch(0.91, 0, 0, 0.0, 5.0),
                     "birdnet_v2.4": WindowMatch(0.80, 0, 1, 1.5, 4.5),
@@ -134,7 +136,9 @@ class TestResultsCsv:
             self._hit(
                 3,
                 score=0.40,
+                model="perch_v2",
                 per_model={"perch_v2": 0.40},
+                ranks={"perch_v2": 2},
                 matches={"perch_v2": WindowMatch(0.40, 0, 0, 0.0, 6.0)},
             ),
         ]
@@ -142,23 +146,26 @@ class TestResultsCsv:
             hits, labels={}, embedding_counts={}, model_ids=("perch_v2",)
         )
         header = next(csv.reader(io.StringIO(text)))
-        assert header[:9] == [
-            "rank", "score", "best_model", "matched_start", "matched_end",
+        assert header[:11] == [
+            "rank", "score", "ranked_by", "matched_start", "matched_end",
             "distance_km", "query_speed", "score_birdnet_v2.4", "score_perch_v2",
+            "rank_birdnet_v2.4", "rank_perch_v2",
         ]
         # The item's own columns follow, as in the library export.
-        assert header[9] == "item_id"
+        assert header[11] == "item_id"
 
         rows = _rows(text)
         assert [row["item_id"] for row in rows] == ["9", "3"]
         assert [row["rank"] for row in rows] == ["1", "2"]
         first, second = rows
         assert first["score"] == "0.91"
-        assert first["best_model"] == "perch_v2"
+        assert first["ranked_by"] == "perch_v2"
+        assert first["rank_birdnet_v2.4"] == "4"
         assert first["distance_km"] == "12.5"
         assert first["query_speed"] == "0.5"
         # A model that did not score a hit is a blank, not a zero.
         assert second["score_birdnet_v2.4"] == ""
+        assert second["rank_birdnet_v2.4"] == ""
         # The matched window is clamped to the sample, as on screen.
         assert (second["matched_start"], second["matched_end"]) == ("0.0", "5.0")
 
@@ -173,5 +180,5 @@ class TestResultsCsv:
         )
         row = rows[0]
         assert row["rank"] == "1"
-        for name in ("score", "best_model", "matched_start", "query_speed"):
+        for name in ("score", "ranked_by", "matched_start", "query_speed"):
             assert row[name] == ""

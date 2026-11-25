@@ -67,10 +67,8 @@ from biotimbre.models_registry import MODEL_SPECS, ModelSpec, spec_from_row
 from biotimbre.processing import Processing, processed
 from biotimbre.search.filters import SearchFilters, select_candidates
 from biotimbre.search.vector_search import (
-    FUSIONS,
-    FusedScore,
     WindowMatch,
-    fuse,
+    rank,
     reduce_to_items,
     score_matrix,
     top_k,
@@ -277,8 +275,13 @@ class SearchHit:
 
     Attributes:
         item: The matched library item.
-        score: Fused similarity score.
-        per_model: Each model's individual score.
+        score: The ranking model's score, on that model's own scale.
+        model: The model the results are ranked by; ``None`` for a search by
+            filters alone, which scores nothing.
+        per_model: Every model's score for the item. Each is on its own
+            model's scale, so they are shown side by side, never compared.
+        ranks: Every model's rank for the item among the candidates it scored,
+            1 for its best: how much the models agree, without comparing scores.
         matches: Each model's winning window pair.
         distance_km: Distance from a location filter's centre, if one was set.
         query_speed: Speed the query was embedded at to produce this match,
@@ -287,29 +290,28 @@ class SearchHit:
 
     item: LibraryItem
     score: float
+    model: str | None = None
     per_model: dict[str, float] = field(default_factory=dict)
+    ranks: dict[str, int] = field(default_factory=dict)
     matches: dict[str, WindowMatch] = field(default_factory=dict)
     distance_km: float | None = None
     query_speed: float = 1.0
 
     @property
-    def best_model(self) -> str | None:
-        """Model that produced the highest individual score."""
-        if not self.per_model:
-            return None
-        return max(self.per_model, key=lambda m: self.per_model[m])
+    def other_models(self) -> list[str]:
+        """The models that scored the item besides the ranking one, sorted."""
+        return sorted(model for model in self.per_model if model != self.model)
 
     @property
     def matched_span(self) -> tuple[float, float] | None:
-        """Winning window span from the best model, clamped to the sample.
+        """Winning window span from the ranking model, clamped to the sample.
 
         Clamping matters because a zero-padded final window legitimately reports
         an end past the file's duration, and a player cannot seek there.
         """
-        model = self.best_model
-        if model is None:
+        match = self.matches.get(self.model) if self.model is not None else None
+        if match is None:
             return None
-        match = self.matches[model]
         return (
             max(0.0, match.start_time),
             min(self.item.duration_s, match.end_time),
@@ -596,38 +598,50 @@ class LibraryService:
             f"embedding."
         )
 
-    def _fusion_model_ready(self, fusion: str) -> bool:
+    def default_rank_by(self) -> str:
+        """The model a search ranks by when none is asked for.
+
+        ``search.rank_by`` (``perch_v2`` unless set), or, when this run does not
+        use that model, the first one it does: a default is not worth refusing
+        a search over, as a model asked for by name is.
+        """
+        active = self.settings.active_models
+        default = self.settings.default_rank_by
+        return default if default in active or not active else active[0]
+
+    def _rank_model_ready(self, model: str) -> None:
         """Explain why a search ranked by one model has nothing from it.
 
-        Called when no candidate was scored by the model ``fusion`` names. An
-        unknown name is left to :func:`fuse` to refuse.
-
-        Returns:
-            False when the model does have vectors and only the filters left
-            none of them in, which is a search with no matches.
+        Called when no candidate was scored by ``model``. Returning is the case
+        where the model does have vectors and only the filters left none of
+        them in, which is a search with no matches.
 
         Raises:
-            ValidationError: If the model is not used in this run, or no item
-                has vectors from it yet.
+            ValidationError: If the model is unknown, is not used in this run,
+                or no item has vectors from it yet.
         """
-        if fusion not in self.settings.active_models:
+        active = ", ".join(self.settings.active_models)
+        if model not in self.settings.active_models:
             try:
-                self.settings.model_spec(fusion)
+                self.settings.model_spec(model)
             except KeyError:
-                return True
+                raise ValidationError(
+                    f"Cannot rank by {model!r}: no model has that ID. This run "
+                    f"uses {active}.",
+                    "rank_by",
+                ) from None
             raise ValidationError(
-                f"Cannot rank by {fusion!r}: it is not one of the models this "
-                f"run uses ({', '.join(self.settings.active_models)}). Add it to "
-                f"models.active in the config file, or to --models.",
-                "fusion",
+                f"Cannot rank by {model!r}: it is not one of the models this "
+                f"run uses ({active}). Add it to models.active in the config "
+                f"file, or to --models.",
+                "rank_by",
             )
-        if not self.repo.has_embeddings(fusion):
+        if not self.repo.has_embeddings(model):
             raise ValidationError(
-                f"Cannot rank by {fusion!r}: no item has vectors from it yet. "
-                f"Run `biotimbre backfill {fusion}` to compute them.",
-                "fusion",
+                f"Cannot rank by {model!r}: no item has vectors from it yet. "
+                f"Run `biotimbre backfill {model}` to compute them.",
+                "rank_by",
             )
-        return False
 
     def _note_backfill(self, model_id: str) -> None:
         """Say so when a model joins a library that already has items.
@@ -2106,7 +2120,7 @@ class LibraryService:
         filters: SearchFilters | None = None,
         k: int | None = None,
         metric: str | None = None,
-        fusion: str | None = None,
+        rank_by: str | None = None,
         min_score: float | None = None,
         query_speed: float | None = None,
         start_time: float | None = None,
@@ -2136,8 +2150,11 @@ class LibraryService:
             filters: Metadata constraints applied before scoring.
             k: Maximum hits. Defaults to the configured ``top_k``.
             metric: Similarity metric. Defaults to the configured metric.
-            fusion: ``"max"``, ``"mean"``, or a model ID.
-            min_score: Discard hits below this score.
+            rank_by: The model to rank by. Defaults to :meth:`default_rank_by`.
+                Every active model still scores the candidates, so each hit
+                carries the others' scores and ranks; they are not combined,
+                since each model's scores are on a scale of its own.
+            min_score: Discard hits scoring below this, on ``rank_by``'s scale.
             query_speed: Embed the query only at this speed, instead of sweeping
                 the library's speeds, and compare it only with the items stored
                 at this speed — the only ones its embeddings are comparable
@@ -2153,12 +2170,13 @@ class LibraryService:
                 ``filter_band`` is unset.
 
         Returns:
-            Descending :class:`SearchHit` list.
+            Descending :class:`SearchHit` list, ranked by ``rank_by``.
 
         Raises:
             ValidationError: If the query audio is unusable, is longer than the
-                limit without a segment being chosen, or the filter cutoffs are
-                invalid.
+                limit without a segment being chosen, the filter cutoffs are
+                invalid, or ``rank_by`` cannot rank (see
+                :meth:`_rank_model_ready`).
         """
         filters = filters or SearchFilters()
         if query_speed is not None:
@@ -2168,7 +2186,10 @@ class LibraryService:
             filters = replace(filters, speeds=(float(query_speed),))
         k = k if k is not None else self.settings.default_top_k
         metric = metric or self.settings.default_metric
-        fusion = fusion or self.settings.default_fusion
+        rank_by = rank_by or self.default_rank_by()
+        if rank_by not in self.settings.active_models:
+            # Before anything is decoded or embedded: no result could follow.
+            self._rank_model_ready(rank_by)
         band = filter_band if filter_band is not None else FilteredBand()
 
         # Resolved from the header alone, so an over-long file is rejected before
@@ -2229,18 +2250,20 @@ class LibraryService:
             queries, resolved_speeds, candidates, metric
         )
 
-        if fusion not in FUSIONS and fusion not in per_model:
-            if not self._fusion_model_ready(fusion):
-                return []
+        if rank_by not in per_model:
+            self._rank_model_ready(rank_by)
+            return []
 
         hits: list[SearchHit] = []
-        for entry in top_k(fuse(per_model, fusion), k, min_score):
+        for entry in top_k(rank(per_model, rank_by), k, min_score):
             item = self.repo.get_item(entry.item_id)
             hits.append(
                 SearchHit(
                     item=item,
                     score=entry.score,
+                    model=rank_by,
                     per_model=entry.per_model,
+                    ranks=entry.ranks,
                     matches=entry.matches,
                     distance_km=distances.get(entry.item_id),
                     query_speed=resolved_speeds.get(entry.item_id, item.speed),

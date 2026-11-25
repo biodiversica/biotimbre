@@ -1,4 +1,4 @@
-"""Scoring, reduction, fusion and filters — against known-correct answers."""
+"""Scoring, reduction, ranking and filters — against known-correct answers."""
 
 from __future__ import annotations
 
@@ -15,10 +15,10 @@ from biotimbre.search.filters import (
     select_candidates,
 )
 from biotimbre.search.vector_search import (
-    FusedScore,
+    RankedItem,
     WindowMatch,
-    fuse,
     normalize_rows,
+    rank,
     reduce_to_items,
     score_matrix,
     top_k,
@@ -154,110 +154,114 @@ def _match(score: float, window: int = 0) -> WindowMatch:
     )
 
 
-class TestFuse:
-    def test_max_takes_the_better_model(self):
-        result = fuse(
+class TestRank:
+    def test_ranks_by_the_chosen_model_alone(self):
+        # BirdNET's 0.99 for item 1 would win a max over models; ranked by
+        # Perch, item 2 comes first.
+        result = rank(
             {
                 "perch_v2": {1: _match(0.5), 2: _match(0.9)},
-                "birdnet_v2.4": {1: _match(0.8), 2: _match(0.2)},
+                "birdnet_v2.4": {1: _match(0.99), 2: _match(0.2)},
             },
-            "max",
+            "perch_v2",
+        )
+        assert [e.item_id for e in result] == [2, 1]
+        assert [e.score for e in result] == pytest.approx([0.9, 0.5])
+
+    def test_a_higher_baseline_does_not_decide(self):
+        # BirdNET runs higher across the board. Ranked by Perch, its scores
+        # are reported but play no part in the order.
+        per_model = {
+            "perch_v2": {1: _match(0.3), 2: _match(0.6)},
+            "birdnet_v2.4": {1: _match(0.95), 2: _match(0.85)},
+        }
+        assert [e.item_id for e in rank(per_model, "perch_v2")] == [2, 1]
+        assert [e.item_id for e in rank(per_model, "birdnet_v2.4")] == [1, 2]
+
+    def test_other_models_scores_and_ranks_ride_along(self):
+        result = rank(
+            {
+                "perch_v2": {1: _match(0.5), 2: _match(0.9), 3: _match(0.1)},
+                "birdnet_v2.4": {1: _match(0.8), 2: _match(0.7), 3: _match(0.9)},
+            },
+            "perch_v2",
         )
         by_id = {entry.item_id: entry for entry in result}
-        assert by_id[1].score == pytest.approx(0.8)
-        assert by_id[2].score == pytest.approx(0.9)
-
-    def test_mean_rewards_agreement(self):
-        # Item 1 has both models at 0.7; item 2 has one at 0.9 and one at 0.1.
-        # Max would rank item 2 first; mean ranks the agreed match first.
-        result = fuse(
-            {
-                "perch_v2": {1: _match(0.7), 2: _match(0.9)},
-                "birdnet_v2.4": {1: _match(0.7), 2: _match(0.1)},
-            },
-            "mean",
+        assert by_id[2].per_model == pytest.approx(
+            {"perch_v2": 0.9, "birdnet_v2.4": 0.7}
         )
-        assert result[0].item_id == 1
-        assert result[0].score == pytest.approx(0.7)
-        assert result[1].score == pytest.approx(0.5)
+        # Item 2 is Perch's first and BirdNET's third.
+        assert by_id[2].ranks == {"perch_v2": 1, "birdnet_v2.4": 3}
+        assert by_id[3].ranks == {"perch_v2": 3, "birdnet_v2.4": 1}
 
     def test_ranks_descending(self):
-        result = fuse({"m": {1: _match(0.2), 2: _match(0.9), 3: _match(0.5)}}, "max")
+        result = rank({"m": {1: _match(0.2), 2: _match(0.9), 3: _match(0.5)}}, "m")
         assert [e.item_id for e in result] == [2, 3, 1]
 
     def test_ties_break_on_item_id_for_determinism(self):
-        result = fuse({"m": {7: _match(0.5), 3: _match(0.5), 5: _match(0.5)}}, "max")
+        result = rank({"m": {7: _match(0.5), 3: _match(0.5), 5: _match(0.5)}}, "m")
         assert [e.item_id for e in result] == [3, 5, 7]
+        assert [e.ranks["m"] for e in result] == [1, 2, 3]
 
-    def test_missing_model_is_not_scored_as_zero(self):
-        # Item 2 has no BirdNET embeddings yet (awaiting backfill). Treating that
-        # as 0.0 would halve its mean and unfairly bury it.
-        result = fuse(
+    def test_item_the_ranking_model_did_not_score_is_left_out(self):
+        # Item 2 has no Perch vectors yet: Perch cannot place it.
+        result = rank(
+            {
+                "perch_v2": {1: _match(0.6)},
+                "birdnet_v2.4": {1: _match(0.6), 2: _match(0.9)},
+            },
+            "perch_v2",
+        )
+        assert [e.item_id for e in result] == [1]
+
+    def test_item_another_model_did_not_score_has_no_entry_for_it(self):
+        result = rank(
             {
                 "perch_v2": {1: _match(0.6), 2: _match(0.8)},
                 "birdnet_v2.4": {1: _match(0.6)},
             },
-            "mean",
+            "perch_v2",
         )
         by_id = {entry.item_id: entry for entry in result}
-        assert by_id[2].score == pytest.approx(0.8)
         assert by_id[2].per_model == {"perch_v2": 0.8}
-        assert result[0].item_id == 2
-
-    def test_per_model_breakdown_is_retained(self):
-        result = fuse(
-            {"perch_v2": {1: _match(0.5)}, "birdnet_v2.4": {1: _match(0.8)}}, "max"
-        )
-        assert result[0].per_model == {"perch_v2": 0.5, "birdnet_v2.4": 0.8}
-        assert result[0].best_model == "birdnet_v2.4"
+        assert by_id[2].ranks == {"perch_v2": 1}
 
     def test_winning_window_is_retained_per_model(self):
-        result = fuse(
+        result = rank(
             {
                 "perch_v2": {1: _match(0.5, window=2)},
                 "birdnet_v2.4": {1: _match(0.8, window=7)},
             },
-            "max",
-        )
-        assert result[0].matches["birdnet_v2.4"].item_window == 7
-
-    def test_single_model_selection(self):
-        result = fuse(
-            {"perch_v2": {1: _match(0.5), 2: _match(0.9)},
-             "birdnet_v2.4": {1: _match(0.99)}},
             "perch_v2",
         )
-        # Ranked by Perch alone, so item 2 wins and BirdNET's 0.99 is ignored.
-        assert [e.item_id for e in result] == [2, 1]
-        assert all(set(e.per_model) == {"perch_v2"} for e in result)
+        assert result[0].matches["perch_v2"].item_window == 2
+        assert result[0].matches["birdnet_v2.4"].item_window == 7
 
-    def test_empty_input_gives_empty_output(self):
-        assert fuse({}, "max") == []
-
-    def test_rejects_unknown_fusion(self):
-        with pytest.raises(ValidationError, match="Unknown fusion"):
-            fuse({"m": {1: _match(0.5)}}, "median")
+    def test_a_model_that_scored_nothing_ranks_nothing(self):
+        assert rank({"perch_v2": {1: _match(0.5)}}, "birdnet_v2.4") == []
+        assert rank({}, "perch_v2") == []
 
 
 class TestTopK:
-    def _fused(self, scores: list[float]) -> list[FusedScore]:
+    def _ranked(self, scores: list[float]) -> list[RankedItem]:
         return [
-            FusedScore(item_id=i, score=s) for i, s in enumerate(sorted(scores, reverse=True))
+            RankedItem(item_id=i, score=s)
+            for i, s in enumerate(sorted(scores, reverse=True))
         ]
 
     def test_truncates(self):
-        assert len(top_k(self._fused([0.9, 0.8, 0.7, 0.6]), 2)) == 2
+        assert len(top_k(self._ranked([0.9, 0.8, 0.7, 0.6]), 2)) == 2
 
     def test_returns_all_when_k_exceeds_available(self):
-        assert len(top_k(self._fused([0.9, 0.8]), 10)) == 2
+        assert len(top_k(self._ranked([0.9, 0.8]), 10)) == 2
 
     def test_applies_score_floor(self):
-        result = top_k(self._fused([0.9, 0.5, 0.2]), 10, min_score=0.4)
+        result = top_k(self._ranked([0.9, 0.5, 0.2]), 10, min_score=0.4)
         assert [round(e.score, 1) for e in result] == [0.9, 0.5]
 
     def test_rejects_non_positive_k(self):
         with pytest.raises(ValidationError, match="at least 1"):
-            top_k(self._fused([0.9]), 0)
+            top_k(self._ranked([0.9]), 0)
 
 
 class TestHaversine:

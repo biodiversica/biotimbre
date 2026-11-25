@@ -531,7 +531,7 @@ class TestLibraryMemory:
         )
         with LibraryService(settings, pool=_FakePool()) as service:
             with pytest.raises(ValidationError, match="backfill my_hf"):
-                service._fusion_model_ready("my_hf")
+                service._rank_model_ready("my_hf")
 
     def test_ranking_by_an_inactive_model_says_how_to_use_it(self, tmp_path):
         settings = _library(
@@ -542,7 +542,7 @@ class TestLibraryMemory:
         )
         with LibraryService(settings, pool=_FakePool()) as service:
             with pytest.raises(ValidationError, match="not one of the models"):
-                service._fusion_model_ready("my_hf")
+                service._rank_model_ready("my_hf")
 
     def test_ranking_by_a_model_the_filters_excluded_finds_nothing(self, tmp_path):
         settings = _library(
@@ -550,7 +550,23 @@ class TestLibraryMemory:
         )
         _register(settings, HF_SPEC, with_vectors=True)
         with LibraryService(settings, pool=_FakePool()) as service:
-            assert service._fusion_model_ready("my_hf") is False
+            assert service._rank_model_ready("my_hf") is None
+
+    def test_the_default_ranking_model_gives_way_when_inactive(self, tmp_path):
+        settings = _library(
+            tmp_path, custom_models={"my_hf": HF_SPEC}, active_models=("my_hf",)
+        )
+        with LibraryService(settings, pool=_FakePool()) as service:
+            assert service.default_rank_by() == "my_hf"
+
+    def test_the_default_ranking_model_is_perch_when_active(self, tmp_path):
+        settings = _library(
+            tmp_path,
+            custom_models={"my_hf": HF_SPEC},
+            active_models=("my_hf", "perch_v2"),
+        )
+        with LibraryService(settings, pool=_FakePool()) as service:
+            assert service.default_rank_by() == "perch_v2"
 
     def test_an_unknown_active_model_is_a_clean_error(self, tmp_path):
         settings = _library(

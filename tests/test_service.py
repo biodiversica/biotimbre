@@ -614,7 +614,7 @@ class TestEndToEnd:
             hit.item.item_id for hit in hits
         ]
         assert float(rows[0]["score"]) == pytest.approx(hits[0].score)
-        assert rows[0]["best_model"] == hits[0].best_model
+        assert rows[0]["ranked_by"] == hits[0].model == "perch_v2"
         # The library export's columns ride along unchanged.
         assert rows[0]["embeddings_perch_v2"] == "1"
 
@@ -631,7 +631,7 @@ class TestEndToEnd:
         # Nothing was compared, so nothing is scored: the UI shows no number
         # rather than a meaningless zero.
         assert hits[0].per_model == {}
-        assert hits[0].best_model is None
+        assert hits[0].model is None
         assert hits[0].matched_span is None
 
     def test_filter_items_without_filters_lists_the_library(self, service):
@@ -662,10 +662,28 @@ class TestEndToEnd:
         )
         assert hits == []
 
-    def test_single_model_fusion(self, service):
+    def test_ranks_by_perch_by_default(self, service):
         service.import_directory(EXAMPLES_DIR)
-        hit = service.search(GUYVIR_WAV, k=1, fusion="perch_v2")[0]
-        assert set(hit.per_model) == {"perch_v2"}
+        hits = service.search(GUYVIR_WAV, k=2)
+        assert {hit.model for hit in hits} == {"perch_v2"}
+        assert [hit.score for hit in hits] == [
+            hit.per_model["perch_v2"] for hit in hits
+        ]
+        assert [hit.ranks["perch_v2"] for hit in hits] == [1, 2]
+
+    def test_rank_by_another_model(self, service):
+        service.import_directory(EXAMPLES_DIR)
+        hit = service.search(GUYVIR_WAV, k=1, rank_by="birdnet_v2.4")[0]
+        assert hit.model == "birdnet_v2.4"
+        assert hit.score == hit.per_model["birdnet_v2.4"]
+        assert hit.ranks["birdnet_v2.4"] == 1
+        # The other model is reported beside it, not combined into it.
+        assert hit.other_models == ["perch_v2"]
+
+    def test_rank_by_an_unknown_model_is_refused(self, service):
+        service.import_directory(EXAMPLES_DIR)
+        with pytest.raises(ValidationError, match="no model has that ID"):
+            service.search(GUYVIR_WAV, k=1, rank_by="nope")
 
     def test_filter_band_changes_the_query_embedding(self, service):
         service.import_directory(EXAMPLES_DIR)
