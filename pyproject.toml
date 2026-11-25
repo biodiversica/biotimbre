@@ -1,6 +1,6 @@
 [project]
 name = "biotimbre"
-version = "0.2.0"
+version = "0.3.0"
 description = "Tool for building and managing libraries of animal vocalization templates with embedding-based similarity search."
 readme = "README.md"
 license = "MIT"
