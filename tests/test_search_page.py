@@ -1680,15 +1680,19 @@ class TestFindSimilar:
         await user.should_see("Find similar")
         UserInteraction(user, set(user.find(marker="find-similar").elements), None).click()
         await user.should_see(marker="query-from-item")
+        # The origin row is drawn before the editor's controls are ready, and
+        # a Search clicked in between finds no controls and does nothing. The
+        # Add-to-library button is drawn once they are, so it marks the point
+        # the query can be searched with (slow runners take a while).
+        await user.should_see(marker="to-library", retries=200)
 
     async def test_the_library_dialog_sends_the_item_as_the_query(
         self, user: User, installed_state
     ):
         item = self._add(installed_state, "ZAMTYM")
         await self._from_library(user, item.item_id)
-        await user.should_see(f"Query: item #{item.item_id} — cicadidae")
         # Staged like an upload: the editor comes up as for a file.
-        await user.should_see(marker="to-library", retries=200)
+        await user.should_see(f"Query: item #{item.item_id} — cicadidae")
 
     async def test_a_result_card_sends_its_item(self, user: User, installed_state):
         from nicegui.testing.user_interaction import UserInteraction
