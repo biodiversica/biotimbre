@@ -85,6 +85,10 @@ def _metadata_rows(
         for label, value in rows:
             ui.label(label).classes("text-muted")
             ui.label(str(value))
+            # A rule across both columns between one field and the next, so a
+            # long value that wraps is not read as the start of the field below.
+            # Quasar's separator takes the theme's colour, light or dark.
+            ui.separator().classes("col-span-2").mark("detail-rule")
 
         # The link is a field like any other, so it keeps its place in the list
         # rather than hiding when unset; only its value is clickable.

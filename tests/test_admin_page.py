@@ -990,6 +990,33 @@ class TestAdminPageRenders:
             "date",
         ]
 
+    async def test_detail_rules_off_each_field_from_the_next(
+        self, user: User, installed_state
+    ):
+        from biotimbre.io.sidecar import draft_from_sidecar
+
+        item = installed_state.call(
+            installed_state.service.add_item,
+            GUYVIR,
+            draft_from_sidecar(EXAMPLES_DIR / "GUYVIR.txt"),
+            compute_embeddings=False,
+        ).item
+        await user.open("/")
+        await user.should_see("1 item(s)")
+        user.find(ui.table).trigger("rowClick", args=[None, {"item_id": item.item_id}])
+        await user.should_see(marker="detail-rule")
+
+        rules = list(user.find(marker="detail-rule").elements)
+        (grid,) = {rule.parent_slot.parent for rule in rules}
+        kinds = [
+            "rule" if child in rules else "field"
+            for child in grid.default_slot.children
+        ]
+        # Label, value, rule — and no rule after the last field.
+        fields = (len(kinds) - len(rules)) // 2
+        assert kinds == ["field", "field", "rule"] * (fields - 1) + ["field", "field"]
+        assert all("col-span-2" in rule.classes for rule in rules)
+
     async def test_detail_reports_a_speed_shifted_item(self, user: User, installed_state):
         import dataclasses
 
