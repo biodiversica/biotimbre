@@ -49,7 +49,7 @@ definida. Ele lista o que vai remover e pede confirmação antes. No Windows,
 feche antes a janela do biotimbre e execute no PowerShell:
 
 ```powershell
-powershell -ExecutionPolicy ByPass -c '$env:BIOTIMBRE_UNINSTALL=1; irm https://github.com/biodiversica/biotimbre/releases/latest/download/install.ps1 | Out-String | iex'
+$env:BIOTIMBRE_UNINSTALL=1; irm https://github.com/biodiversica/biotimbre/releases/latest/download/install.ps1 | Out-String | iex
 ```
 
 No macOS e no Linux:
